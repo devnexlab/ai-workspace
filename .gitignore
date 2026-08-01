@@ -1,0 +1,44 @@
+# 依赖与虚拟环境
+node_modules/
+frontend/node_modules/
+backend/venv/
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.Python
+dist/
+build/
+frontend/dist/
+
+# 环境与密钥（务必勿提交）
+.env
+backend/.env
+frontend/.env
+*.pem
+*.key
+credentials.json
+
+# 运行时数据
+backend/outputs/
+backend/uploads/
+backend/data/*.db
+backend/data/*.sqlite*
+*.log
+
+# IDE / 本地工具
+.idea/
+.vscode/
+.workbuddy/
+*.swp
+.DS_Store
+Thumbs.db
+
+# 测试与缓存
+.coverage
+.pytest_cache/
+.mypy_cache/
+.cache/
+*.tmp

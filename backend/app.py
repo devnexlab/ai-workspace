@@ -1,0 +1,73 @@
+"""
+AI Video Channel Auto-Operation System - Backend (Python/Flask)
+
+入口仅负责：创建应用、注册路由、启动服务。
+业务路由按功能模块分包，见 routes/。
+基础设施配置见 config.py / .env。
+"""
+
+import os
+import sys
+import time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from flask import Flask, jsonify
+from flask_cors import CORS
+
+from config import FLASK_DEBUG, FLASK_HOST, FLASK_PORT, FLASK_THREADED, get_db
+from database import init_db
+from routes import register_blueprints
+
+
+def create_app():
+    app = Flask(__name__)
+    CORS(app)
+    register_blueprints(app)
+
+    @app.route('/api/health')
+    def health():
+        return jsonify({'status': 'ok', 'ts': int(time.time() * 1000)})
+
+    @app.errorhandler(404)
+    def not_found(e):
+        return jsonify({'error': 'not found'}), 404
+
+    @app.errorhandler(500)
+    def server_error(e):
+        return jsonify({'error': str(e)}), 500
+
+    return app
+
+
+def _reset_stuck_tasks():
+    """服务器重启后，把仍标记为 processing 的任务重置为 failed。"""
+    try:
+        conn = get_db()
+        conn.execute(
+            "UPDATE video_task SET voice_status='failed', video_status='failed', export_status='failed', "
+            "error_msg='服务器重启导致任务中断，请重新执行' "
+            "WHERE voice_status='processing' OR video_status='processing' OR export_status='processing'"
+        )
+        changes = conn.total_changes
+        conn.commit()
+        conn.close()
+        if changes:
+            print(f'[Server] Reset {changes} stuck processing tasks to failed')
+    except Exception as e:
+        print(f'[Server] Warning: could not reset stuck tasks: {e}')
+
+
+app = create_app()
+
+
+if __name__ == '__main__':
+    init_db()
+    _reset_stuck_tasks()
+    print(f'[Server] Starting on http://localhost:{FLASK_PORT}')
+    app.run(
+        host=FLASK_HOST,
+        port=FLASK_PORT,
+        debug=FLASK_DEBUG,
+        threaded=FLASK_THREADED,
+    )
