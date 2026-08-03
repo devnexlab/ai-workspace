@@ -23,6 +23,9 @@ BUILTIN_PLATFORMS = [
         'enable_publish': True,
         'builtin': True,
         'enabled_default': True,
+        'enable_publish': True,
+        'creator_url': 'https://channels.weixin.qq.com/platform/post/create',
+        'cookie_domain': '.weixin.qq.com',
     },
     {
         'key': 'douyin',
@@ -37,6 +40,9 @@ BUILTIN_PLATFORMS = [
         'enable_publish': True,
         'builtin': True,
         'enabled_default': True,
+        'enable_publish': True,
+        'creator_url': 'https://creator.douyin.com/creator-micro/content/upload',
+        'cookie_domain': '.douyin.com',
     },
     {
         'key': 'xiaohongshu',
@@ -51,6 +57,9 @@ BUILTIN_PLATFORMS = [
         'enable_publish': True,
         'builtin': True,
         'enabled_default': True,
+        'enable_publish': True,
+        'creator_url': 'https://creator.xiaohongshu.com/publish/publish',
+        'cookie_domain': '.xiaohongshu.com',
     },
 ]
 
@@ -128,6 +137,10 @@ def platform_map():
 # 兼容旧引用：模块加载时的静态快照；运行时请用 platform_map() / list_platforms()
 PLATFORM_MAP = {p['key']: p for p in BUILTIN_PLATFORMS}
 PLATFORMS = list(BUILTIN_PLATFORMS)
+
+
+def get_platform(key):
+    return PLATFORM_MAP.get(key)
 
 
 def platform_keys():

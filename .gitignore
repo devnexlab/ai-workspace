@@ -26,6 +26,7 @@ backend/outputs/
 backend/uploads/
 backend/data/*.db
 backend/data/*.sqlite*
+backend/data/browser_profiles/
 *.log
 
 # IDE / 本地工具
