@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Table, Tag, Button, Input, Select, Space, Modal, message, Form, Popconfirm,
   Tooltip, Drawer, Row, Col, Card, Statistic, Timeline, DatePicker, Tabs,
@@ -12,6 +13,45 @@ import {
 } from '@ant-design/icons'
 import { customersApi, followsApi, remindersApi } from '../../api'
 import dayjs from 'dayjs'
+
+function parseAssistantPayload(aiAnalysis) {
+  if (!aiAnalysis) return null
+  let raw = aiAnalysis.ai_analysis
+  if (typeof raw === 'string' && raw.trim()) {
+    try { raw = JSON.parse(raw) } catch { raw = null }
+  }
+  if (raw && typeof raw === 'object') {
+    return {
+      summary: raw.summary || '',
+      next_actions: raw.next_actions || (raw.next_step ? [raw.next_step] : []),
+      talk_tips: raw.talk_tips || '',
+      best_time: raw.best_time || '',
+      next_step: raw.next_step || aiAnalysis.next_step || '',
+      stage_label: raw.stage_label || '',
+      advanced: !!raw.advanced,
+    }
+  }
+  if (aiAnalysis.next_step) {
+    return { summary: '', next_actions: [aiAnalysis.next_step], talk_tips: '', best_time: '', next_step: aiAnalysis.next_step }
+  }
+  return null
+}
+
+function showAssistantTip(assistant, fallbackMsg) {
+  if (!assistant || assistant.error || assistant.skipped) {
+    if (fallbackMsg) message.success(fallbackMsg)
+    return
+  }
+  const actions = (assistant.next_actions || []).filter(Boolean)
+  const stagePart = assistant.advanced
+    ? `已推进至「${assistant.stage_label || assistant.lifecycle_stage}」。`
+    : (assistant.stage_label ? `当前阶段：${assistant.stage_label}。` : '')
+  const actionPart = actions.length ? `下一步：${actions.slice(0, 2).join('；')}` : (assistant.next_step || '')
+  message.success({
+    content: `${fallbackMsg || '已完成'} ${stagePart}${actionPart}`.trim(),
+    duration: 5,
+  })
+}
 
 const STAGE_OPTIONS = [
   { value: 'new', label: '新增客户', color: 'default' },
@@ -62,6 +102,7 @@ const PRIORITY_COLORS = { urgent: 'red', high: 'orange', normal: 'blue' }
 const PRIORITY_LABELS = { urgent: '紧急', high: '重要', normal: '普通' }
 
 export default function Customers() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [activeTab, setActiveTab] = useState('list')
   const [data, setData] = useState({ list: [], total: 0, stageStats: {} })
   const [loading, setLoading] = useState(true)
@@ -87,6 +128,7 @@ export default function Customers() {
   const [pendingQuick, setPendingQuick] = useState(null)
   const [strategy, setStrategy] = useState(null)
   const [analyzing, setAnalyzing] = useState(false)
+  const [assistantRunning, setAssistantRunning] = useState(false)
   const recognitionRef = useRef(null)
 
   const [reminders, setReminders] = useState([])
@@ -148,11 +190,18 @@ export default function Customers() {
       const req = editing
         ? customersApi.update(editing.id, payload)
         : customersApi.create(payload)
-      req.then(() => {
-        message.success(editing ? '已更新' : '客户已添加，已创建跟进工作流')
+      req.then((res) => {
+        if (editing) {
+          message.success('已更新')
+        } else {
+          showAssistantTip(res?.assistant, '客户已添加')
+        }
         setEditModal(false)
         loadData(editing ? page : 1)
         loadOwners()
+        if (!editing && res?.id) {
+          handleView({ id: res.id })
+        }
       })
     })
   }
@@ -184,6 +233,14 @@ export default function Customers() {
     })
   }
 
+  // 工作流看板「客户详情」深链：/customers?id=123
+  useEffect(() => {
+    const id = searchParams.get('id')
+    if (!id) return
+    handleView({ id: Number(id) })
+    setSearchParams({}, { replace: true })
+  }, [searchParams])
+
   const openFollow = (customer) => {
     setCurrentCustomerId(customer.id)
     setViewing(customer)
@@ -203,7 +260,10 @@ export default function Customers() {
   }
 
   const afterFollowSaved = (res) => {
-    message.success(res?.stage_label ? `跟进已记录，阶段：${res.stage_label}` : '跟进记录已添加')
+    showAssistantTip(
+      res?.assistant,
+      res?.stage_label ? `跟进已记录，阶段：${res.stage_label}` : '跟进记录已添加',
+    )
     setFollowModal(false)
     stopListening()
     if (detailDrawer && currentCustomerId) handleView({ id: currentCustomerId })
@@ -346,6 +406,18 @@ export default function Customers() {
       })
       .catch(err => message.error(err?.error || '分析失败，请检查 AI 配置'))
       .finally(() => setAnalyzing(false))
+  }
+
+  const handleRunAssistant = () => {
+    if (!viewing?.id) return
+    setAssistantRunning(true)
+    customersApi.runAssistant(viewing.id)
+      .then(res => {
+        showAssistantTip(res, '助手已更新')
+        handleView(viewing)
+      })
+      .catch(err => message.error(err?.error || '助手分析失败'))
+      .finally(() => setAssistantRunning(false))
   }
 
   const handleAutoRemind = (id) => {
@@ -1046,6 +1118,9 @@ export default function Customers() {
             <Space>
               <Button size="small" icon={<MessageOutlined />} onClick={() => openFollow(viewing)}>跟进</Button>
               <Button size="small" icon={<BellOutlined />} onClick={() => handleAutoRemind(viewing.id)}>生成提醒</Button>
+              <Button size="small" icon={<ThunderboltOutlined />} loading={assistantRunning} onClick={handleRunAssistant}>
+                客户管理助手
+              </Button>
               <Button size="small" type="primary" ghost icon={<RobotOutlined />} loading={analyzing} onClick={handleAnalyze}>
                 AI分析
               </Button>
@@ -1091,6 +1166,50 @@ export default function Customers() {
               <Descriptions.Item label="成交金额">{viewing.deal_amount || '-'}</Descriptions.Item>
               <Descriptions.Item label="备注" span={2}>{viewing.remark || '-'}</Descriptions.Item>
             </Descriptions>
+
+            {/* 客户助手下一步 */}
+            {(() => {
+              const tip = parseAssistantPayload(viewing.ai_analysis)
+              if (!tip) {
+                return (
+                  <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 12 }}
+                    message="客户管理助手尚未分析"
+                    description="新增客户或保存跟进后会自动给出下一步；也可点右上角「助手再分析」。"
+                  />
+                )
+              }
+              return (
+                <Card
+                  size="small"
+                  title={<Space><ThunderboltOutlined style={{ color: '#5b6eff' }} />客户管理助手 · 下一步</Space>}
+                  style={{ marginBottom: 12, borderColor: '#c5cbff' }}
+                  extra={
+                    <Button type="link" size="small" loading={assistantRunning} onClick={handleRunAssistant}>
+                      刷新
+                    </Button>
+                  }
+                >
+                  {tip.summary ? <div style={{ marginBottom: 8, color: '#666' }}>{tip.summary}</div> : null}
+                  {(tip.next_actions || []).length > 0 ? (
+                    <ol style={{ margin: '0 0 8px', paddingLeft: 18 }}>
+                      {tip.next_actions.map((a, i) => <li key={i}>{a}</li>)}
+                    </ol>
+                  ) : tip.next_step ? (
+                    <div style={{ marginBottom: 8 }}>{tip.next_step}</div>
+                  ) : null}
+                  {(tip.best_time || tip.talk_tips) && (
+                    <div style={{ fontSize: 12, color: '#888' }}>
+                      {tip.best_time ? `建议联系：${tip.best_time}` : ''}
+                      {tip.best_time && tip.talk_tips ? ' · ' : ''}
+                      {tip.talk_tips ? `话术：${tip.talk_tips}` : ''}
+                    </div>
+                  )}
+                </Card>
+              )
+            })()}
 
             {/* 性格策略 */}
             {strategy && (

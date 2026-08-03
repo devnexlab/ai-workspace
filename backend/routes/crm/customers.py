@@ -154,7 +154,19 @@ def create_customer():
 
     conn.commit()
     conn.close()
-    return jsonify({'id': new_id, 'message': '客户已添加，已自动创建跟进工作流'})
+
+    assistant = {}
+    try:
+        from modules.assistants import run_assistant
+        assistant = run_assistant('customer', customer_id=new_id, trigger='create') or {}
+    except Exception as e:
+        assistant = {'error': str(e)}
+
+    return jsonify({
+        'id': new_id,
+        'message': '客户已添加，客户管理助手已给出下一步',
+        'assistant': assistant,
+    })
 
 
 @bp.route('/api/customers/<int:id>', methods=['PUT'])
@@ -266,6 +278,29 @@ def advance_lifecycle(id):
 
     conn.close()
     return jsonify({'error': 'invalid stage'}), 400
+
+
+# ---- 客户管理助手（多助手框架中的 customer） ----
+
+@bp.route('/api/crm/assistant/board')
+def assistant_board():
+    """客户管理助手看板：阶段 + 下一步。"""
+    from modules.assistants import get_assistant
+    limit = int(request.args.get('limit', 50))
+    assistant = get_assistant('customer')
+    if not assistant:
+        return jsonify({'list': [], 'error': 'customer assistant missing'}), 500
+    return jsonify(assistant.board(limit=limit))
+
+
+@bp.route('/api/customers/<int:id>/assistant', methods=['POST'])
+def run_customer_assistant_route(id):
+    """手动让客户管理助手再分析一次。"""
+    from modules.assistants import run_assistant as dispatch
+    result = dispatch('customer', customer_id=id, trigger='manual')
+    if result.get('error'):
+        return jsonify(result), 404 if 'not found' in result['error'] else 500
+    return jsonify(result)
 
 
 # ---- AI Customer Analysis ----

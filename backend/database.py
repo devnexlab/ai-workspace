@@ -283,6 +283,8 @@ CREATE TABLE IF NOT EXISTS ai_agent (
     agent_type TEXT DEFAULT 'content',
     description TEXT DEFAULT '',
     config_json TEXT DEFAULT '',
+    system_prompt TEXT DEFAULT '',
+    last_result TEXT DEFAULT '',
     status TEXT DEFAULT 'idle',
     last_run TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -455,6 +457,9 @@ def init_db():
     _add_column_if_not_exists(cur, 'reminder', 'suggested_action', "TEXT DEFAULT ''")
     # workflow: link to customer
     _add_column_if_not_exists(cur, 'workflow', 'customer_id', 'INTEGER')
+    # ai_agent: 系统提示词（纯文本，不再要求用户填 JSON）
+    _add_column_if_not_exists(cur, 'ai_agent', 'system_prompt', "TEXT DEFAULT ''")
+    _add_column_if_not_exists(cur, 'ai_agent', 'last_result', "TEXT DEFAULT ''")
     # script: content ops classification
     _add_column_if_not_exists(cur, 'script', 'content_type', "TEXT DEFAULT 'traffic'")
     _add_column_if_not_exists(cur, 'script', 'age_band', "TEXT DEFAULT 'all'")

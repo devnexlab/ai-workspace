@@ -39,7 +39,7 @@ export default function Dashboard() {
     { title: '知识条目', value: stats.knowledgeItems, sub: `今日新增 ${stats.knowledgeToday}`, icon: <BulbOutlined />, color: '#13c2c2', path: '/knowledge' },
     { title: '自选股票', value: stats.stockCount, sub: `持仓 ${stats.stockHolding}`, icon: <StockOutlined />, color: '#eb2f96', path: '/stocks' },
     { title: 'AI Agents', value: stats.agents, sub: `活跃 ${stats.agentsActive}`, icon: <RobotOutlined />, color: '#722ed1', path: '/agents' },
-    { title: '工作流', value: stats.workflows, sub: `运行中 ${stats.workflowsActive}`, icon: <ApartmentOutlined />, color: '#fa8c16', path: '/workflows' },
+    { title: 'AI助手', value: stats.agents, sub: '客户 / 运营 / 发布', icon: <ApartmentOutlined />, color: '#fa8c16', path: '/workflows' },
     { title: '待处理提醒', value: stats.pendingReminders, sub: '客户跟进提醒', icon: <BellOutlined />, color: '#f5222d', path: '/customers' },
   ]
 

@@ -65,7 +65,7 @@ const menuItems = [
     children: [
       { key: '/knowledge', icon: <BulbOutlined />, label: 'AI 知识库' },
       { key: '/agents', icon: <RobotOutlined />, label: 'Agent 中心' },
-      { key: '/workflows', icon: <ApartmentOutlined />, label: '工作流' },
+      { key: '/workflows', icon: <ApartmentOutlined />, label: 'AI助手' },
     ],
   },
   { key: '/stocks', icon: <StockOutlined />, label: '股票研究' },

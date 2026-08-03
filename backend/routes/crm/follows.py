@@ -339,11 +339,27 @@ def _create_follow_internal(data):
     _auto_generate_next_reminder(conn, data['customer_id'], data, follow_result, c)
     conn.commit()
     conn.close()
+
+    assistant = {}
+    try:
+        from modules.assistants import run_assistant
+        assistant = run_assistant(
+            'customer',
+            customer_id=data['customer_id'],
+            trigger='follow',
+            extra={'latest_follow': data.get('content', '')},
+        ) or {}
+        if assistant.get('lifecycle_stage'):
+            c['lifecycle_stage'] = assistant['lifecycle_stage']
+    except Exception as e:
+        assistant = {'error': str(e)}
+
     return {
         'id': new_id,
         'message': '跟进记录已添加',
         'lifecycle_stage': c.get('lifecycle_stage'),
         'stage_label': STAGE_LABELS.get(c.get('lifecycle_stage', ''), ''),
+        'assistant': assistant,
     }, None, 200
 
 

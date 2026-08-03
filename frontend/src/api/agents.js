@@ -7,7 +7,11 @@ export const agentsApi = {
   create: (data) => api.post('/agents', data),
   update: (id, data) => api.put(`/agents/${id}`, data),
   delete: (id) => api.delete(`/agents/${id}`),
-  run: (id) => api.post(`/agents/${id}/run`, {}, { timeout: API_LONG_TIMEOUT }),
+  run: (id, data) => api.post(`/agents/${id}/run`, data || {}, { timeout: API_LONG_TIMEOUT }),
+  assistants: () => api.get('/assistants'),
+  runAssistant: (key, data) => api.post(`/assistants/${key}/run`, data || {}, { timeout: API_LONG_TIMEOUT }),
+  assistantBoard: (key, params) => api.get(`/assistants/${key}/board`, { params }),
+  assistantTasks: (key, params) => api.get(`/assistants/${key}/tasks`, { params }),
 }
 
 export const workflowsApi = {
