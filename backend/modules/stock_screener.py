@@ -152,6 +152,202 @@ def resolve_rules(conditions=None, rules=None):
     return [deepcopy(r) for r in DEFAULT_PATTERN_RULES if r.get('enabled')]
 
 
+# 文字策略 → 筛选规则：关键词命中即启用对应技术条件
+_STRATEGY_TEXT_ALIASES = [
+    ('ma_all_rising', (
+        '多周期均线', '全部朝上', '均线全部朝上', '均线朝上', '年线朝上',
+        'ma全部朝上', '多均线向上',
+    )),
+    ('recent_limit_up', (
+        '涨停', '近1个月有涨停', '近一个月涨停', '近期涨停', '有过涨停',
+    )),
+    ('macd_golden_cross', (
+        'macd金叉', 'macd 金叉', 'macd金', 'dif上穿', 'macd上穿',
+    )),
+    ('ma_bullish', (
+        '均线多头', '多头排列', 'ma多头', '均线多头排列',
+    )),
+    ('volume_increase', (
+        '成交量放大', '放量', '量能放大', '倍量', '量比放大',
+    )),
+    ('breakthrough', (
+        '突破平台', '突破新高', '创近', '突破高点', '向上突破', '突破',
+    )),
+    ('rsi_low', (
+        'rsi低位', 'rsi超卖', 'rsi偏低', '超卖', 'rsi低',
+    )),
+    ('boll_lower', (
+        '布林下轨', '触及下轨', '布林带下轨', 'boll下轨', '下轨支撑',
+    )),
+    ('kdj_golden_cross', (
+        'kdj金叉', 'kdj 金叉', 'k上穿d', 'kdj金',
+    )),
+    ('pullback_support', (
+        '回踩支撑', '回踩均线', '回踩', '支撑位', '不破支撑',
+    )),
+]
+
+
+def _extract_number(text: str, patterns, default=None):
+    import re
+    for pat in patterns:
+        m = re.search(pat, text, flags=re.IGNORECASE)
+        if m:
+            try:
+                return float(m.group(1))
+            except Exception:
+                continue
+    return default
+
+
+def parse_strategy_text(text: str) -> dict:
+    """
+    把用户白话策略解析成可执行筛选配置。
+    返回: {text, match_mode, min_hits, rules, matched_labels, unmatched_hint}
+    """
+    raw = (text or '').strip()
+    lowered = raw.lower()
+    # 匹配模式
+    match_mode = 'and'
+    min_hits = 1
+    if any(k in raw for k in ('命中任一', '满足任一', '或者', '任意一条', '初筛')) or ' or ' in f' {lowered} ':
+        match_mode = 'or'
+    if any(k in raw for k in ('至少', '不少于')):
+        match_mode = 'min'
+        n = _extract_number(raw, [r'至少\s*(\d+)', r'不少于\s*(\d+)'], default=2)
+        min_hits = max(1, int(n or 2))
+    if any(k in raw for k in ('全部命中', '全部满足', '同时满足', '且全部', '精筛')):
+        match_mode = 'and'
+
+    matched_keys = []
+    for key, aliases in _STRATEGY_TEXT_ALIASES:
+        if any(a.lower() in lowered or a in raw for a in aliases):
+            matched_keys.append(key)
+
+    # 去重保持顺序
+    seen = set()
+    ordered_keys = []
+    for k in matched_keys:
+        if k not in seen:
+            seen.add(k)
+            ordered_keys.append(k)
+
+    base = {r['key']: deepcopy(r) for r in DEFAULT_PATTERN_RULES}
+    rules = []
+    for key in ordered_keys:
+        item = deepcopy(base[key])
+        item['enabled'] = True
+        params = dict(item.get('params') or {})
+        # 从文字里捞一点常见参数
+        if key == 'volume_increase':
+            ratio = _extract_number(raw, [r'(\d+(?:\.\d+)?)\s*倍'], default=None)
+            if ratio:
+                params['ratio'] = ratio
+            base_n = _extract_number(raw, [r'近\s*(\d+)\s*日均量', r'(\d+)\s*日均量'], default=None)
+            if base_n:
+                params['base'] = int(base_n)
+        elif key == 'breakthrough':
+            lookback = _extract_number(raw, [
+                r'近\s*(\d+)\s*日高点', r'近\s*(\d+)\s*日新高', r'近\s*(\d+)\s*日平台',
+                r'(\d+)\s*日高点', r'(\d+)\s*日平台', r'突破近\s*(\d+)\s*日',
+            ], default=None)
+            if lookback:
+                params['lookback'] = int(lookback)
+        elif key == 'recent_limit_up':
+            lookback = _extract_number(raw, [
+                r'近\s*(\d+)\s*个交易日', r'近\s*(\d+)\s*日有涨停', r'近\s*(\d+)\s*天有涨停',
+                r'(\d+)\s*个交易日',
+            ], default=None)
+            if lookback:
+                params['lookback'] = int(lookback)
+        elif key == 'rsi_low':
+            thr = _extract_number(raw, [r'低于\s*(\d+)', r'RSI\s*[<>＜＞]\s*(\d+)', r'rsi.*?(\d+)'], default=None)
+            if thr and thr <= 50:
+                params['threshold'] = thr
+        elif key == 'pullback_support':
+            ma_n = _extract_number(raw, [r'MA\s*(\d+)', r'ma\s*(\d+)', r'(\d+)\s*日均线'], default=None)
+            if ma_n:
+                params['ma'] = int(ma_n)
+        elif key == 'ma_all_rising':
+            slope = _extract_number(raw, [r'(\d+)\s*个?交易日前', r'高于\s*(\d+)\s*日前'], default=None)
+            if slope:
+                params['slope_days'] = int(slope)
+        item['params'] = params
+        rules.append(item)
+
+    unmatched_hint = ''
+    if not rules:
+        unmatched_hint = (
+            '未识别到可用技术条件。可写：均线多头、放量、突破、涨停、MACD金叉、'
+            'KDJ金叉、RSI低位、布林下轨、回踩支撑、多周期均线朝上 等关键词。'
+        )
+
+    return {
+        'text': raw,
+        'match_mode': match_mode,
+        'min_hits': min_hits,
+        'rules': rules,
+        'matched_labels': [r['label'] for r in rules],
+        'unmatched_hint': unmatched_hint,
+    }
+
+
+def build_strategy_payload(text: str, status: str = 'active') -> dict:
+    """保存策略时统一结构：原文 + 解析出的可执行规则。"""
+    parsed = parse_strategy_text(text)
+    return {
+        'text': parsed['text'],
+        'match_mode': parsed['match_mode'],
+        'min_hits': parsed['min_hits'],
+        'rules': parsed['rules'],
+        'matched_labels': parsed['matched_labels'],
+        'unmatched_hint': parsed['unmatched_hint'],
+        'status_hint': status,
+    }
+
+
+def strategy_from_row(row: dict) -> dict:
+    """把数据库行补上可执行筛选字段，兼容旧纯文本/JSON。"""
+    item = dict(row or {})
+    raw = item.get('rules_json') or ''
+    text = ''
+    parsed = None
+    if isinstance(raw, str) and raw.strip():
+        try:
+            obj = json.loads(raw)
+            if isinstance(obj, dict) and (obj.get('rules') or obj.get('text') is not None):
+                text = obj.get('text') or ''
+                if obj.get('rules'):
+                    parsed = {
+                        'text': text,
+                        'match_mode': obj.get('match_mode') or 'and',
+                        'min_hits': int(obj.get('min_hits') or 1),
+                        'rules': obj.get('rules') or [],
+                        'matched_labels': obj.get('matched_labels') or [
+                            r.get('label') for r in (obj.get('rules') or []) if isinstance(r, dict)
+                        ],
+                        'unmatched_hint': obj.get('unmatched_hint') or '',
+                    }
+                elif text:
+                    parsed = parse_strategy_text(text)
+            elif isinstance(obj, str):
+                text = obj
+        except Exception:
+            text = raw
+            parsed = parse_strategy_text(raw)
+    if parsed is None:
+        if not text:
+            text = raw if isinstance(raw, str) else ''
+        parsed = parse_strategy_text(text)
+    item['rules_text'] = parsed.get('text') or text
+    item['screen_rules'] = parsed.get('rules') or []
+    item['screen_match_mode'] = parsed.get('match_mode') or 'and'
+    item['screen_min_hits'] = int(parsed.get('min_hits') or 1)
+    item['matched_labels'] = parsed.get('matched_labels') or []
+    item['unmatched_hint'] = parsed.get('unmatched_hint') or ''
+    return item
+
+
 def _hit_macd_golden(df, params):
     if len(df) < 2 or 'DIF' not in df.columns:
         return False

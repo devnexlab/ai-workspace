@@ -30,6 +30,78 @@ const strategyTypeOptions = [
 const strategyTypeColors = { trend: 'blue', breakout: 'green', rebound: 'orange', leader: 'red' }
 const strategyTypeLabels = { trend: '趋势', breakout: '突破', rebound: '反弹', leader: '龙头' }
 
+const STRATEGY_RULE_EXAMPLE = `买入条件：
+1. 均线多头排列（MA5 > MA10 > MA20）
+2. 当日成交量放大到近5日均量的1.5倍以上
+3. 收盘价突破近20日高点
+
+卖出条件：
+1. 跌破MA20止损
+2. 盈利超过12%减半仓
+3. 出现明显放量滞涨则清仓
+
+备注：避开ST、北交所；开盘半小时后再看量能确认。`
+
+/** 把库里的 rules_json 转成普通人可读的文字（兼容旧 JSON） */
+function rulesToText(raw) {
+  if (raw == null || raw === '') return ''
+  if (typeof raw !== 'string') {
+    try { return rulesToText(JSON.stringify(raw)) } catch { return String(raw) }
+  }
+  const text = raw.trim()
+  if (!text) return ''
+  if (!(text.startsWith('{') || text.startsWith('['))) return text
+  try {
+    const obj = JSON.parse(text)
+    if (typeof obj === 'string') return obj
+    if (obj && typeof obj.text === 'string' && obj.text.trim()) return obj.text
+    if (obj && typeof obj.content === 'string') return obj.content
+    const lines = []
+    if (Array.isArray(obj.rules) && obj.rules.length) {
+      lines.push('规则：')
+      obj.rules.forEach((r, i) => {
+        if (!r) return
+        const label = r.label || r.key || `规则${i + 1}`
+        const params = r.params && Object.keys(r.params).length
+          ? `（参数：${Object.entries(r.params).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(',') : v}`).join('，')}）`
+          : ''
+        lines.push(`${i + 1}. ${label}${params}`)
+      })
+    } else if (Array.isArray(obj.conditions) && obj.conditions.length) {
+      lines.push('条件：' + obj.conditions.join('、'))
+    }
+    if (obj.position) {
+      const p = obj.position
+      lines.push('仓位与进出：')
+      if (p.entry) lines.push(`买入：${p.entry}`)
+      if (p.stop_loss) lines.push(`止损：${p.stop_loss}`)
+      if (p.take_profit) lines.push(`止盈：${p.take_profit}`)
+    }
+    if (obj.notes) lines.push(`备注：${obj.notes}`)
+    if (obj.match_mode) lines.push(`匹配方式：${obj.match_mode}`)
+    return lines.length ? lines.join('\n') : text
+  } catch {
+    return text
+  }
+}
+
+function rulesPreview(raw, maxLen = 48) {
+  const t = rulesToText(raw).replace(/\s+/g, ' ').trim()
+  if (!t) return '-'
+  return t.length > maxLen ? `${t.slice(0, maxLen)}…` : t
+}
+
+function matchedLabelsOf(strategy) {
+  if (!strategy) return []
+  if (Array.isArray(strategy.matched_labels) && strategy.matched_labels.length) {
+    return strategy.matched_labels
+  }
+  if (Array.isArray(strategy.screen_rules)) {
+    return strategy.screen_rules.map(r => r.label || r.key).filter(Boolean)
+  }
+  return []
+}
+
 const screeningConditionsFallback = [
   { key: 'ma_all_rising', label: '多周期均线全部朝上' },
   { key: 'recent_limit_up', label: '近1个月有涨停' },
@@ -202,9 +274,25 @@ export default function Stocks() {
     setIndicatorsModal(true)
     setIndicatorsLoading(true)
     setIndicatorsData(null)
+    if (!code) {
+      setIndicatorsLoading(false)
+      message.error('股票代码为空，无法获取指标')
+      return
+    }
     stocksApi.indicators(code)
-      .then(data => setIndicatorsData(data))
-      .catch(() => message.error('获取指标失败'))
+      .then(data => {
+        if (data?.error) {
+          message.error(data.error)
+          setIndicatorsData({ indicators: {}, bars: [], note: data.error })
+          return
+        }
+        setIndicatorsData(data)
+      })
+      .catch((err) => {
+        const msg = err?.error || err?.message || '获取指标失败'
+        message.error(typeof msg === 'string' ? msg : '获取指标失败')
+        setIndicatorsData({ indicators: {}, bars: [], note: String(msg) })
+      })
       .finally(() => setIndicatorsLoading(false))
   }
 
@@ -272,6 +360,8 @@ export default function Stocks() {
   const [activeScreeningId, setActiveScreeningId] = useState(null)
   const [ruleEditing, setRuleEditing] = useState(null)
   const [ruleParamsForm] = Form.useForm()
+  const [activeStrategies, setActiveStrategies] = useState([])
+  const [selectedStrategyId, setSelectedStrategyId] = useState(null)
 
   const openRuleParams = (rule) => {
     const values = {}
@@ -313,6 +403,47 @@ export default function Stocks() {
       .catch(() => {})
   }
 
+  const loadActiveStrategies = () => {
+    stocksApi.activeStrategies()
+      .then(res => setActiveStrategies(res?.list || []))
+      .catch(() => setActiveStrategies([]))
+  }
+
+  const applyStrategyToScreening = (strategy, { switchTab = false } = {}) => {
+    if (!strategy) {
+      setSelectedStrategyId(null)
+      return
+    }
+    const screenRules = strategy.screen_rules || []
+    if (!screenRules.length && !(strategy.matched_labels || []).length) {
+      message.warning(strategy.unmatched_hint || '该策略未识别出可用筛选条件，请先编辑补充关键词')
+      return
+    }
+    if (screenRules.length) {
+      setPatternRules(list => {
+        const byKey = Object.fromEntries(screenRules.map(r => [r.key, r]))
+        return list.map(r => {
+          const hit = byKey[r.key]
+          if (!hit) return { ...r, enabled: false }
+          return {
+            ...r,
+            enabled: true,
+            params: { ...(r.params || {}), ...(hit.params || {}) },
+            label: hit.label || r.label,
+          }
+        })
+      })
+      setSelectedConditions(screenRules.map(r => r.label || r.key))
+    } else {
+      setSelectedConditions(strategy.matched_labels || [])
+    }
+    if (strategy.screen_match_mode) setMatchMode(strategy.screen_match_mode)
+    if (strategy.screen_min_hits) setMinHits(Number(strategy.screen_min_hits) || 1)
+    setSelectedStrategyId(strategy.id)
+    message.success(`已应用策略「${strategy.name}」到筛选条件`)
+    if (switchTab) setActiveTab('screening')
+  }
+
   const loadScreeningHistory = () => {
     setHistoryLoading(true)
     stocksApi.screeningHistory()
@@ -349,10 +480,11 @@ export default function Stocks() {
 
   const handleScreening = () => {
     // 不选条件 = 用后端默认启用规则
+    const strategy = activeStrategies.find(s => s.id === selectedStrategyId)
     setScreeningLoading(true)
     setScreeningResult(null)
     stocksApi.screening({
-      name: '技术面筛选',
+      name: strategy ? `策略·${strategy.name}` : '技术面筛选',
       conditions: selectedConditions,
       rules: selectedConditions.length ? patternRules.map(r => ({
         ...r,
@@ -471,6 +603,7 @@ export default function Stocks() {
   const [strategyModal, setStrategyModal] = useState(false)
   const [strategyEditing, setStrategyEditing] = useState(null)
   const [strategyForm] = Form.useForm()
+  const [strategyParsePreview, setStrategyParsePreview] = useState(null)
 
   const loadStrategies = () => {
     setStrategiesLoading(true)
@@ -483,25 +616,70 @@ export default function Stocks() {
   useEffect(() => {
     loadPatternRules()
     loadScreeningHistory()
+    loadActiveStrategies()
   }, [])
 
   useEffect(() => {
     if (activeTab === 'strategy') loadStrategies()
-    if (activeTab === 'screening') loadScreeningHistory()
+    if (activeTab === 'screening') {
+      loadScreeningHistory()
+      loadActiveStrategies()
+    }
   }, [activeTab])
+
+  const previewStrategyText = (text) => {
+    const t = (text || '').trim()
+    if (!t) {
+      setStrategyParsePreview(null)
+      return
+    }
+    stocksApi.parseStrategy({ text: t })
+      .then(res => setStrategyParsePreview(res))
+      .catch(() => setStrategyParsePreview(null))
+  }
 
   const handleStrategySave = () => {
     strategyForm.validateFields().then(values => {
-      if (strategyEditing) {
-        stocksApi.updateStrategy(strategyEditing.id, values).then(() => {
-          message.success('策略已更新'); setStrategyModal(false); loadStrategies()
-        }).catch(() => message.error('更新失败'))
-      } else {
-        stocksApi.createStrategy(values).then(() => {
-          message.success('策略已创建'); setStrategyModal(false); loadStrategies()
-        }).catch(() => message.error('创建失败'))
+      const payload = {
+        ...values,
+        rules_text: (values.rules_text || '').trim(),
       }
+      delete payload.rules_text
+      // 仍传 rules_text 给后端编译
+      payload.rules_text = (values.rules_text || '').trim()
+      const req = strategyEditing
+        ? stocksApi.updateStrategy(strategyEditing.id, payload)
+        : stocksApi.createStrategy(payload)
+      req.then((res) => {
+        message.success(strategyEditing ? '策略已更新' : '策略已创建')
+        setStrategyModal(false)
+        loadStrategies()
+        loadActiveStrategies()
+        const st = res?.strategy
+        if (st && !(st.matched_labels || []).length) {
+          message.warning(st.unmatched_hint || '未识别到筛选条件，启用后暂无法用于选股')
+        } else if (st?.matched_labels?.length) {
+          message.info(`已识别筛选条件：${st.matched_labels.join('、')}`)
+        }
+      }).catch(() => message.error('保存失败'))
     })
+  }
+
+  const openStrategyModal = (record = null) => {
+    setStrategyEditing(record)
+    if (record) {
+      const text = record.rules_text || rulesToText(record.rules_json)
+      strategyForm.setFieldsValue({
+        ...record,
+        rules_text: text,
+      })
+      previewStrategyText(text)
+    } else {
+      strategyForm.resetFields()
+      strategyForm.setFieldsValue({ strategy_type: 'trend', status: 'active' })
+      setStrategyParsePreview(null)
+    }
+    setStrategyModal(true)
   }
 
   const strategyColumns = [
@@ -512,36 +690,38 @@ export default function Stocks() {
       render: v => <Tag color={strategyTypeColors[v]}>{strategyTypeLabels[v] || v}</Tag>,
     },
     {
-      title: '得分', dataIndex: 'score', width: 80,
-      render: v => v != null ? <span style={{ color: v >= 80 ? '#ff4d4f' : v >= 60 ? '#faad14' : '#999', fontWeight: 600 }}>{v}</span> : '-',
+      title: '文字规则', dataIndex: 'rules_json', width: 220, ellipsis: true,
+      render: (v, r) => <Tooltip title={<span style={{ whiteSpace: 'pre-wrap' }}>{r.rules_text || rulesToText(v) || '-'}</span>}>
+        <span>{rulesPreview(r.rules_text || v)}</span>
+      </Tooltip>,
     },
     {
-      title: '命中率', dataIndex: 'hit_rate', width: 80,
-      render: v => v != null ? `${(v * 100).toFixed(1)}%` : '-',
+      title: '对应筛选条件', dataIndex: 'matched_labels', width: 220,
+      render: (v, r) => {
+        const labels = matchedLabelsOf(r)
+        if (!labels.length) return <span style={{ color: '#999' }}>未识别</span>
+        return labels.map(l => <Tag key={l} color="blue">{l}</Tag>)
+      },
     },
-    { title: '总交易', dataIndex: 'total_trades', width: 80, render: v => v ?? '-' },
-    { title: '胜场', dataIndex: 'winning_trades', width: 80, render: v => v ?? '-' },
     {
       title: '状态', dataIndex: 'status', width: 80,
-      render: v => <Tag color={v === 'active' ? 'green' : 'default'}>{v === 'active' ? '启用' : v || '-'}</Tag>,
+      render: v => <Tag color={v === 'active' ? 'green' : 'default'}>{v === 'active' ? '启用' : '停用'}</Tag>,
     },
     {
-      title: '操作', key: 'action', width: 120, fixed: 'right',
+      title: '操作', key: 'action', width: 220, fixed: 'right',
       render: (_, r) => (
         <Space size="small">
+          <Button size="small" type="link" disabled={r.status !== 'active' || !matchedLabelsOf(r).length}
+            onClick={() => applyStrategyToScreening(r, { switchTab: true })}>
+            去筛选
+          </Button>
           <Tooltip title="编辑">
-            <Button size="small" icon={<EditOutlined />} onClick={() => {
-              setStrategyEditing(r)
-              strategyForm.setFieldsValue({
-                ...r,
-                rules_json: r.rules_json ? (typeof r.rules_json === 'string' ? r.rules_json : JSON.stringify(r.rules_json, null, 2)) : '',
-              })
-              setStrategyModal(true)
-            }} />
+            <Button size="small" icon={<EditOutlined />} onClick={() => openStrategyModal(r)} />
           </Tooltip>
           <Popconfirm title="确认删除？" onConfirm={() => {
-            stocksApi.deleteStrategy(r.id).then(() => { message.success('已删除'); loadStrategies() })
-              .catch(() => message.error('删除失败'))
+            stocksApi.deleteStrategy(r.id).then(() => {
+              message.success('已删除'); loadStrategies(); loadActiveStrategies()
+            }).catch(() => message.error('删除失败'))
           }}>
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
@@ -556,17 +736,14 @@ export default function Stocks() {
   const [reviewResult, setReviewResult] = useState(null)
 
   const handleReview = () => {
-    if (!reviewText.trim()) {
-      message.warning('请输入交易记录')
-      return
-    }
+    // 允许只基于系统持仓复盘；有文字更好
     setReviewLoading(true)
     stocksApi.review({ input: reviewText })
       .then(res => {
         message.success('AI复盘完成')
         setReviewResult(res?.review || res)
       })
-      .catch(() => message.error('复盘失败'))
+      .catch((err) => message.error(err?.error || '复盘失败'))
       .finally(() => setReviewLoading(false))
   }
 
@@ -659,9 +836,35 @@ export default function Stocks() {
       children: (
         <div>
           <Card title={<span><FundOutlined /> 技术面筛选（可配置；清空勾选则用已保存/系统默认规则）</span>} size="small" style={{ marginBottom: 16 }}>
+            <Space wrap style={{ marginBottom: 12 }}>
+              <span>使用 AI 策略</span>
+              <Select
+                allowClear
+                placeholder={activeStrategies.length ? '选择已启用的策略' : '暂无启用中的策略'}
+                style={{ minWidth: 260 }}
+                value={selectedStrategyId}
+                options={activeStrategies.map(s => ({
+                  value: s.id,
+                  label: `${s.name}${matchedLabelsOf(s).length ? `（${matchedLabelsOf(s).join('、')}）` : '（未识别条件）'}`,
+                  disabled: !matchedLabelsOf(s).length,
+                }))}
+                onChange={(id) => {
+                  if (!id) {
+                    setSelectedStrategyId(null)
+                    return
+                  }
+                  const st = activeStrategies.find(s => s.id === id)
+                  applyStrategyToScreening(st)
+                }}
+              />
+              <Button type="link" onClick={() => setActiveTab('strategy')}>去管理策略</Button>
+            </Space>
             <Checkbox.Group
               value={selectedConditions}
-              onChange={setSelectedConditions}
+              onChange={(vals) => {
+                setSelectedConditions(vals)
+                setSelectedStrategyId(null)
+              }}
               style={{ width: '100%' }}
             >
               <Row gutter={[16, 12]}>
@@ -827,10 +1030,13 @@ export default function Stocks() {
           <div className="table-toolbar" style={{ marginBottom: 16 }}>
             <div className="table-toolbar-left">
               <Button icon={<ReloadOutlined />} onClick={() => loadStrategies()}>刷新</Button>
+              <span style={{ color: '#888', marginLeft: 12 }}>
+                用白话写选股经验 → 自动识别筛选条件；启用后可在「条件筛选」里选用
+              </span>
             </div>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => {
-              setStrategyEditing(null); strategyForm.resetFields(); setStrategyModal(true)
-            }}>创建策略</Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => openStrategyModal()}>
+              创建策略
+            </Button>
           </div>
 
           <Table
@@ -838,24 +1044,24 @@ export default function Stocks() {
             dataSource={strategies}
             rowKey="id"
             loading={strategiesLoading}
-            scroll={{ x: 900 }}
+            scroll={{ x: 1000 }}
             size="middle"
             pagination={{ pageSize: 15, showTotal: (t) => `共 ${t} 条` }}
           />
 
-          {/* Create/Edit Strategy Modal */}
           <Modal
             title={strategyEditing ? '编辑策略' : '创建策略'}
             open={strategyModal}
             onOk={handleStrategySave}
             onCancel={() => setStrategyModal(false)}
-            width={600}
+            width={680}
+            okText="保存"
           >
             <Form form={strategyForm} layout="vertical" style={{ marginTop: 16 }}>
               <Row gutter={16}>
                 <Col span={12}>
                   <Form.Item name="name" label="策略名称" rules={[{ required: true, message: '请输入策略名称' }]}>
-                    <Input placeholder="如：趋势跟踪策略" />
+                    <Input placeholder="如：均线多头放量突破" />
                   </Form.Item>
                 </Col>
                 <Col span={12}>
@@ -864,42 +1070,64 @@ export default function Stocks() {
                   </Form.Item>
                 </Col>
               </Row>
-              <Form.Item name="description" label="策略描述">
-                <Input.TextArea rows={2} placeholder="描述策略逻辑..." />
+              <Form.Item name="description" label="一句话说明">
+                <Input.TextArea rows={2} placeholder="例如：适合趋势行情，回撤可控后再加仓" />
               </Form.Item>
-              <Form.Item name="rules_json" label="策略规则 (JSON)"
-                extra="输入JSON格式的策略规则，如条件组合、指标参数等">
-                <Input.TextArea rows={6} placeholder='{"conditions": ["MACD金叉", "均线多头"], "params": {"period": 20}}' />
+              <Form.Item
+                name="rules_text"
+                label="策略规则（文字描述）"
+                rules={[{ required: true, message: '请用文字写清楚买卖/选股规则' }]}
+                extra="尽量包含关键词：均线多头、放量、突破、涨停、MACD金叉、KDJ金叉、RSI低位、布林下轨、回踩支撑、多周期均线朝上"
+              >
+                <Input.TextArea
+                  rows={9}
+                  placeholder={STRATEGY_RULE_EXAMPLE}
+                  style={{ fontFamily: 'inherit' }}
+                  onChange={(e) => previewStrategyText(e.target.value)}
+                />
               </Form.Item>
-              <Row gutter={16}>
-                <Col span={12}>
-                  <Form.Item name="score" label="得分">
-                    <InputNumber style={{ width: '100%' }} min={0} max={100} placeholder="0-100" />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item name="hit_rate" label="命中率 (%)"
-                    extra="输入小数，如0.68表示68%">
-                    <InputNumber style={{ width: '100%' }} min={0} max={1} step={0.01}
-                      placeholder="0.00-1.00" formatter={v => v} parser={v => v} />
-                  </Form.Item>
-                </Col>
-              </Row>
-              <Row gutter={16}>
-                <Col span={12}>
-                  <Form.Item name="total_trades" label="总交易次数">
-                    <InputNumber style={{ width: '100%' }} min={0} precision={0} placeholder="0" />
-                  </Form.Item>
-                </Col>
-                <Col span={12}>
-                  <Form.Item name="winning_trades" label="胜场数">
-                    <InputNumber style={{ width: '100%' }} min={0} precision={0} placeholder="0" />
-                  </Form.Item>
-                </Col>
-              </Row>
-              <Form.Item name="status" label="状态" initialValue="active">
+              <Space wrap style={{ marginBottom: 12 }}>
+                <Button
+                  type="link"
+                  style={{ padding: 0 }}
+                  onClick={() => {
+                    strategyForm.setFieldsValue({ rules_text: STRATEGY_RULE_EXAMPLE })
+                    previewStrategyText(STRATEGY_RULE_EXAMPLE)
+                  }}
+                >
+                  填入示例规则
+                </Button>
+                <Button type="link" style={{ padding: 0 }} onClick={() => {
+                  previewStrategyText(strategyForm.getFieldValue('rules_text'))
+                }}>
+                  预览识别结果
+                </Button>
+              </Space>
+              {strategyParsePreview && (
+                <Card size="small" style={{ marginBottom: 12, background: '#fafafa' }}
+                  title="将用于筛选的条件">
+                  {(strategyParsePreview.matched_labels || []).length ? (
+                    <>
+                      {(strategyParsePreview.matched_labels || []).map(l => (
+                        <Tag key={l} color="blue">{l}</Tag>
+                      ))}
+                      <div style={{ marginTop: 8, color: '#666' }}>
+                        匹配模式：{strategyParsePreview.match_mode === 'or' ? '命中任一'
+                          : strategyParsePreview.match_mode === 'min' ? `至少${strategyParsePreview.min_hits}条`
+                            : '全部命中'}
+                      </div>
+                    </>
+                  ) : (
+                    <span style={{ color: '#cf1322' }}>
+                      {strategyParsePreview.unmatched_hint || '未识别到可用条件'}
+                    </span>
+                  )}
+                </Card>
+              )}
+              <Form.Item name="status" label="状态" initialValue="active"
+                extra="只有「启用」的策略才会出现在条件筛选里">
                 <Select options={[
-                  { value: 'active', label: '启用' },
+                  { value: 'active', label: '启用（可在筛选中使用）' },
                   { value: 'inactive', label: '停用' },
                 ]} />
               </Form.Item>
@@ -917,12 +1145,12 @@ export default function Stocks() {
         <div>
           <Row gutter={24}>
             <Col span={12}>
-              <Card title="交易记录" size="small">
+              <Card title="复盘说明 / 持仓提问" size="small">
                 <Input.TextArea
                   rows={8}
                   value={reviewText}
                   onChange={e => setReviewText(e.target.value)}
-                  placeholder="请输入今天的交易记录，包括买入/卖出的股票、价格、数量、操作理由等..."
+                  placeholder={'支持两种写法：\n1）今日买卖：买入/卖出代码、价格、理由\n2）持仓咨询：如“紫光国微浮亏30%，继续拿还是减？”\n\n也可先把股票加到自选「持仓」，再直接点复盘。'}
                   style={{ marginBottom: 16 }}
                 />
                 <Button type="primary" icon={<RobotOutlined />} loading={reviewLoading}
@@ -935,50 +1163,53 @@ export default function Stocks() {
                 <div>
                   <Card title="复盘结果" size="small" style={{ marginBottom: 12 }}
                     extra={<Tag color="green">AI 分析完成</Tag>}>
-                    <Row gutter={[8, 8]}>
-                      {reviewResult.success_trades && (
-                        <Col span={12}>
-                          <div style={{
-                            background: '#f6ffed', padding: '12px 16px',
-                            borderRadius: 8, border: '1px solid #b7eb8f',
-                          }}>
-                            <div style={{ fontSize: 12, color: '#52c41a', marginBottom: 4 }}>成功交易</div>
-                            <div style={{ fontSize: 20, fontWeight: 700, color: '#52c41a' }}>
-                              {Array.isArray(reviewResult.success_trades)
-                                ? reviewResult.success_trades.length
-                                : reviewResult.success_trades}
-                            </div>
-                          </div>
-                        </Col>
-                      )}
-                      {reviewResult.failure_trades != null && (
-                        <Col span={12}>
-                          <div style={{
-                            background: '#fff2f0', padding: '12px 16px',
-                            borderRadius: 8, border: '1px solid #ffccc7',
-                          }}>
-                            <div style={{ fontSize: 12, color: '#ff4d4f', marginBottom: 4 }}>失败交易</div>
-                            <div style={{ fontSize: 20, fontWeight: 700, color: '#ff4d4f' }}>
-                              {Array.isArray(reviewResult.failure_trades)
-                                ? reviewResult.failure_trades.length
-                                : reviewResult.failure_trades}
-                            </div>
-                          </div>
-                        </Col>
-                      )}
-                      {reviewResult.win_rate_trend != null && (
-                        <Col span={24} style={{ marginTop: 4 }}>
-                          <div style={{ fontSize: 13, color: '#666' }}>
-                            胜率趋势：<span style={{ fontWeight: 600, color: '#1677ff' }}>
-                              {typeof reviewResult.win_rate_trend === 'number'
-                                ? `${(reviewResult.win_rate_trend * 100).toFixed(1)}%`
-                                : String(reviewResult.win_rate_trend)}
-                            </span>
-                          </div>
-                        </Col>
-                      )}
-                    </Row>
+                    {reviewResult.situation_summary ? (
+                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, fontSize: 13 }}>
+                        {reviewResult.situation_summary}
+                      </div>
+                    ) : (
+                      <div style={{ color: '#888', fontSize: 13 }}>已生成分析结果，见下方分项</div>
+                    )}
                   </Card>
+                  {reviewResult.position_view && (
+                    <Card title="持仓看法" size="small" style={{ marginBottom: 12 }}>
+                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, fontSize: 13 }}>
+                        {reviewResult.position_view}
+                      </div>
+                    </Card>
+                  )}
+                  {reviewResult.next_actions && (
+                    <Card title="下一步怎么操作" size="small" style={{ marginBottom: 12 }}>
+                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, fontSize: 13 }}>
+                        {reviewResult.next_actions}
+                      </div>
+                    </Card>
+                  )}
+                  {reviewResult.risk_warning && (
+                    <Card title="风险提示" size="small" style={{ marginBottom: 12 }}>
+                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, fontSize: 13, color: '#a8071a' }}>
+                        {reviewResult.risk_warning}
+                      </div>
+                    </Card>
+                  )}
+                  {reviewResult.success_trades && (
+                    <Card title="成功交易" size="small" style={{ marginBottom: 12 }}>
+                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, fontSize: 13 }}>
+                        {Array.isArray(reviewResult.success_trades)
+                          ? reviewResult.success_trades.join('\n')
+                          : reviewResult.success_trades}
+                      </div>
+                    </Card>
+                  )}
+                  {reviewResult.failure_trades && (
+                    <Card title="失败交易" size="small" style={{ marginBottom: 12 }}>
+                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, fontSize: 13 }}>
+                        {Array.isArray(reviewResult.failure_trades)
+                          ? reviewResult.failure_trades.join('\n')
+                          : reviewResult.failure_trades}
+                      </div>
+                    </Card>
+                  )}
                   {reviewResult.reason_analysis && (
                     <Card title="原因分析" size="small" style={{ marginBottom: 12 }}>
                       <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, fontSize: 13 }}>
@@ -993,10 +1224,17 @@ export default function Stocks() {
                       </div>
                     </Card>
                   )}
+                  {reviewResult.win_rate_trend && (
+                    <Card title="后续观察" size="small" style={{ marginBottom: 12 }}>
+                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, fontSize: 13 }}>
+                        {reviewResult.win_rate_trend}
+                      </div>
+                    </Card>
+                  )}
                 </div>
               ) : (
                 <Card size="small" style={{ minHeight: 240, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <Empty description={'点击"AI复盘"按钮开始分析'} />
+                  <Empty description={'可写持仓问题或今日交易，然后点"AI复盘"'} />
                 </Card>
               )}
             </Col>
