@@ -261,6 +261,69 @@ def update_script(id):
     return jsonify({'message': '已更新'})
 
 
+def _get_script_or_404(conn, script_id):
+    row = conn.execute('SELECT * FROM script WHERE id=?', (script_id,)).fetchone()
+    return row
+
+
+@bp.route('/api/scripts/<int:id>/produce', methods=['POST'])
+def produce_script(id):
+    """从文案创建视频任务（若已有未完成任务则复用）。个人使用，无需审核。"""
+    data = request.get_json(silent=True) or {}
+    conn = _db()
+    row = _get_script_or_404(conn, id)
+    if not row:
+        conn.close()
+        return jsonify({'error': '文案不存在'}), 404
+
+    # 复用未完成的视频任务
+    existing = conn.execute(
+        '''SELECT id, title, export_status FROM video_task
+           WHERE script_id=? AND COALESCE(export_status, '') != 'done'
+           ORDER BY id DESC LIMIT 1''',
+        (id,)
+    ).fetchone()
+    if existing:
+        conn.execute('UPDATE script SET status=? WHERE id=?', ('used', id))
+        conn.commit()
+        vid = dict(existing)
+        conn.close()
+        return jsonify({
+            'id': id,
+            'status': 'used',
+            'video_id': vid['id'],
+            'reused': True,
+            'message': f'已有进行中的视频任务 #{vid["id"]}，可直接去视频中心继续',
+        })
+
+    title = data.get('title') or row['title'] or f'文案#{id}'
+    cur = conn.execute(
+        '''INSERT INTO video_task (script_id,title,video_style,material_ids,
+           resolution,fps,render_quality,fade_transition,title_overlay,video_engine,
+           narration_prompt,voice,voice_rate,
+           voice_status,subtitle_status,video_status,export_status)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+        (id, title,
+         data.get('video_style', 'default'), data.get('material_ids', ''),
+         data.get('resolution', '1080x1920'), data.get('fps', '30'),
+         data.get('render_quality', 'high'), data.get('fade_transition', 'true'),
+         data.get('title_overlay', 'true'), data.get('video_engine', 'moviepy'),
+         data.get('narration_prompt', ''), data.get('voice', ''), data.get('voice_rate', ''),
+         'pending', 'pending', 'pending', 'pending')
+    )
+    video_id = cur.lastrowid
+    conn.execute('UPDATE script SET status=? WHERE id=?', ('used', id))
+    conn.commit()
+    conn.close()
+    return jsonify({
+        'id': id,
+        'status': 'used',
+        'video_id': video_id,
+        'reused': False,
+        'message': f'已创建视频任务 #{video_id}，请到视频中心出片',
+    })
+
+
 @bp.route('/api/scripts/<int:id>', methods=['DELETE'])
 def delete_script(id):
     conn = _db()

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   Table, Tag, Button, Input, Select, Space, Modal, message,
   Popconfirm, Tooltip, Row, Col, Card, Statistic, Form, Drawer, Alert,
@@ -7,19 +7,24 @@ import {
 import {
   PlusOutlined, DeleteOutlined, SearchOutlined, ReloadOutlined,
   RobotOutlined, EditOutlined, EyeOutlined, FileTextOutlined, ThunderboltOutlined,
+  VideoCameraOutlined,
 } from '@ant-design/icons'
-import { scriptsApi, hotTopicsApi, settingsApi } from '../../api'
+import { scriptsApi, settingsApi } from '../../api'
 
 const { TextArea } = Input
 
 const statusOptions = [
   { value: 'draft', label: '草稿' },
-  { value: 'reviewing', label: '审核中' },
-  { value: 'approved', label: '已通过' },
-  { value: 'rejected', label: '已驳回' },
+  { value: 'used', label: '已出片' },
 ]
-const statusColors = { draft: 'default', reviewing: 'processing', approved: 'success', rejected: 'error' }
-const statusLabels = { draft: '草稿', reviewing: '审核中', approved: '已通过', rejected: '已驳回' }
+const statusColors = {
+  draft: 'default', reviewing: 'processing', approved: 'success',
+  rejected: 'error', used: 'green',
+}
+const statusLabels = {
+  draft: '草稿', reviewing: '草稿', approved: '草稿',
+  rejected: '草稿', used: '已出片',
+}
 const typeLabels = { traffic: '泛流量', insurance: '保险干货' }
 const typeColors = { traffic: 'blue', insurance: 'orange' }
 const ageLabels = {
@@ -28,6 +33,7 @@ const ageLabels = {
 }
 
 export default function Scripts() {
+  const navigate = useNavigate()
   const [data, setData] = useState({ list: [], total: 0 })
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
@@ -38,6 +44,7 @@ export default function Scripts() {
   const [generating, setGenerating] = useState(false)
   const [planning, setPlanning] = useState(false)
   const [runningDaily, setRunningDaily] = useState(false)
+  const [producingId, setProducingId] = useState(null)
   const [dailyStatus, setDailyStatus] = useState(null)
   const [editing, setEditing] = useState(null)
   const [viewing, setViewing] = useState(null)
@@ -96,6 +103,21 @@ export default function Scripts() {
       .finally(() => setRunningDaily(false))
   }
 
+  const handleProduce = (row) => {
+    setProducingId(row.id)
+    scriptsApi.produce(row.id)
+      .then(res => {
+        message.success(res.message || '已创建视频任务')
+        loadData()
+        if (viewing?.id === row.id) {
+          setViewing({ ...viewing, status: 'used' })
+        }
+        navigate('/videos')
+      })
+      .catch(err => message.error(err?.error || err?.message || '出片失败'))
+      .finally(() => setProducingId(null))
+  }
+
   const handleSave = () => {
     form.validateFields().then(values => {
       if (editing) {
@@ -118,15 +140,14 @@ export default function Scripts() {
       prompt: values.prompt || undefined,
       style: values.style,
       duration: values.duration,
-      audience: values.audience || undefined,
-      tone: values.tone || undefined,
-      extra_req: values.extra_req || undefined,
-      content_type: values.content_type || 'traffic',
-      age_band: values.age_band || 'all',
-    }).then(res => {
-      message.success(res.message || '文案生成成功')
+      tone: values.tone,
+      audience: values.audience,
+      extra_req: values.extra_req,
+      content_type: values.content_type,
+      age_band: values.age_band,
+    }).then(() => {
+      message.success('文案生成成功')
       setGenModal(false)
-      genForm.resetFields()
       loadData(1)
     }).catch(err => {
       message.error(err?.error || '生成失败，请检查 AI 配置')
@@ -144,17 +165,21 @@ export default function Scripts() {
       render: v => ageLabels[v] || v || '-',
     },
     { title: '标题', dataIndex: 'title', ellipsis: true },
-    { title: '来源热点', dataIndex: 'topic_title', width: 120, ellipsis: true,
-      render: v => v || '-' },
-    { title: '封面文案', dataIndex: 'cover_text', width: 100, ellipsis: true,
-      render: v => v || '-' },
+    {
+      title: '来源热点', dataIndex: 'topic_title', width: 120, ellipsis: true,
+      render: v => v || '-',
+    },
+    {
+      title: '封面文案', dataIndex: 'cover_text', width: 100, ellipsis: true,
+      render: v => v || '-',
+    },
     {
       title: '状态', dataIndex: 'status', width: 80,
-      render: v => <Tag color={statusColors[v]}>{statusLabels[v]}</Tag>
+      render: v => <Tag color={statusColors[v] || 'default'}>{statusLabels[v] || v}</Tag>,
     },
     { title: '创建时间', dataIndex: 'created_at', width: 150 },
     {
-      title: '操作', key: 'action', width: 140, fixed: 'right',
+      title: '操作', key: 'action', width: 200, fixed: 'right',
       render: (_, r) => (
         <Space size="small">
           <Tooltip title="查看">
@@ -167,13 +192,25 @@ export default function Scripts() {
               setEditing(r); form.setFieldsValue(r); setEditModal(true)
             }} />
           </Tooltip>
+          <Tooltip title="出片（创建视频任务）">
+            <Button
+              size="small"
+              type="primary"
+              ghost
+              icon={<VideoCameraOutlined />}
+              loading={producingId === r.id}
+              onClick={() => handleProduce(r)}
+            >
+              出片
+            </Button>
+          </Tooltip>
           <Popconfirm title="确认删除？" onConfirm={() => {
             scriptsApi.delete(r.id).then(() => { message.success('已删除'); loadData() })
           }}>
             <Button size="small" danger icon={<DeleteOutlined />} />
           </Popconfirm>
         </Space>
-      )
+      ),
     },
   ]
 
@@ -183,22 +220,36 @@ export default function Scripts() {
       <div style={{ color: '#888', marginBottom: 12, fontSize: 13 }}>
         每日建议：2 条泛流量涨粉 + 1 条保险干货 · 40-60 秒口播 · 统一收口「祁实说实话…关注我，来找我」
       </div>
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="出片流程"
+        description="点「出片」创建视频任务 → 视频中心生产 → 成品再到发布中心发平台。无需审核。"
+      />
 
       {!readiness.ai?.ready && (
-        <Alert type="warning" showIcon style={{ marginBottom: 16 }}
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
           message="AI 未配置"
-          description={
+          description={(
             <span>
               请到 <Link to="/settings/ai">系统设置 · AI 大模型</Link> 填写 API Key 后才能使用 AI 生成文案
             </span>
-          }
+          )}
         />
       )}
 
       {brandEnding && (
-        <Alert type="info" showIcon style={{ marginBottom: 16 }}
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
           message="品牌固定收口（所有文案自动带上）"
-          description={brandEnding} />
+          description={brandEnding}
+        />
       )}
 
       {dailyStatus && (
@@ -207,7 +258,7 @@ export default function Scripts() {
           type={String(dailyStatus.daily_auto_enabled).toLowerCase() === 'true' ? 'success' : 'warning'}
           showIcon
           message={`今日进度：泛流量 ${dailyStatus.scripts?.traffic || 0}/${dailyStatus.traffic_target || 2}，保险 ${dailyStatus.scripts?.insurance || 0}/${dailyStatus.insurance_target || 1}`}
-          description={
+          description={(
             <span>
               出片状态：完成 {dailyStatus.videos?.done || 0} / 进行中 {dailyStatus.videos?.processing || 0} / 待处理 {dailyStatus.videos?.pending || 0}
               {' · '}
@@ -218,7 +269,7 @@ export default function Scripts() {
               {' · '}
               <Link to="/videos">去视频页查看出片</Link>
             </span>
-          }
+          )}
         />
       )}
 
@@ -226,26 +277,38 @@ export default function Scripts() {
         <Col span={6}><Card size="small"><Statistic title="文案总数" value={data.total} prefix={<FileTextOutlined />} /></Card></Col>
         <Col span={6}><Card size="small"><Statistic title="泛流量" value={data.list.filter(d => (d.content_type || 'traffic') === 'traffic').length} valueStyle={{ color: '#1677ff' }} /></Card></Col>
         <Col span={6}><Card size="small"><Statistic title="保险干货" value={data.list.filter(d => d.content_type === 'insurance').length} valueStyle={{ color: '#fa8c16' }} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="已通过" value={data.list.filter(d => d.status === 'approved').length} valueStyle={{ color: '#52c41a' }} /></Card></Col>
+        <Col span={6}><Card size="small"><Statistic title="已出片" value={data.list.filter(d => d.status === 'used').length} valueStyle={{ color: '#52c41a' }} /></Card></Col>
       </Row>
 
       <div className="table-toolbar">
         <div className="table-toolbar-left">
-          <Select placeholder="类型" allowClear style={{ width: 120 }}
+          <Select
+            placeholder="类型"
+            allowClear
+            style={{ width: 120 }}
             value={filters.content_type}
             onChange={v => setFilters({ ...filters, content_type: v })}
             options={[
               { value: 'traffic', label: '泛流量' },
               { value: 'insurance', label: '保险干货' },
-            ]} />
-          <Select placeholder="状态" allowClear style={{ width: 120 }}
+            ]}
+          />
+          <Select
+            placeholder="状态"
+            allowClear
+            style={{ width: 120 }}
             value={filters.status}
             onChange={v => setFilters({ ...filters, status: v })}
-            options={statusOptions} />
-          <Input placeholder="搜索标题/内容" allowClear style={{ width: 200 }}
+            options={statusOptions}
+          />
+          <Input
+            placeholder="搜索标题/内容"
+            allowClear
+            style={{ width: 200 }}
             value={filters.q}
             onChange={e => setFilters({ ...filters, q: e.target.value })}
-            onPressEnter={() => loadData(1, filters)} />
+            onPressEnter={() => loadData(1, filters)}
+          />
           <Button type="primary" icon={<SearchOutlined />} onClick={() => loadData(1, filters)}>搜索</Button>
           <Button icon={<ReloadOutlined />} onClick={() => { setFilters({}); loadData(1, {}) }}>重置</Button>
         </div>
@@ -261,22 +324,37 @@ export default function Scripts() {
           </Button>
           <Button icon={<PlusOutlined />} onClick={() => {
             setEditing(null); form.resetFields(); setEditModal(true)
-          }}>手动添加</Button>
+          }}
+          >
+            手动添加
+          </Button>
         </Space>
       </div>
 
-      <Table columns={columns} dataSource={data.list} rowKey="id" loading={loading}
-        scroll={{ x: 1200 }}
+      <Table
+        columns={columns}
+        dataSource={data.list}
+        rowKey="id"
+        loading={loading}
+        scroll={{ x: 1280 }}
         pagination={{
-          current: page, total: data.total, pageSize: 15,
+          current: page,
+          total: data.total,
+          pageSize: 15,
           onChange: (p) => loadData(p),
           showTotal: (t) => `共 ${t} 条`,
         }}
-        size="middle" />
+        size="middle"
+      />
 
-      {/* Generate Modal */}
-      <Modal title="AI 生成文案" open={genModal} onOk={handleGenerate}
-        onCancel={() => setGenModal(false)} width={600} confirmLoading={generating}>
+      <Modal
+        title="AI 生成文案"
+        open={genModal}
+        onOk={handleGenerate}
+        onCancel={() => setGenModal(false)}
+        width={600}
+        confirmLoading={generating}
+      >
         <Form form={genForm} layout="vertical" style={{ marginTop: 16 }}>
           <Row gutter={16}>
             <Col span={12}>
@@ -288,7 +366,8 @@ export default function Scripts() {
                   { label: '情感共鸣', value: '情感共鸣' },
                   { label: '知识科普', value: '知识科普' },
                   { label: '故事叙述', value: '故事叙述' },
-                ]} />
+                ]}
+                />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -298,7 +377,8 @@ export default function Scripts() {
                   { label: '15-30秒 (短快爆)', value: '15-30秒' },
                   { label: '30-60秒 (标准)', value: '30-60秒' },
                   { label: '1-3分钟 (深度)', value: '1-3分钟' },
-                ]} />
+                ]}
+                />
               </Form.Item>
             </Col>
           </Row>
@@ -308,7 +388,8 @@ export default function Scripts() {
                 <Select options={[
                   { label: '泛流量涨粉', value: 'traffic' },
                   { label: '保险干货', value: 'insurance' },
-                ]} />
+                ]}
+                />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -322,37 +403,43 @@ export default function Scripts() {
                   { label: '60岁段', value: '60s' },
                   { label: '70岁段', value: '70s' },
                   { label: '80岁+', value: '80s' },
-                ]} />
+                ]}
+                />
               </Form.Item>
             </Col>
           </Row>
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="tone" label="文案语气" initialValue="casual"
-                extra="不填则使用系统设置中的默认语气">
-                <Select allowClear placeholder="自动" options={[
-                  { label: '专业权威', value: 'professional' },
-                  { label: '轻松口语化', value: 'casual' },
-                  { label: '激情澎湃', value: 'passionate' },
-                  { label: '幽默风趣', value: 'humorous' },
-                  { label: '严肃认真', value: 'serious' },
-                  { label: '亲切友好', value: 'friendly' },
-                ]} />
+              <Form.Item
+                name="tone"
+                label="文案语气"
+                initialValue="casual"
+                extra="不填则使用系统设置中的默认语气"
+              >
+                <Select
+                  allowClear
+                  placeholder="自动"
+                  options={[
+                    { label: '专业权威', value: 'professional' },
+                    { label: '轻松口语化', value: 'casual' },
+                    { label: '激情澎湃', value: 'passionate' },
+                    { label: '幽默风趣', value: 'humorous' },
+                    { label: '严肃认真', value: 'serious' },
+                    { label: '亲切友好', value: 'friendly' },
+                  ]}
+                />
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="audience" label="目标受众"
-                extra="默认已覆盖 20-80 岁泛流量">
+              <Form.Item name="audience" label="目标受众" extra="默认已覆盖 20-80 岁泛流量">
                 <Input placeholder="留空使用默认" />
               </Form.Item>
             </Col>
           </Row>
-          <Form.Item name="prompt" label="创作主题/提示词"
-            extra="填写后将从主题生成；不填则从爆款热点生成">
+          <Form.Item name="prompt" label="创作主题/提示词" extra="填写后将从主题生成；不填则从爆款热点生成">
             <TextArea rows={3} placeholder="如：写一个关于AI工具提升效率的短视频文案" />
           </Form.Item>
-          <Form.Item name="extra_req" label="额外要求"
-            extra="如：必须提到XX工具、加入数据引用等">
+          <Form.Item name="extra_req" label="额外要求" extra="如：必须提到XX工具、加入数据引用等">
             <TextArea rows={2} placeholder="可选" />
           </Form.Item>
         </Form>
@@ -361,9 +448,13 @@ export default function Scripts() {
         )}
       </Modal>
 
-      {/* Edit Modal */}
-      <Modal title={editing ? '编辑文案' : '添加文案'} open={editModal} onOk={handleSave}
-        onCancel={() => setEditModal(false)} width={640}>
+      <Modal
+        title={editing ? '编辑文案' : '添加文案'}
+        open={editModal}
+        onOk={handleSave}
+        onCancel={() => setEditModal(false)}
+        width={640}
+      >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="title" label="标题" rules={[{ required: true }]}>
             <Input />
@@ -385,18 +476,39 @@ export default function Scripts() {
               <Form.Item name="tags" label="标签"><Input placeholder="逗号分隔" /></Form.Item>
             </Col>
           </Row>
-          <Form.Item name="status" label="状态">
+          <Form.Item name="status" label="状态" initialValue="draft">
             <Select options={statusOptions} />
           </Form.Item>
         </Form>
       </Modal>
 
-      {/* View Drawer */}
-      <Drawer title="文案详情" open={viewDrawer} onClose={() => setViewDrawer(false)} width={520}>
+      <Drawer
+        title="文案详情"
+        open={viewDrawer}
+        onClose={() => setViewDrawer(false)}
+        width={520}
+        extra={viewing ? (
+          <Button
+            type="primary"
+            icon={<VideoCameraOutlined />}
+            loading={producingId === viewing.id}
+            onClick={() => handleProduce(viewing)}
+          >
+            出片
+          </Button>
+        ) : null}
+      >
         {viewing && (
           <div>
+            <Space style={{ marginBottom: 8 }}>
+              <Tag color={statusColors[viewing.status] || 'default'}>
+                {statusLabels[viewing.status] || viewing.status}
+              </Tag>
+              {viewing.model_name && (
+                <Tag color="purple">{viewing.model_name} · {viewing.tokens_used} tokens</Tag>
+              )}
+            </Space>
             <h3>{viewing.title}</h3>
-            {viewing.model_name && <Tag color="purple">{viewing.model_name} · {viewing.tokens_used} tokens</Tag>}
             <div style={{ marginTop: 16 }}>
               <p><strong>钩子：</strong>{viewing.hook || '-'}</p>
               <p><strong>正文：</strong></p>

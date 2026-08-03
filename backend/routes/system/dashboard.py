@@ -84,14 +84,21 @@ def get_dashboard():
     # --- Pending video tasks ---
     pending_videos = conn.execute(
         "SELECT id, title, voice_status, subtitle_status, video_status, export_status "
-        "FROM video_task WHERE export_status != 'done' ORDER BY created_at DESC LIMIT 5"
+        "FROM video_task WHERE export_status != 'done' ORDER BY created_at DESC LIMIT 10"
     ).fetchall()
 
     # --- Pending publish tasks ---
     pending_publish = conn.execute(
         "SELECT p.id, p.platform, p.status, p.scheduled_time, v.title as video_title "
         "FROM publish_task p LEFT JOIN video_task v ON p.video_task_id = v.id "
-        "WHERE p.status NOT IN ('done','failed') ORDER BY p.created_at DESC LIMIT 5"
+        "WHERE p.status NOT IN ('done','failed') ORDER BY p.created_at DESC LIMIT 10"
+    ).fetchall()
+
+    # --- Draft scripts waiting to produce ---
+    pending_scripts = conn.execute(
+        "SELECT id, title, content_type, status, created_at FROM script "
+        "WHERE COALESCE(status, 'draft') NOT IN ('used') "
+        "ORDER BY created_at DESC LIMIT 10"
     ).fetchall()
 
     # --- Recent customers ---
@@ -105,7 +112,7 @@ def get_dashboard():
         "WHERE intention IN ('high','medium') "
         "AND (last_follow_time IS NULL OR last_follow_time = '' "
         "OR last_follow_time::date < CURRENT_DATE - INTERVAL '3 days') "
-        "ORDER BY intention DESC, last_follow_time ASC LIMIT 5"
+        "ORDER BY intention DESC, last_follow_time ASC LIMIT 10"
     ).fetchall()
 
     # --- Recent knowledge items ---
@@ -150,6 +157,7 @@ def get_dashboard():
         'recentScripts': [dict(r) for r in recent_scripts],
         'pendingVideos': [dict(r) for r in pending_videos],
         'pendingPublish': [dict(r) for r in pending_publish],
+        'pendingScripts': [dict(r) for r in pending_scripts],
         'recentCustomers': [dict(r) for r in recent_customers],
         'followCustomers': [dict(r) for r in follow_customers],
         'platformDist': [dict(r) for r in platform_dist],

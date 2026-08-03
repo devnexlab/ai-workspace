@@ -25,6 +25,7 @@ export const scriptsApi = {
   dailyRun: (data) => api.post('/scripts/daily-run', data || {}, { timeout: API_LONG_TIMEOUT * 8 }),
   dailyRunStatus: () => api.get('/scripts/daily-run/status'),
   update: (id, data) => api.put(`/scripts/${id}`, data),
+  produce: (id, data) => api.post(`/scripts/${id}/produce`, data || {}),
   delete: (id) => api.delete(`/scripts/${id}`),
 }
 

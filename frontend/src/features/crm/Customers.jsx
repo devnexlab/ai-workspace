@@ -103,7 +103,9 @@ const PRIORITY_LABELS = { urgent: '紧急', high: '重要', normal: '普通' }
 
 export default function Customers() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const [activeTab, setActiveTab] = useState('list')
+  const [activeTab, setActiveTab] = useState(() => (
+    searchParams.get('tab') === 'reminders' ? 'reminders' : 'list'
+  ))
   const [data, setData] = useState({ list: [], total: 0, stageStats: {} })
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
@@ -161,6 +163,15 @@ export default function Customers() {
     loadOwners()
     loadReminders()
   }, [])
+
+  // 支持 /customers?tab=reminders 深链
+  useEffect(() => {
+    const tab = searchParams.get('tab')
+    if (tab === 'reminders' && activeTab !== 'reminders') {
+      setActiveTab('reminders')
+      loadReminders()
+    }
+  }, [searchParams])
 
   // 提醒中心：每 60s 刷新一次待办
   useEffect(() => {
@@ -615,7 +626,12 @@ export default function Customers() {
         activeKey={activeTab}
         onChange={(k) => {
           setActiveTab(k)
-          if (k === 'reminders') loadReminders()
+          if (k === 'reminders') {
+            setSearchParams({ tab: 'reminders' })
+            loadReminders()
+          } else {
+            setSearchParams({})
+          }
         }}
         items={[
           {

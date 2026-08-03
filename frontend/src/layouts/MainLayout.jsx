@@ -17,6 +17,8 @@ import {
 } from '@ant-design/icons'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { APP_NAME } from '../config'
+import NotificationBell from '../features/notifications/NotificationBell'
+import TodoBell from '../features/notifications/TodoBell'
 
 const { Header, Sider, Content } = Layout
 
@@ -166,7 +168,10 @@ export default function MainLayout() {
           <span style={{ fontSize: 16, fontWeight: 600, color: '#1a1a2e' }}>
             {APP_NAME}
           </span>
-          <span style={{ fontSize: 13, color: '#999' }}>PRD V1.2</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <TodoBell />
+            <NotificationBell />
+          </div>
         </Header>
         <Content style={{
           margin: 16,
