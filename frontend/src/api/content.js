@@ -62,6 +62,7 @@ export const publishApi = {
   create: (data) => api.post('/publish', data),
   update: (id, data) => api.put(`/publish/${id}`, data),
   publish: (id) => api.post(`/publish/${id}/publish`, {}, { timeout: API_LONG_TIMEOUT * 3 }),
+  confirm: (id, data) => api.post(`/publish/${id}/confirm`, data || {}),
   delete: (id) => api.delete(`/publish/${id}`),
   status: () => api.get('/publish/status'),
   sessions: () => api.get('/publish/sessions'),

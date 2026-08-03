@@ -74,6 +74,105 @@ def _profile_dir(platform):
     return path
 
 
+def _clear_profile_locks(profile):
+    """清理 Chromium 残留锁文件，避免「目录正被使用 / 启动即关闭」。"""
+    for name in (
+        'SingletonLock', 'SingletonCookie', 'SingletonSocket',
+        'lockfile', 'RunningChromeVersion',
+    ):
+        path = os.path.join(profile, name)
+        try:
+            if os.path.isfile(path) or os.path.islink(path):
+                os.remove(path)
+        except Exception:
+            pass
+
+
+def _kill_stale_profile_browsers(profile):
+    """结束仍占用该 user-data-dir 的 chrome/chromium 进程（Windows 常见残留）。"""
+    if os.name != 'nt':
+        return
+    needle = os.path.normcase(os.path.abspath(profile))
+    try:
+        import subprocess
+        ps = (
+            "Get-CimInstance Win32_Process | "
+            "Where-Object { $_.Name -match 'chrome|chromium' -and $_.CommandLine } | "
+            "ForEach-Object { "
+            f"if ($_.CommandLine -like '*{needle.replace(chr(39), '')}*') "
+            "{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }"
+        )
+        subprocess.run(
+            ['powershell', '-NoProfile', '-Command', ps],
+            capture_output=True, text=True, timeout=15,
+        )
+    except Exception:
+        pass
+
+
+def _stop_platform_sessions(platform, except_id=None):
+    """关闭同平台已有会话，避免重复占用同一 profile。"""
+    with _SESSIONS_LOCK:
+        targets = [
+            s for s in _SESSIONS.values()
+            if s.get('platform') == platform
+            and s.get('id') != except_id
+            and s.get('status') not in ('closed', 'error')
+        ]
+    if not targets:
+        return
+    for s in targets:
+        s['stop'].set()
+    # 等旧会话有机会关掉浏览器
+    time.sleep(2)
+
+
+def _launch_persistent(playwright, profile):
+    """启动持久化浏览器；失败则清锁/杀残留后重试一次。"""
+    last_err = None
+    for attempt in range(2):
+        _clear_profile_locks(profile)
+        if attempt > 0:
+            _kill_stale_profile_browsers(profile)
+            time.sleep(1.5)
+            _clear_profile_locks(profile)
+        try:
+            return playwright.chromium.launch_persistent_context(
+                profile,
+                headless=False,
+                no_viewport=True,
+                args=[
+                    '--start-maximized',
+                    '--disable-blink-features=AutomationControlled',
+                    '--no-first-run',
+                    '--no-default-browser-check',
+                ],
+                ignore_default_args=['--enable-automation'],
+            )
+        except Exception as e:
+            last_err = e
+            msg = str(e).lower()
+            retryable = any(k in msg for k in (
+                'has been closed', 'target page', 'user data directory',
+                'singleton', 'process', 'browser has been closed',
+            ))
+            if not retryable or attempt >= 1:
+                break
+            time.sleep(1)
+    raise last_err
+
+
+def _launch_error_hint(err, profile, label):
+    text = str(err)
+    if 'has been closed' in text or 'Target page' in text:
+        return (
+            f'{label} 浏览器启动失败：配置目录可能被占用或已损坏。'
+            f'请先关闭所有 Chromium/Chrome 窗口后重试；'
+            f'仍失败可删除目录后重登：{profile}'
+        )
+    return f'{label} 浏览器启动失败: {text.splitlines()[0]}'
+
+
 def _keep_open_seconds():
     try:
         return max(60, int(get_setting('publish', 'keep_open_minutes', '60') or 60) * 60)
@@ -180,6 +279,15 @@ def publish_video(platform, video_path, title, description, tags, cover_text='')
     if session['status'] in ('error', 'page_error'):
         return {'status': 'error', 'message': session['message'], 'session_id': session['id']}
 
+    if session['status'] == 'need_login':
+        return {
+            'status': 'need_login',
+            'message': session['message'] or f'{label} 需要登录，请在已打开的浏览器中扫码登录',
+            'browser_opened': True,
+            'session_id': session['id'],
+            'logged_in': False,
+        }
+
     msg = session['message'] or f'已打开{label}发布页面，请在浏览器中确认后点击发布'
     if session['warnings']:
         msg = f"{msg}（{'；'.join(session['warnings'])}）"
@@ -202,15 +310,19 @@ def _session_worker(session, meta, video_path, title, description, tags, cookies
     label = session['label']
     context = None
     try:
+        # 同平台只保留一个浏览器，避免 profile 互锁
+        _stop_platform_sessions(platform, except_id=session['id'])
+
         profile = _profile_dir(platform)
         had_profile = bool(os.listdir(profile))
         with sync_playwright() as p:
-            context = p.chromium.launch_persistent_context(
-                profile,
-                headless=False,
-                no_viewport=True,
-                args=['--start-maximized', '--disable-blink-features=AutomationControlled'],
-            )
+            try:
+                context = _launch_persistent(p, profile)
+            except Exception as e:
+                session['status'] = 'error'
+                session['message'] = _launch_error_hint(e, profile, label)
+                session['ready'].set()
+                return
 
             # 已有本地登录态时不再注入 Cookies，避免过期 Cookie 覆盖有效登录
             if not had_profile:
@@ -221,7 +333,17 @@ def _session_worker(session, meta, video_path, title, description, tags, cookies
                     except Exception as e:
                         session['warnings'].append(f'Cookies 注入失败: {e}')
 
-            page = context.pages[0] if context.pages else context.new_page()
+            try:
+                page = context.pages[0] if context.pages else context.new_page()
+            except Exception as e:
+                session['status'] = 'error'
+                session['message'] = _launch_error_hint(e, profile, label)
+                session['ready'].set()
+                try:
+                    context.close()
+                except Exception:
+                    pass
+                return
             page.set_default_timeout(20000)
 
             nav_error = ''
@@ -235,14 +357,58 @@ def _session_worker(session, meta, video_path, title, description, tags, cookies
                 session['status'] = 'page_error'
                 session['message'] = f'{label} {nav_error}'
                 session['ready'].set()
-            elif _looks_like_login(page):
-                session['logged_in'] = False
-                session['status'] = 'need_login'
-                session['message'] = (
-                    f'{label} 未登录，浏览器已打开并保持不关闭：请扫码/登录后手动上传发布。'
-                    f'登录状态会被记住，下次不用再登录。'
+            elif _looks_like_login(page, platform):
+                # profile 无效时，再尝试注入设置里的 Cookies
+                cookies = _parse_cookies(
+                    cookies_str, platform, cookie_domain=meta.get('cookie_domain')
                 )
-                session['ready'].set()
+                if cookies:
+                    try:
+                        context.add_cookies(cookies)
+                        page.goto(meta['creator_url'], wait_until='domcontentloaded', timeout=60000)
+                        page.wait_for_timeout(3000)
+                    except Exception as e:
+                        session['warnings'].append(f'登录态 Cookies 注入失败: {e}')
+
+                if _looks_like_login(page, platform):
+                    session['logged_in'] = False
+                    session['status'] = 'need_login'
+                    session['message'] = (
+                        f'{label} 未登录：请在已打开的浏览器中扫码/登录。'
+                        f'登录成功后会自动继续上传并填充；登录状态会记住，下次不用再登。'
+                    )
+                    session['ready'].set()
+                    logged_in = _wait_until_logged_in(
+                        page, platform, session, timeout_sec=300
+                    )
+                    if logged_in:
+                        session['logged_in'] = True
+                        try:
+                            if not _on_publish_page(page, platform):
+                                page.goto(meta['creator_url'], wait_until='domcontentloaded', timeout=60000)
+                                page.wait_for_timeout(2500)
+                            _fill_platform(platform, page, video_path, title, description, tags, session)
+                            session['status'] = 'pending_review'
+                            session['message'] = (
+                                f'登录成功，已打开{label}发布页并填充内容，请在浏览器中确认后点击发布'
+                            )
+                        except Exception as e:
+                            session['status'] = 'pending_review'
+                            session['warnings'].append(f'自动填充部分失败: {e}')
+                            session['message'] = (
+                                f'登录成功，{label} 页面已打开，自动填充未完全成功，请手动补齐后发布'
+                            )
+                else:
+                    session['logged_in'] = True
+                    try:
+                        _fill_platform(platform, page, video_path, title, description, tags, session)
+                        session['status'] = 'pending_review'
+                        session['message'] = f'已打开{label}发布页面并填充内容，请在浏览器中确认后点击发布'
+                    except Exception as e:
+                        session['status'] = 'pending_review'
+                        session['warnings'].append(f'自动填充部分失败: {e}')
+                        session['message'] = f'{label} 页面已打开，自动填充未完全成功，请手动补齐后发布'
+                    session['ready'].set()
             else:
                 session['logged_in'] = True
                 try:
@@ -294,17 +460,39 @@ def _nav_error_hint(err):
     return f'页面加载失败: {text.splitlines()[0]}'
 
 
-def _looks_like_login(page):
-    """URL 跳转到登录页，或页面上摆着扫码登录框，都算未登录。"""
+def _looks_like_login(page, platform=''):
+    """URL 跳到登录页，或明确的登录控件出现，才算未登录。
+
+    不要用宽泛的 [class*=qrcode]：创作页里也常有二维码相关 class，会误判小红书已登录。
+    """
     try:
         url = (page.url or '').lower()
     except Exception:
         return False
-    if any(k in url for k in ('login', 'signin', 'passport', 'auth')):
+
+    login_url_keys = (
+        '/login', 'login.', 'signin', 'passport', 'sso.',
+        'accounts.xiaohongshu', 'www.xiaohongshu.com/login',
+    )
+    if any(k in url for k in login_url_keys):
         return True
 
-    for sel in ('.login-container', '.login-box', '.qrcode-login',
-                '[class*="login-panel"]', '[class*="qrcode"]'):
+    for t in ('扫码登录', '手机号登录', '请登录', '登录后继续'):
+        try:
+            loc = page.get_by_text(t, exact=False).first
+            if loc.is_visible(timeout=300):
+                return True
+        except Exception:
+            continue
+
+    for sel in (
+        '.login-container',
+        '.login-box',
+        '.qrcode-login',
+        '[class*="login-panel"]',
+        '[class*="LoginContainer"]',
+        '[class*="login-modal"]',
+    ):
         try:
             el = page.query_selector(sel)
             if el and el.is_visible():
@@ -314,31 +502,182 @@ def _looks_like_login(page):
     return False
 
 
+def _on_publish_page(page, platform):
+    try:
+        url = (page.url or '').lower()
+    except Exception:
+        return False
+    if platform == 'xiaohongshu':
+        return 'creator.xiaohongshu.com' in url and 'login' not in url
+    if platform == 'douyin':
+        return 'creator.douyin.com' in url and 'login' not in url
+    if platform == 'shipinhao':
+        return 'channels.weixin.qq.com' in url and 'login' not in url
+    return 'login' not in url
+
+
+def _wait_until_logged_in(page, platform, session, timeout_sec=300):
+    """等待用户在浏览器中完成登录。"""
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline and not session['stop'].is_set():
+        try:
+            if not _looks_like_login(page, platform):
+                return True
+        except Exception:
+            pass
+        remaining = int(max(0, deadline - time.time()))
+        session['message'] = (
+            f'{session.get("label") or platform} 等待扫码登录中…（约剩 {remaining}s），'
+            f'登录成功后将自动继续上传填充'
+        )
+        try:
+            page.wait_for_timeout(2500)
+        except Exception:
+            time.sleep(2.5)
+    try:
+        return not _looks_like_login(page, platform)
+    except Exception:
+        return False
+
+
 # ---------------- filling helpers ----------------
 
-def _set_video(page, video_path, accept_video_first=True, timeout=15000):
-    """找到 file input 并塞视频（隐藏的 input 也可以）。"""
+def _set_video(page, video_path, accept_video_first=True, timeout=15000, search_frames=False):
+    """找到 file input 并塞视频（隐藏的 input 也可以）。
+
+    search_frames=True 时还会在 iframe（如视频号 wujie 微前端）里找。
+    """
     selectors = ['input[type="file"][accept*="video"]', 'input[type="file"]'] \
         if accept_video_first else ['input[type="file"]']
     deadline = time.time() + timeout / 1000
     while time.time() < deadline:
-        for sel in selectors:
-            for el in page.query_selector_all(sel):
+        roots = [page]
+        if search_frames:
+            try:
+                frames = list(page.frames)
+                micro = [f for f in frames if '/micro/' in (f.url or '')]
+                others = [f for f in frames if f not in micro and f != page.main_frame]
+                roots = micro + others + [page]
+            except Exception:
+                roots = [page]
+
+        for root in roots:
+            for sel in selectors:
                 try:
-                    el.set_input_files(video_path)
-                    return True
+                    els = root.query_selector_all(sel)
                 except Exception:
                     continue
+                for el in els:
+                    try:
+                        el.set_input_files(video_path)
+                        return True
+                    except Exception:
+                        continue
         page.wait_for_timeout(1000)
     return False
 
 
-def _fill_first(page, selectors, text, clear=True):
-    """按顺序尝试选择器，支持普通输入框和 contenteditable。"""
+def _set_video_via_chooser(page, video_path, timeout=20000):
+    """点击上传区域触发系统文件选择框，再塞文件（视频号常用）。"""
+    click_targets = [
+        'text=上传视频',
+        'text=点击上传',
+        'text=选择文件',
+        'div.upload-content',
+        'div[class*="upload-content"]',
+        'div[class*="upload-btn"]',
+        'div[class*="uploader"]',
+        'button:has-text("上传")',
+    ]
+    try:
+        with page.expect_file_chooser(timeout=timeout) as fc_info:
+            clicked = False
+            for frame in page.frames:
+                try:
+                    n = frame.locator('input[type="file"]').count()
+                    if n > 0:
+                        frame.evaluate(
+                            'document.querySelector("input[type=\\"file\\"]").click()'
+                        )
+                        clicked = True
+                        break
+                except Exception:
+                    continue
+            if not clicked:
+                for sel in click_targets:
+                    try:
+                        loc = page.locator(sel).first
+                        if loc.count() > 0 and loc.is_visible():
+                            loc.click(timeout=3000)
+                            clicked = True
+                            break
+                    except Exception:
+                        pass
+                    for frame in page.frames:
+                        try:
+                            loc = frame.locator(sel).first
+                            if loc.count() > 0:
+                                loc.click(timeout=3000)
+                                clicked = True
+                                break
+                        except Exception:
+                            continue
+                    if clicked:
+                        break
+            if not clicked:
+                raise Exception('未找到可点击的上传入口')
+        chooser = fc_info.value
+        chooser.set_files(video_path)
+        return True
+    except Exception:
+        return False
+
+
+def _shipinhao_short_title(title):
+    """视频号短标题要求约 6～16 字。"""
+    t = (title or '').strip() or '精彩短视频分享'
+    if len(t) < 6:
+        t = (t + '精彩内容分享')[:16]
+    return t[:16]
+
+
+def _fill_in_frames(page, selectors, text, clear=True):
+    """主页面 + 各 iframe 里尝试填充。"""
     if not text:
         return True
+    roots = []
+    try:
+        frames = list(page.frames)
+        micro = [f for f in frames if '/micro/' in (f.url or '')]
+        roots = micro + [f for f in frames if f not in micro]
+    except Exception:
+        roots = [page]
+    for root in roots:
+        try:
+            if _fill_first(root, selectors, text, clear=clear):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _fill_first(page, selectors, text, clear=True):
+    """按顺序尝试选择器，支持普通输入框和 contenteditable。
+
+    page 可为 Page 或 Frame（视频号 iframe）。
+    """
+    if not text:
+        return True
+    try:
+        keyboard = page.keyboard
+    except AttributeError:
+        keyboard = page.page.keyboard
     for sel in selectors:
-        for el in page.query_selector_all(sel):
+        try:
+            els = page.query_selector_all(sel)
+        except Exception:
+            continue
+        for el in els:
             try:
                 if not el.is_visible():
                     continue
@@ -349,9 +688,9 @@ def _fill_first(page, selectors, text, clear=True):
                 editable = el.get_attribute('contenteditable')
                 if editable in ('', 'true'):
                     if clear:
-                        page.keyboard.press('Control+A')
-                        page.keyboard.press('Delete')
-                    page.keyboard.insert_text(text)
+                        keyboard.press('Control+A')
+                        keyboard.press('Delete')
+                    keyboard.insert_text(text)
                 else:
                     el.fill('')
                     el.type(text, delay=10)
@@ -462,24 +801,84 @@ def _upload_xiaohongshu(page, video_path, title, description, tags, session):
 
 
 def _upload_shipinhao(page, video_path, title, description, tags, session):
-    if not _set_video(page, video_path):
-        session['warnings'].append('未找到上传控件，请手动选择视频')
+    """视频号：上传控件常在 wujie iframe（/micro/）内，需跨 frame 查找。"""
+    # 等微前端加载
+    for _ in range(20):
+        try:
+            if any('/micro/' in (f.url or '') for f in page.frames):
+                break
+            if page.query_selector('input[type="file"]'):
+                break
+        except Exception:
+            pass
+        page.wait_for_timeout(1000)
+
+    uploaded = _set_video(page, video_path, timeout=25000, search_frames=True)
+    if not uploaded:
+        uploaded = _set_video_via_chooser(page, video_path, timeout=25000)
+    if not uploaded:
+        session['warnings'].append(
+            '未找到视频号上传控件（可能在 iframe 内未加载完），请在浏览器中手动选择视频'
+        )
         return
-    page.wait_for_timeout(5000)
 
-    full_desc = f'{description or ""}\n{tags or ""}'.strip()
-    if not _fill_first(page, [
-        '.input-editor[contenteditable="true"]',
-        'div[contenteditable="true"]',
-        '.weui-desktop-form__input',
-    ], full_desc[:900]):
-        session['warnings'].append('描述未自动填充')
+    # 等待上传完成：出现预览 video / 删除按钮 / 短标题可填
+    upload_done = False
+    for i in range(90):
+        try:
+            for root in list(page.frames) + [page]:
+                try:
+                    if root.query_selector('video'):
+                        upload_done = True
+                        break
+                    if root.query_selector('button:has-text("删除")'):
+                        upload_done = True
+                        break
+                    st = root.query_selector('input[placeholder*="概括视频主要内容"]')
+                    if st and not st.is_disabled():
+                        upload_done = True
+                        break
+                except Exception:
+                    continue
+            if upload_done:
+                break
+        except Exception:
+            pass
+        if i in (10, 30, 60):
+            session['message'] = f'视频号视频上传中…（已等待约 {i * 2}s）'
+        page.wait_for_timeout(2000)
 
-    _fill_first(page, [
+    if not upload_done:
+        session['warnings'].append(
+            '未检测到上传完成标志，仍尝试填写表单，请人工确认视频是否已选上'
+        )
+
+    page.wait_for_timeout(2000)
+
+    tag_suffix = ''
+    if tags:
+        parts = [t.strip() for t in str(tags).replace('，', ',').split(',') if t.strip()]
+        tag_suffix = ' ' + ' '.join(f'#{t}' for t in parts[:5])
+    full_desc = f'{(description or "").strip()}{tag_suffix}'.strip()
+
+    short = _shipinhao_short_title(title)
+    if not _fill_in_frames(page, [
         'input[placeholder*="概括视频主要内容"]',
         'input[placeholder*="短标题"]',
         'input[placeholder*="标题"]',
-    ], (title or '')[:16])
+    ], short):
+        session['warnings'].append('短标题未自动填充（需 6～16 字）')
+
+    if full_desc:
+        if not _fill_in_frames(page, [
+            'div.input-editor[contenteditable="true"]',
+            'div[contenteditable="true"][data-placeholder*="描述"]',
+            'div[contenteditable="true"]',
+            '.weui-desktop-form__input',
+        ], full_desc[:900]):
+            session['warnings'].append('描述未自动填充')
+
+    session['message'] = '视频号已尝试上传并填充，请在浏览器中确认后点击「发表」'
 
 
 def _parse_cookies(cookies_str, domain, cookie_domain=''):

@@ -102,6 +102,11 @@ def do_publish(id):
             'UPDATE publish_task SET status=?, error_msg=? WHERE id=?',
             ('reviewing', result['message'], id)
         )
+    elif result['status'] == 'need_login':
+        conn.execute(
+            'UPDATE publish_task SET status=?, error_msg=? WHERE id=?',
+            ('reviewing', result['message'], id)
+        )
     elif result['status'] == 'error':
         conn.execute(
             'UPDATE publish_task SET status=?, error_msg=? WHERE id=?',
@@ -116,6 +121,31 @@ def do_publish(id):
     conn.close()
 
     return jsonify(result)
+
+
+@bp.route('/api/publish/<int:id>/confirm', methods=['POST'])
+def confirm_publish(id):
+    """用户在平台点完发布后，手动确认任务为已发布。"""
+    data = request.get_json(silent=True) or {}
+    publish_url = (data.get('publish_url') or '').strip()
+    conn = _db()
+    row = conn.execute('SELECT id, status FROM publish_task WHERE id=?', (id,)).fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': '发布任务不存在'}), 404
+    if publish_url:
+        conn.execute(
+            "UPDATE publish_task SET status='done', publish_url=?, error_msg='' WHERE id=?",
+            (publish_url, id),
+        )
+    else:
+        conn.execute(
+            "UPDATE publish_task SET status='done', error_msg='' WHERE id=?",
+            (id,),
+        )
+    conn.commit()
+    conn.close()
+    return jsonify({'message': '已标记为已发布', 'status': 'done'})
 
 
 @bp.route('/api/publish/<int:id>', methods=['PUT'])

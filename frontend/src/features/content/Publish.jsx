@@ -5,7 +5,7 @@ import {
 } from 'antd'
 import {
   PlusOutlined, DeleteOutlined, SearchOutlined, ReloadOutlined,
-  RocketOutlined,
+  RocketOutlined, CheckOutlined,
 } from '@ant-design/icons'
 import { Link } from 'react-router-dom'
 import { publishApi, videosApi, platformsApi } from '../../api'
@@ -91,6 +91,11 @@ export default function Publish() {
     publishApi.publish(id).then(res => {
       if (res.status === 'pending_review') {
         message.info({ content: res.message, duration: 8 })
+      } else if (res.status === 'need_login') {
+        message.warning({
+          content: res.message || '需要登录：请在已打开的浏览器中扫码，登录后会自动继续填充',
+          duration: 12,
+        })
       } else if (res.status === 'error') {
         message.error({ content: res.message, duration: 8 })
       } else {
@@ -102,6 +107,13 @@ export default function Publish() {
     }).catch(err => {
       message.error(err?.error || '发布失败')
     }).finally(() => setPublishing(null))
+  }
+
+  const handleConfirm = (id) => {
+    publishApi.confirm(id).then(() => {
+      message.success('已标记为已发布')
+      loadData()
+    }).catch(err => message.error(err?.error || '确认失败'))
   }
 
   const handleCloseSession = (sid) => {
@@ -131,15 +143,45 @@ export default function Publish() {
     { title: '定时', dataIndex: 'scheduled_time', width: 160 },
     { title: '创建时间', dataIndex: 'created_at', width: 160 },
     {
-      title: '操作', key: 'action', width: 140, fixed: 'right',
+      title: '操作', key: 'action', width: 200, fixed: 'right',
       render: (_, r) => (
         <Space size="small">
-          <Tooltip title="发布">
-            <Button size="small" type="primary" ghost icon={<RocketOutlined />}
-              loading={publishing === r.id}
-              disabled={r.status === 'done'}
-              onClick={() => handlePublish(r.id)} />
-          </Tooltip>
+          {r.status === 'reviewing' || r.status === 'pending' ? (
+            <Tooltip title={r.status === 'reviewing' ? '平台已点发布？点此确认' : '打开发布页'}>
+              <Button
+                size="small"
+                type="primary"
+                ghost
+                icon={r.status === 'reviewing' ? <CheckOutlined /> : <RocketOutlined />}
+                loading={publishing === r.id}
+                onClick={() => (r.status === 'reviewing' ? handleConfirm(r.id) : handlePublish(r.id))}
+              >
+                {r.status === 'reviewing' ? '确认已发' : '发布'}
+              </Button>
+            </Tooltip>
+          ) : null}
+          {r.status === 'reviewing' ? (
+            <Tooltip title="重新打开浏览器发布">
+              <Button
+                size="small"
+                icon={<RocketOutlined />}
+                loading={publishing === r.id}
+                onClick={() => handlePublish(r.id)}
+              />
+            </Tooltip>
+          ) : null}
+          {r.status === 'failed' ? (
+            <Tooltip title="重试发布">
+              <Button
+                size="small"
+                type="primary"
+                ghost
+                icon={<RocketOutlined />}
+                loading={publishing === r.id}
+                onClick={() => handlePublish(r.id)}
+              />
+            </Tooltip>
+          ) : null}
           <Popconfirm title="确认删除？" onConfirm={() => {
             publishApi.delete(r.id).then(() => { message.success('已删除'); loadData() })
           }}>
