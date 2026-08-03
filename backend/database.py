@@ -363,6 +363,13 @@ DEFAULT_SETTINGS = [
     ('publish_shipinhao', 'enabled', 'false', '启用视频号发布', '', 'select', '["true","false"]', 1),
     ('publish_shipinhao', 'cookies', '', '视频号发布 Cookies', '', 'textarea', None, 2),
 
+    # ---- Stock screening ----
+    ('stock', 'max_stocks', '300', '初筛扫描上限', '0=全市场(很慢)；建议先 200~500', 'text', None, 1),
+    ('stock', 'match_mode', 'and', '默认匹配模式', 'or=命中任一 / and=全部命中 / min=至少N条', 'select',
+     '["or","and","min"]', 2),
+    ('stock', 'min_hits', '1', '最少命中规则数', '配合 match_mode=min 或 or 使用', 'text', None, 3),
+    ('stock', 'pattern_rules_json', '', '自定义形态规则JSON', '留空则用系统默认启用规则', 'textarea', None, 4),
+
     # ---- System ----
     ('system', 'collect_interval', '60', '采集间隔(分钟)', '', 'text', None, 1),
     ('system', 'auto_publish', 'false', '自动发布', '开启后视频完成后自动发布', 'select', '["true","false"]', 2),
@@ -431,6 +438,7 @@ def init_db():
     _add_column_if_not_exists(cur, 'hot_topic', 'content_kind', "TEXT DEFAULT 'koubo'")
     _add_column_if_not_exists(cur, 'hot_topic', 'engagement_rate', 'REAL DEFAULT 0')
     _add_column_if_not_exists(cur, 'hot_topic', 'engagement_score', 'REAL DEFAULT 0')
+    _add_column_if_not_exists(cur, 'stock_screening', 'message', "TEXT DEFAULT ''")
 
     # 强制校正品牌内容运营关键设置（修正旧默认值）
     _upsert_setting(cur, 'system', 'fixed_ending',
