@@ -35,6 +35,118 @@ const screeningConditions = [
   'RSI低位', '布林下轨', 'KDJ金叉', '回踩支撑',
 ]
 
+const INDICATOR_LABELS = {
+  MACD: 'MACD', KDJ: 'KDJ', RSI: 'RSI', MA: '均线', BOLL: '布林带',
+  VOLUME: '成交量', TREND: '趋势',
+}
+
+function numOrNull(v) {
+  if (v == null || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+function KLineChart({ bars = [] }) {
+  const data = Array.isArray(bars) ? bars.slice(-80) : []
+  if (data.length < 2) {
+    return <Empty description="K线数据不足（接口未返回 bars）" style={{ padding: 24 }} />
+  }
+
+  const width = 900
+  const height = 360
+  const pad = { left: 54, right: 15, top: 25, bottom: 34 }
+  const plotW = width - pad.left - pad.right
+  const plotH = height - pad.top - pad.bottom
+  const maKeys = ['MA5', 'MA10', 'MA20', 'MA30', 'MA60', 'MA250']
+  const colors = {
+    MA5: '#e6a23c', MA10: '#8b5cf6', MA20: '#1677ff',
+    MA30: '#13c2c2', MA60: '#722ed1', MA250: '#333',
+  }
+  // JSON null 经 Number() 会变成 0，必须先过滤，否则坐标被压扁
+  const values = data.flatMap(d => [
+    numOrNull(d.high), numOrNull(d.low),
+    ...maKeys.map(k => numOrNull(d[k])),
+  ]).filter(v => v != null)
+  if (values.length < 2) {
+    return <Empty description="K线价格字段无效" style={{ padding: 24 }} />
+  }
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const range = Math.max(max - min, 0.01)
+  const y = v => pad.top + (max - Number(v)) / range * plotH
+  const step = plotW / data.length
+  const x = i => pad.left + step * (i + 0.5)
+  const bodyW = Math.max(2, step * 0.58)
+
+  const linePath = key => {
+    let started = false
+    return data.map((d, i) => {
+      const v = numOrNull(d[key])
+      if (v == null) return ''
+      const cmd = started ? 'L' : 'M'
+      started = true
+      return `${cmd}${x(i).toFixed(1)},${y(v).toFixed(1)}`
+    }).filter(Boolean).join(' ')
+  }
+
+  return (
+    <div style={{ overflowX: 'auto' }}>
+      <Space wrap size={12} style={{ marginBottom: 6 }}>
+        {maKeys.map(k => (
+          <span key={k} style={{ color: colors[k], fontSize: 12 }}>
+            {k === 'MA250' ? '年线MA250' : k}
+          </span>
+        ))}
+        <span style={{ color: '#999', fontSize: 12 }}>红涨绿跌 · 日K · 最近{data.length}日</span>
+      </Space>
+      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: '100%', minWidth: 680, background: '#fafafa', display: 'block' }}>
+        {[0, 0.25, 0.5, 0.75, 1].map((p, i) => {
+          const yy = pad.top + p * plotH
+          const price = max - p * range
+          return (
+            <g key={i}>
+              <line x1={pad.left} y1={yy} x2={width - pad.right} y2={yy} stroke="#e8e8e8" />
+              <text x={pad.left - 6} y={yy + 4} textAnchor="end" fontSize="11" fill="#888">{price.toFixed(2)}</text>
+            </g>
+          )
+        })}
+        {data.map((d, i) => {
+          const open = numOrNull(d.open)
+          const close = numOrNull(d.close)
+          const high = numOrNull(d.high)
+          const low = numOrNull(d.low)
+          if (open == null || close == null || high == null || low == null) return null
+          const color = close >= open ? '#cf1322' : '#389e0d'
+          const top = y(Math.max(open, close))
+          const bodyH = Math.max(1, Math.abs(y(open) - y(close)))
+          return (
+            <g key={d.date || i}>
+              <line x1={x(i)} y1={y(high)} x2={x(i)} y2={y(low)} stroke={color} />
+              <rect
+                x={x(i) - bodyW / 2}
+                y={top}
+                width={bodyW}
+                height={bodyH}
+                fill={close >= open ? color : '#fff'}
+                stroke={color}
+              />
+            </g>
+          )
+        })}
+        {maKeys.map(k => {
+          const d = linePath(k)
+          return d ? <path key={k} d={d} fill="none" stroke={colors[k]} strokeWidth="1.2" /> : null
+        })}
+        {[0, Math.floor(data.length / 2), data.length - 1].map(i => (
+          <text key={i} x={x(i)} y={height - 10} textAnchor="middle" fontSize="11" fill="#888">
+            {(data[i]?.date || '').slice(5)}
+          </text>
+        ))}
+      </svg>
+    </div>
+  )
+}
+
 export default function Stocks() {
   const [activeTab, setActiveTab] = useState('watchlist')
 
@@ -48,6 +160,7 @@ export default function Stocks() {
   const [indicatorsData, setIndicatorsData] = useState(null)
   const [indicatorsLoading, setIndicatorsLoading] = useState(false)
   const [indicatorsCode, setIndicatorsCode] = useState('')
+  const [indicatorsName, setIndicatorsName] = useState('')
 
   const loadWatchlist = () => {
     setWatchlistLoading(true)
@@ -73,14 +186,21 @@ export default function Stocks() {
     })
   }
 
-  const handleViewIndicators = (code) => {
+  const handleViewIndicators = (codeOrRow) => {
+    const code = typeof codeOrRow === 'object'
+      ? (codeOrRow.stock_code || codeOrRow.code)
+      : codeOrRow
+    const name = typeof codeOrRow === 'object'
+      ? (codeOrRow.stock_name || codeOrRow.name || '')
+      : ''
     setIndicatorsCode(code)
+    setIndicatorsName(name)
     setIndicatorsModal(true)
     setIndicatorsLoading(true)
     setIndicatorsData(null)
     stocksApi.indicators(code)
       .then(data => setIndicatorsData(data))
-      .catch(() => message.error('获取指标失败'))
+      .catch(err => message.error(err?.error || '获取指标失败'))
       .finally(() => setIndicatorsLoading(false))
   }
 
@@ -89,7 +209,7 @@ export default function Stocks() {
     {
       title: '股票代码', dataIndex: 'stock_code', width: 120,
       render: (v, r) => (
-        <a onClick={() => handleViewIndicators(v)} style={{ cursor: 'pointer', color: '#1677ff' }}>
+        <a onClick={() => handleViewIndicators(r)} style={{ cursor: 'pointer', color: '#1677ff' }}>
           {v}
         </a>
       ),
@@ -359,32 +479,6 @@ export default function Stocks() {
               </Form.Item>
             </Form>
           </Modal>
-
-          {/* Technical Indicators Modal */}
-          <Modal
-            title={`技术指标 - ${indicatorsCode}`}
-            open={indicatorsModal}
-            onCancel={() => setIndicatorsModal(false)}
-            footer={null}
-            width={600}
-          >
-            <Spin spinning={indicatorsLoading}>
-              {indicatorsData ? (
-                <div style={{ marginTop: 16 }}>
-                  {Object.entries(indicatorsData).map(([key, value]) => (
-                    <Row key={key} gutter={16} style={{ marginBottom: 12 }}>
-                      <Col span={10} style={{ fontWeight: 600, textAlign: 'right' }}>{key}：</Col>
-                      <Col span={14}>
-                        {typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value ?? '-')}
-                      </Col>
-                    </Row>
-                  ))}
-                </div>
-              ) : !indicatorsLoading ? (
-                <Empty description="暂无指标数据" style={{ padding: 32 }} />
-              ) : null}
-            </Spin>
-          </Modal>
         </div>
       ),
     },
@@ -638,6 +732,54 @@ export default function Stocks() {
     <div>
       <div className="page-title">股票研究系统</div>
       <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} size="large" />
+
+      <Modal
+        title={`K线/指标 - ${indicatorsName ? `${indicatorsName}(${indicatorsCode})` : indicatorsCode}`}
+        open={indicatorsModal}
+        onCancel={() => setIndicatorsModal(false)}
+        footer={null}
+        width={1000}
+        destroyOnClose
+      >
+        <Spin spinning={indicatorsLoading}>
+          {Object.keys(indicatorsData?.indicators || {}).length > 0 || (indicatorsData?.bars || []).length > 0 ? (
+            <div style={{ marginTop: 8 }}>
+              {indicatorsData.close != null && (
+                <div style={{ marginBottom: 12, fontSize: 15 }}>
+                  收盘 <b>{indicatorsData.close}</b>
+                  <span style={{
+                    marginLeft: 12,
+                    color: (indicatorsData.pct_hint || 0) > 0 ? '#cf1322'
+                      : (indicatorsData.pct_hint || 0) < 0 ? '#3f8600' : '#666',
+                  }}>
+                    {(indicatorsData.pct_hint || 0) > 0 ? '+' : ''}{indicatorsData.pct_hint}%
+                  </span>
+                </div>
+              )}
+              <KLineChart bars={indicatorsData.bars || []} />
+              <Divider>最新技术指标</Divider>
+              {Object.entries(indicatorsData.indicators || {}).map(([key, value]) => (
+                <Row key={key} gutter={16} style={{ marginBottom: 10 }}>
+                  <Col span={4} style={{ fontWeight: 600 }}>{INDICATOR_LABELS[key] || key}</Col>
+                  <Col span={20}>
+                    {typeof value === 'object' && value !== null
+                      ? Object.entries(value).map(([k, v]) => (
+                        <Tag key={k} style={{ marginBottom: 4 }}>{k}: {String(v ?? '-')}</Tag>
+                      ))
+                      : String(value ?? '-')}
+                  </Col>
+                </Row>
+              ))}
+              {indicatorsData.note && <div style={{ color: '#888', marginTop: 8 }}>{indicatorsData.note}</div>}
+            </div>
+          ) : !indicatorsLoading ? (
+            <Empty
+              description={indicatorsData?.note || indicatorsData?.error || '暂无指标数据'}
+              style={{ padding: 32 }}
+            />
+          ) : null}
+        </Spin>
+      </Modal>
     </div>
   )
 }

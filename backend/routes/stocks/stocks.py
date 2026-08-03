@@ -72,26 +72,40 @@ def delete_from_watchlist(id):
 
 @bp.route('/api/stocks/indicators')
 def get_indicators():
-    """Get technical indicators for a stock (MACD, KDJ, RSI, MA, BOLL)."""
+    """Get technical indicators + daily bars for K-line chart."""
     code = request.args.get('code', '')
     if not code:
         return jsonify({'error': 'stock code required'}), 400
-
-    # Return indicator configuration (real data would require market data API)
-    indicators = {
-        'code': code,
-        'indicators': {
-            'MACD': {'DIF': 0, 'DEA': 0, 'MACD': 0, 'signal': '待计算'},
-            'KDJ': {'K': 0, 'D': 0, 'J': 0, 'signal': '待计算'},
-            'RSI': {'RSI6': 0, 'RSI12': 0, 'RSI24': 0, 'signal': '待计算'},
-            'MA': {'MA5': 0, 'MA10': 0, 'MA20': 0, 'MA60': 0, 'signal': '待计算'},
-            'BOLL': {'UP': 0, 'MID': 0, 'LOW': 0, 'signal': '待计算'},
-            'VOLUME': {'signal': '待计算'},
-            'TREND': {'signal': '待计算'},
-        },
-        'note': '接入行情数据源后可显示实时技术指标。推荐接入 Tushare、AKShare 等免费数据源。'
-    }
-    return jsonify(indicators)
+    try:
+        from modules.market_data import get_daily_bars
+        from modules.stock_ta import add_indicators, latest_snapshot
+        df = get_daily_bars(code, days=300)
+        if df is None or df.empty:
+            return jsonify({
+                'code': code,
+                'indicators': {},
+                'bars': [],
+                'note': '暂无行情数据，请稍后重试或检查代码',
+            })
+        df = add_indicators(df)
+        snap = latest_snapshot(df)
+        chart_cols = [
+            'date', 'open', 'high', 'low', 'close', 'volume',
+            'MA5', 'MA10', 'MA20', 'MA30', 'MA60', 'MA250',
+        ]
+        chart_df = df[[c for c in chart_cols if c in df.columns]].tail(120).copy()
+        chart_df['date'] = chart_df['date'].dt.strftime('%Y-%m-%d')
+        chart_df = chart_df.where(chart_df.notna(), None)
+        return jsonify({
+            'code': code,
+            'indicators': {k: v for k, v in snap.items() if isinstance(v, dict)},
+            'bars': chart_df.to_dict('records'),
+            'close': snap.get('close'),
+            'pct_hint': snap.get('pct_hint'),
+            'note': '基于腾讯/新浪日K计算；年线按250个交易日',
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 # ---- Screening ----

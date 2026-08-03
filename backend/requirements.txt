@@ -4,3 +4,6 @@ requests>=2.31
 edge-tts>=6.1
 Pillow>=10.0
 playwright>=1.40
+pandas>=2.0
+akshare>=1.14
+psycopg2-binary>=2.9
