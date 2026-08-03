@@ -174,6 +174,23 @@ CREATE TABLE IF NOT EXISTS system_setting (
     UNIQUE(category, key)
 );
 
+-- User-defined / extended ops platforms (collector + publish)
+CREATE TABLE IF NOT EXISTS ops_platform (
+    id SERIAL PRIMARY KEY,
+    key TEXT NOT NULL UNIQUE,
+    label TEXT NOT NULL,
+    color TEXT DEFAULT 'blue',
+    description TEXT DEFAULT '',
+    priority INTEGER DEFAULT 100,
+    cookie_domain TEXT DEFAULT '',
+    creator_url TEXT DEFAULT '',
+    search_url_template TEXT DEFAULT '',
+    enable_collector BOOLEAN DEFAULT TRUE,
+    enable_publish BOOLEAN DEFAULT TRUE,
+    builtin BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ============================================================
 -- V1.2 New Tables
 -- ============================================================
@@ -255,6 +272,7 @@ CREATE TABLE IF NOT EXISTS stock_screening (
     conditions_json TEXT DEFAULT '',
     results_json TEXT DEFAULT '',
     status TEXT DEFAULT 'completed',
+    message TEXT DEFAULT '',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -363,13 +381,28 @@ DEFAULT_SETTINGS = [
     ('publish_shipinhao', 'enabled', 'false', '启用视频号发布', '', 'select', '["true","false"]', 1),
     ('publish_shipinhao', 'cookies', '', '视频号发布 Cookies', '', 'textarea', None, 2),
 
+    # ---- Publish: 通用 ----
+    ('publish', 'keep_open_minutes', '60', '发布浏览器保持打开(分钟)', '打开发布页后浏览器保留多久等待你手动确认', 'text', None, 1),
+
     # ---- System ----
-    ('system', 'collect_interval', '60', '采集间隔(分钟)', '', 'text', None, 1),
+    ('system', 'collect_interval', '60', '采集间隔(分钟)', '预留：平台口播定时采集间隔', 'text', None, 1),
     ('system', 'auto_publish', 'false', '自动发布', '开启后视频完成后自动发布', 'select', '["true","false"]', 2),
     # V1.2: Content schedule
     ('system', 'daily_traffic_count', '2', '每日泛流量文案数', '提高播放/点赞/转发/关注', 'text', None, 3),
     ('system', 'daily_insurance_count', '1', '每日保险知识文案数', '保险避坑/理赔案例/家庭保障', 'text', None, 4),
     ('system', 'fixed_ending', '祁实说实话，替你的保单说话，给你最放心的选择。关注我，来找我。', '固定收尾文案', '所有文案统一加入的收尾，形成品牌IP', 'textarea', None, 5),
+    ('system', 'daily_auto_enabled', 'false', '每日自动日更', '开启后按设定整点自动：采热点→写文案→出片', 'select', '["true","false"]', 6),
+    ('system', 'daily_run_hour', '8', '日更执行整点', '0-23，例如 8 表示每天 8:00-8:10 窗口执行', 'text', None, 7),
+    ('system', 'daily_last_run', '', '上次日更时间', '系统自动写入，勿手改', 'text', None, 8),
+    ('system', 'daily_last_run_date', '', '上次日更日期', '系统自动写入，用于防同日重复', 'text', None, 9),
+
+    # ---- Stock screening ----
+    ('stock', 'max_stocks', '300', '初筛扫描上限', '0=全市场(很慢)；建议先 200~500，缓存热了再加大', 'text', None, 1),
+    ('stock', 'match_mode', 'and', '默认匹配模式', 'or=命中任一 / and=全部命中 / min=至少N条', 'select',
+     '["or","and","min"]', 2),
+    ('stock', 'min_hits', '1', '最少命中规则数', '配合 match_mode=min 或 or 使用', 'text', None, 3),
+    ('stock', 'pattern_rules_json', '', '自定义形态规则JSON', '留空则用系统默认启用规则', 'textarea', None, 4),
+    ('stock', 'cache_dir', '', '行情缓存目录', '留空=backend/data/stock_cache', 'text', None, 5),
 ]
 
 
@@ -431,6 +464,8 @@ def init_db():
     _add_column_if_not_exists(cur, 'hot_topic', 'content_kind', "TEXT DEFAULT 'koubo'")
     _add_column_if_not_exists(cur, 'hot_topic', 'engagement_rate', 'REAL DEFAULT 0')
     _add_column_if_not_exists(cur, 'hot_topic', 'engagement_score', 'REAL DEFAULT 0')
+    _add_column_if_not_exists(cur, 'stock_screening', 'message', "TEXT DEFAULT ''")
+    _add_column_if_not_exists(cur, 'knowledge_item', 'stock_code', "TEXT DEFAULT ''")
 
     # 强制校正品牌内容运营关键设置（修正旧默认值）
     _upsert_setting(cur, 'system', 'fixed_ending',

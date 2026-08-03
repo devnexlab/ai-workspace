@@ -22,6 +22,8 @@ export const scriptsApi = {
   create: (data) => api.post('/scripts', data),
   generate: (data) => api.post('/scripts/generate', data, { timeout: API_LONG_TIMEOUT }),
   dailyPlan: (data) => api.post('/scripts/daily-plan', data || {}, { timeout: API_LONG_TIMEOUT * 5 }),
+  dailyRun: (data) => api.post('/scripts/daily-run', data || {}, { timeout: API_LONG_TIMEOUT * 8 }),
+  dailyRunStatus: () => api.get('/scripts/daily-run/status'),
   update: (id, data) => api.put(`/scripts/${id}`, data),
   delete: (id) => api.delete(`/scripts/${id}`),
 }
@@ -59,7 +61,9 @@ export const publishApi = {
   list: (params) => api.get('/publish', { params }),
   create: (data) => api.post('/publish', data),
   update: (id, data) => api.put(`/publish/${id}`, data),
-  publish: (id) => api.post(`/publish/${id}/publish`, {}, { timeout: API_LONG_TIMEOUT }),
+  publish: (id) => api.post(`/publish/${id}/publish`, {}, { timeout: API_LONG_TIMEOUT * 3 }),
   delete: (id) => api.delete(`/publish/${id}`),
   status: () => api.get('/publish/status'),
+  sessions: () => api.get('/publish/sessions'),
+  closeSession: (sid) => api.post(`/publish/sessions/${sid}/close`),
 }

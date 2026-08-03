@@ -16,7 +16,8 @@ const KIND_LABELS = { hotspot: '热点选题', koubo: '口播素材' }
 const AGE_FALLBACK = [
   { key: '20s', label: '20-29岁' }, { key: '30s', label: '30-39岁' },
   { key: '40s', label: '40-49岁' }, { key: '50s', label: '50-59岁' },
-  { key: '60s', label: '60-69岁' }, { key: '70s', label: '70岁+' },
+  { key: '60s', label: '60-69岁' }, { key: '70s', label: '70-79岁' },
+  { key: '80s', label: '80岁+' },
   { key: 'all', label: '全年龄' },
 ]
 

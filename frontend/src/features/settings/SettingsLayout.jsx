@@ -1,6 +1,6 @@
 import { Outlet, useLocation, Navigate } from 'react-router-dom'
 import { Spin } from 'antd'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { settingsApi } from '../../api'
 
 /**
@@ -12,11 +12,14 @@ export default function SettingsLayout() {
   const [loading, setLoading] = useState(true)
   const location = useLocation()
 
-  useEffect(() => {
-    settingsApi.modules()
+  const reloadModules = useCallback(() => {
+    return settingsApi.modules()
       .then(res => setModules(res.modules || []))
-      .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    reloadModules().finally(() => setLoading(false))
+  }, [reloadModules])
 
   if (loading) {
     return <div style={{ textAlign: 'center', padding: 80 }}><Spin size="large" /></div>
@@ -29,7 +32,7 @@ export default function SettingsLayout() {
 
   return (
     <div>
-      <Outlet context={{ modules }} />
+      <Outlet context={{ modules, reloadModules }} />
     </div>
   )
 }

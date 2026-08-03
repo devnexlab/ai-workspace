@@ -98,6 +98,59 @@ def fetch_baidu_hot(limit=20):
     return items
 
 
+_AGG_BASE = 'https://60s.viki.moe/v2'
+_AGG_SOURCES = [
+    ('toutiao', 'toutiao_hot', '头条热榜'),
+    ('zhihu', 'zhihu_hot', '知乎热榜'),
+]
+
+
+def _fetch_aggregated(source, platform_key, author, limit=20):
+    """
+    公开热榜聚合接口。视频号没有开放的内容搜索，
+    这里用通用热榜补充口播选题来源。
+    """
+    items = []
+    try:
+        resp = requests.get(
+            f'{_AGG_BASE}/{source}',
+            headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0'},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return items
+        rows = (resp.json() or {}).get('data') or []
+        if not isinstance(rows, list):
+            return items
+        for i, row in enumerate(rows[:limit]):
+            title = (row.get('title') or '').strip()
+            if not title:
+                continue
+            try:
+                hot = int(row.get('hot_value') or 0)
+            except (TypeError, ValueError):
+                hot = 0
+            items.append({
+                'platform': platform_key,
+                'title': title,
+                'author': author,
+                'likes': hot,
+                'comments': 0,
+                'favorites': 0,
+                'shares': 0,
+                'url': row.get('link') or '',
+                'cover': row.get('cover') or '',
+                'keyword': '实时热榜',
+                'source_type': 'hotspot',
+                'content_kind': 'hotspot',
+                'hot_rank': i + 1,
+                'publish_time': datetime.now().strftime('%Y-%m-%d %H:%M'),
+            })
+    except Exception as e:
+        print(f'[Hotspot] {source} failed: {e}')
+    return items
+
+
 def fetch_ai_daily_hotspots(limit=10):
     """AI 兜底：生成今日适合泛流量/保险口播的热点选题。"""
     try:
@@ -107,7 +160,7 @@ def fetch_ai_daily_hotspots(limit=10):
         prompt = f"""今天是{today}。请给出{limit}条「适合短视频口播」的实时/近期热点选题。
 覆盖不同年龄段（20-80岁），偏人生共鸣、家庭、健康、社会话题；其中约2条可自然接到保险/保障。
 只返回JSON数组：
-[{{"title":"选题标题","age_band":"20s|30s|40s|50s|60s|70s|all","kind":"traffic|insurance","reason":"为何适合口播"}}]"""
+[{{"title":"选题标题","age_band":"20s|30s|40s|50s|60s|70s|80s|all","kind":"traffic|insurance","reason":"为何适合口播"}}]"""
         resp, _, _ = call_llm(prompt, system_prompt='只输出JSON数组', temperature=0.4, max_tokens=1200)
         match = re.search(r'\[[\s\S]*\]', resp or '')
         if not match:
@@ -145,8 +198,23 @@ def fetch_ai_daily_hotspots(limit=10):
 def fetch_all_hotspots(use_ai_fallback=True):
     """聚合全网实时热点。"""
     items = []
-    items.extend(fetch_weibo_hot(20))
-    items.extend(fetch_baidu_hot(20))
+    sources_ok = []
+
+    weibo = fetch_weibo_hot(20)
+    if weibo:
+        sources_ok.append('微博')
+    items.extend(weibo)
+
+    baidu = fetch_baidu_hot(20)
+    if baidu:
+        sources_ok.append('百度')
+    items.extend(baidu)
+
+    for source, platform_key, author in _AGG_SOURCES:
+        rows = _fetch_aggregated(source, platform_key, author, 20)
+        if rows:
+            sources_ok.append(author.replace('热榜', ''))
+        items.extend(rows)
 
     # 去重
     seen = set()
@@ -165,5 +233,8 @@ def fetch_all_hotspots(use_ai_fallback=True):
             if t not in seen:
                 seen.add(t)
                 unique.append(it)
+        if ai_items:
+            sources_ok.append('AI补全')
 
-    return unique, f'全网热点 {len(unique)} 条（微博/百度{"+AI补全" if use_ai_fallback else ""}）'
+    src = '/'.join(sources_ok) if sources_ok else '无可用源'
+    return unique, f'全网热点 {len(unique)} 条（{src}）'

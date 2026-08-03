@@ -12,19 +12,84 @@ from modules.content_ops import (
 bp = Blueprint('hot_topics', __name__)
 
 
+def _normalize_title(title):
+    """统一空白，便于判定「同一选题」。"""
+    if not title:
+        return ''
+    return ' '.join(str(title).strip().split())
+
+
+def _title_key(title):
+    """去重键：规范化后取前 40 字（同选题跨平台也合并）。"""
+    t = _normalize_title(title)
+    return t[:40] if t else ''
+
+
+def _dedupe_existing_topics(conn=None):
+    """
+    清理库内同标题重复行：同一选题只留一条。
+    保留规则：互动分高 > 点赞高 > id 新。
+    返回删除条数。
+    """
+    own = conn is None
+    if own:
+        conn = _db()
+    rows = conn.execute(
+        'SELECT id, title, engagement_score, likes FROM hot_topic'
+    ).fetchall()
+    best = {}  # title_key -> (score, likes, id)
+    drop_ids = []
+    for row in rows:
+        key = _title_key(row['title'])
+        if not key:
+            continue
+        score = float(row['engagement_score'] or 0)
+        likes = int(row['likes'] or 0)
+        rid = row['id']
+        cur = best.get(key)
+        if cur is None:
+            best[key] = (score, likes, rid)
+            continue
+        # 当前行更好 → 丢掉旧的 best.id；否则丢掉当前行
+        better = (score, likes, rid) > (cur[0], cur[1], cur[2])
+        if better:
+            drop_ids.append(cur[2])
+            best[key] = (score, likes, rid)
+        else:
+            drop_ids.append(rid)
+
+    for rid in drop_ids:
+        conn.execute('DELETE FROM hot_topic WHERE id=?', (rid,))
+    if own:
+        conn.commit()
+        conn.close()
+    return len(drop_ids)
+
+
 def _insert_items(items):
-    """写入 hot_topic，返回插入数。"""
+    """写入 hot_topic，按标题去重后返回插入数。"""
     if not items:
         return 0
     conn = _db()
+    existing = {
+        _title_key(r['title'])
+        for r in conn.execute('SELECT title FROM hot_topic').fetchall()
+        if _title_key(r['title'])
+    }
     inserted = 0
+    batch_seen = set()
     for item in items:
         try:
+            key = _title_key(item.get('title', ''))
+            if not key or key in existing or key in batch_seen:
+                continue
+
             # AI 轻量评分：有互动分则映射，否则 50
             ai_score = item.get('ai_score')
             if ai_score is None:
                 ai_score = min(99, (item.get('engagement_rate') or 0) * 0.9 + 10)
 
+            title = _normalize_title(item.get('title', ''))
             conn.execute(
                 '''INSERT INTO hot_topic
                    (platform, title, author, publish_time, likes, comments, favorites, shares,
@@ -33,7 +98,7 @@ def _insert_items(items):
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                 (
                     item.get('platform', ''),
-                    item.get('title', ''),
+                    title,
                     item.get('author', ''),
                     item.get('publish_time', ''),
                     int(item.get('likes') or 0),
@@ -53,6 +118,8 @@ def _insert_items(items):
                     float(item.get('engagement_score') or 0),
                 )
             )
+            existing.add(key)
+            batch_seen.add(key)
             inserted += 1
         except Exception as e:
             print(f'[ContentOps] insert fail: {e}')
@@ -212,10 +279,15 @@ def refresh_intelligence():
         return jsonify({'collected': 0, 'message': f'刷新失败: {e}'}), 500
 
     inserted = _insert_items(items)
+    removed = _dedupe_existing_topics()
+    msg = message or f'已入库 {inserted} 条'
+    if removed:
+        msg += f'；已清理重复选题 {removed} 条'
     return jsonify({
         'collected': inserted,
         'total_fetched': len(items),
-        'message': message or f'已入库 {inserted} 条',
+        'deduped': removed,
+        'message': msg,
         'top': [
             {
                 'title': x.get('title'),
@@ -251,7 +323,11 @@ def collect_compat():
             it['age_band'] = guess_age_band(it.get('title', ''), it.get('keyword', ''))
         items = enrich_and_rank(items)
         inserted = _insert_items(items)
-        return jsonify({'collected': inserted, 'message': message})
+        removed = _dedupe_existing_topics()
+        msg = message or f'已入库 {inserted} 条'
+        if removed:
+            msg += f'；已清理重复选题 {removed} 条'
+        return jsonify({'collected': inserted, 'deduped': removed, 'message': msg})
 
     try:
         items, message = run_full_intelligence(
@@ -264,7 +340,16 @@ def collect_compat():
     except Exception as e:
         return jsonify({'collected': 0, 'message': str(e)}), 500
     inserted = _insert_items(items)
-    return jsonify({'collected': inserted, 'message': message, 'total_fetched': len(items)})
+    removed = _dedupe_existing_topics()
+    msg = message or f'已入库 {inserted} 条'
+    if removed:
+        msg += f'；已清理重复选题 {removed} 条'
+    return jsonify({
+        'collected': inserted,
+        'deduped': removed,
+        'message': msg,
+        'total_fetched': len(items),
+    })
 
 
 @bp.route('/api/hot-topics/<int:id>/generate-script', methods=['POST'])

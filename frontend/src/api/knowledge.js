@@ -8,5 +8,6 @@ export const knowledgeApi = {
   update: (id, data) => api.put(`/knowledge/${id}`, data),
   delete: (id) => api.delete(`/knowledge/${id}`),
   aiProcess: (id) => api.post(`/knowledge/${id}/ai-process`, {}, { timeout: API_LONG_TIMEOUT }),
+  compare: (data) => api.post('/knowledge/compare', data, { timeout: API_LONG_TIMEOUT }),
   categories: () => api.get('/knowledge/categories'),
 }

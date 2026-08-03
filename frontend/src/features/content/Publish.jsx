@@ -1,22 +1,14 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import {
   Table, Tag, Button, Input, Select, Space, Modal, message,
   Popconfirm, Tooltip, Row, Col, Card, Statistic, Form, Alert,
 } from 'antd'
 import {
   PlusOutlined, DeleteOutlined, SearchOutlined, ReloadOutlined,
-  RocketOutlined, VideoCameraOutlined, CheckCircleOutlined,
+  RocketOutlined,
 } from '@ant-design/icons'
 import { Link } from 'react-router-dom'
-import { publishApi, videosApi, settingsApi } from '../../api'
-
-const platformOptions = [
-  { value: 'douyin', label: '抖音' },
-  { value: 'xiaohongshu', label: '小红书' },
-  { value: 'shipinhao', label: '视频号' },
-]
-const platformLabels = { douyin: '抖音', xiaohongshu: '小红书', shipinhao: '视频号' }
-const platformColors = { douyin: 'black', xiaohongshu: 'red', shipinhao: 'green' }
+import { publishApi, videosApi, platformsApi } from '../../api'
 
 const statusOptions = [
   { value: 'pending', label: '待发布' },
@@ -36,7 +28,24 @@ export default function Publish() {
   const [publishing, setPublishing] = useState(null)
   const [videos, setVideos] = useState([])
   const [pubStatus, setPubStatus] = useState({})
+  const [platforms, setPlatforms] = useState([])
+  const [sessions, setSessions] = useState([])
   const [form] = Form.useForm()
+
+  const platformOptions = useMemo(
+    () => platforms
+      .filter(p => p.enable_publish !== false)
+      .map(p => ({ value: p.key, label: p.label })),
+    [platforms],
+  )
+  const platformLabels = useMemo(
+    () => Object.fromEntries(platforms.map(p => [p.key, p.label])),
+    [platforms],
+  )
+  const platformColors = useMemo(
+    () => Object.fromEntries(platforms.map(p => [p.key, p.color || 'blue'])),
+    [platforms],
+  )
 
   const loadData = (p = page, f = filters) => {
     setLoading(true)
@@ -45,9 +54,21 @@ export default function Publish() {
       .finally(() => setLoading(false))
   }
 
+  const loadSessions = () => {
+    publishApi.sessions()
+      .then(res => setSessions(res.list || []))
+      .catch(() => {})
+  }
+
   useEffect(() => {
     loadData(1)
     publishApi.status().then(setPubStatus).catch(() => {})
+    platformsApi.list()
+      .then(res => setPlatforms(res.list || []))
+      .catch(() => {})
+    loadSessions()
+    const timer = setInterval(loadSessions, 10000)
+    return () => clearInterval(timer)
   }, [])
 
   const loadVideos = () => {
@@ -69,17 +90,25 @@ export default function Publish() {
     setPublishing(id)
     publishApi.publish(id).then(res => {
       if (res.status === 'pending_review') {
-        message.info(res.message)
+        message.info({ content: res.message, duration: 8 })
       } else if (res.status === 'error') {
-        message.error(res.message)
+        message.error({ content: res.message, duration: 8 })
       } else {
         message.success(res.message || '发布成功')
       }
       loadData()
+      loadSessions()
       publishApi.status().then(setPubStatus)
     }).catch(err => {
       message.error(err?.error || '发布失败')
     }).finally(() => setPublishing(null))
+  }
+
+  const handleCloseSession = (sid) => {
+    publishApi.closeSession(sid).then(() => {
+      message.success('已请求关闭浏览器')
+      setTimeout(loadSessions, 1500)
+    }).catch(() => message.error('关闭失败'))
   }
 
   const columns = [
@@ -88,8 +117,10 @@ export default function Publish() {
       render: v => v || '-' },
     { title: '标题', dataIndex: 'title', ellipsis: true },
     {
-      title: '平台', dataIndex: 'platform', width: 80,
-      render: v => v ? <Tag color={platformColors[v]}>{platformLabels[v]}</Tag> : '-'
+      title: '平台', dataIndex: 'platform', width: 100,
+      render: v => v
+        ? <Tag color={platformColors[v]}>{platformLabels[v] || v}</Tag>
+        : '-',
     },
     { title: '描述', dataIndex: 'description', width: 200, ellipsis: true },
     { title: '标签', dataIndex: 'tags', width: 120, ellipsis: true },
@@ -120,8 +151,8 @@ export default function Publish() {
   ]
 
   const unconfigured = Object.entries(pubStatus)
-    .filter(([k, v]) => k !== 'playwright_installed' && !v.enabled)
-    .map(([k]) => k.replace('publish_', ''))
+    .filter(([k, v]) => k !== 'playwright_installed' && v && !v.enabled)
+    .map(([k, v]) => v.platform_name || k)
 
   return (
     <div>
@@ -143,6 +174,21 @@ export default function Publish() {
             </span>
           }
         />
+      )}
+
+      {sessions.length > 0 && (
+        <Card size="small" style={{ marginBottom: 16 }}
+          title={<span><RocketOutlined /> 正在打开的发布浏览器（确认发布后再关闭）</span>}>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {sessions.map(s => (
+              <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Tag color={s.status === 'need_login' ? 'warning' : 'processing'}>{s.label}</Tag>
+                <span style={{ flex: 1, color: '#555' }}>{s.message}</span>
+                <Button size="small" onClick={() => handleCloseSession(s.id)}>关闭浏览器</Button>
+              </div>
+            ))}
+          </Space>
+        </Card>
       )}
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
@@ -179,7 +225,6 @@ export default function Publish() {
         }}
         size="middle" />
 
-      {/* Create Modal */}
       <Modal title="创建发布任务" open={createModal} onOk={handleCreate}
         onCancel={() => setCreateModal(false)} width={560}>
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
@@ -188,7 +233,7 @@ export default function Publish() {
               options={videos.map(v => ({ label: v.title, value: v.id }))} />
           </Form.Item>
           <Form.Item name="platform" label="发布平台" rules={[{ required: true }]}>
-            <Select options={platformOptions} />
+            <Select options={platformOptions} placeholder="选择平台" />
           </Form.Item>
           <Form.Item name="title" label="发布标题">
             <Input placeholder="视频标题" />
@@ -203,7 +248,7 @@ export default function Publish() {
             <Input />
           </Form.Item>
         </Form>
-        <Alert type="info" message="发布时会打开浏览器自动填充内容，需手动确认后点击发布按钮。" />
+        <Alert type="info" message="发布时会打开浏览器自动填充内容，浏览器会一直保持打开，等你手动点完发布再关掉即可。" />
       </Modal>
     </div>
   )

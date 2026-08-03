@@ -37,11 +37,18 @@ def create_app():
     def server_error(e):
         return jsonify({'error': str(e)}), 500
 
+    # 挂在 create_app：debug reloader 子进程也会走到这里
+    try:
+        from modules.content_ops.scheduler import start_daily_scheduler
+        start_daily_scheduler()
+    except Exception as e:
+        print(f'[Server] Daily scheduler not started: {e}')
+
     return app
 
 
 def _reset_stuck_tasks():
-    """服务器重启后，把仍标记为 processing 的任务重置为 failed。"""
+    """服务器重启后，把仍标记为 processing/running 的任务重置为 failed。"""
     try:
         conn = get_db()
         conn.execute(
@@ -50,10 +57,17 @@ def _reset_stuck_tasks():
             "WHERE voice_status='processing' OR video_status='processing' OR export_status='processing'"
         )
         changes = conn.total_changes
+        # 股票筛选后台线程会随重启一起死掉，DB 里不能继续挂 running
+        conn.execute(
+            "UPDATE stock_screening SET status='failed', "
+            "message=COALESCE(NULLIF(message,''), '扫描中断') || '（服务器重启，任务已中断，请重新筛选）' "
+            "WHERE status IN ('running', 'pending')"
+        )
         conn.commit()
         conn.close()
         if changes:
             print(f'[Server] Reset {changes} stuck processing tasks to failed')
+        print('[Server] Cleared stuck stock screening jobs')
     except Exception as e:
         print(f'[Server] Warning: could not reset stuck tasks: {e}')
 

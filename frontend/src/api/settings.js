@@ -7,3 +7,11 @@ export const settingsApi = {
   modules: () => api.get('/settings/modules'),
   category: (cat) => api.get(`/settings/${cat}`),
 }
+
+export const platformsApi = {
+  list: () => api.get('/platforms'),
+  create: (data) => api.post('/platforms', data),
+  update: (key, data) => api.put(`/platforms/${key}`, data),
+  delete: (key) => api.delete(`/platforms/${key}`),
+  get: (key) => api.get(`/platforms/${key}`),
+}

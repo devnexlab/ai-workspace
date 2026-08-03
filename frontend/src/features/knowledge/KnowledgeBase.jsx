@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import {
   Table, Tag, Button, Input, Select, Space, Modal, message,
   Form, Popconfirm, Tooltip, Row, Col, Card, Statistic, Descriptions,
-  Spin, Empty,
+  Spin, Empty, Alert,
 } from 'antd'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined,
@@ -55,10 +55,14 @@ export default function KnowledgeBase() {
   const [aiResult, setAiResult] = useState(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [aiLoadingId, setAiLoadingId] = useState(null)
+  const [selectedRowKeys, setSelectedRowKeys] = useState([])
+  const [compareModal, setCompareModal] = useState(false)
+  const [compareResult, setCompareResult] = useState(null)
+  const [compareLoading, setCompareLoading] = useState(false)
   const [form] = Form.useForm()
   const [editing, setEditing] = useState(null)
   const [categories, setCategories] = useState([])
-
+  const [viewing, setViewing] = useState(null)
   const loadData = (p = page, f = filters) => {
     setLoading(true)
     knowledgeApi.list({ page: p, pageSize: 15, ...f })
@@ -95,7 +99,7 @@ export default function KnowledgeBase() {
     setAiLoadingId(record.id)
     setAiLoading(true)
     knowledgeApi.aiProcess(record.id).then(res => {
-      setAiResult(res)
+      setAiResult(res?.result || res)
       setAiModal(true)
       loadData()
     }).catch(err => {
@@ -104,6 +108,24 @@ export default function KnowledgeBase() {
       setAiLoadingId(null)
       setAiLoading(false)
     })
+  }
+
+  const handleCompare = () => {
+    if (selectedRowKeys.length < 1) {
+      message.warning('请先勾选至少 1 条笔记')
+      return
+    }
+    setCompareLoading(true)
+    setCompareModal(true)
+    setCompareResult(null)
+    knowledgeApi.compare({ ids: selectedRowKeys })
+      .then(res => setCompareResult(res?.result || res))
+      .catch(err => message.error(err?.error || '对比失败'))
+      .finally(() => setCompareLoading(false))
+  }
+
+  const openRelated = (id) => {
+    knowledgeApi.get(id).then(res => setViewing(res)).catch(() => message.error('加载失败'))
   }
 
   const columns = [
@@ -235,11 +257,17 @@ export default function KnowledgeBase() {
           <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>搜索</Button>
           <Button icon={<ReloadOutlined />} onClick={() => { setFilters({}); loadData(1, {}) }}>重置</Button>
         </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => {
-          setEditing(null)
-          form.resetFields()
-          setEditModal(true)
-        }}>添加知识</Button>
+        <Space>
+          <Button icon={<RobotOutlined />} loading={compareLoading} onClick={handleCompare}
+            disabled={!selectedRowKeys.length}>
+            AI 对比启发 ({selectedRowKeys.length})
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => {
+            setEditing(null)
+            form.resetFields()
+            setEditModal(true)
+          }}>随手记</Button>
+        </Space>
       </div>
 
       <Table
@@ -247,6 +275,10 @@ export default function KnowledgeBase() {
         dataSource={data.list}
         rowKey="id"
         loading={loading}
+        rowSelection={{
+          selectedRowKeys,
+          onChange: setSelectedRowKeys,
+        }}
         scroll={{ x: 1300 }}
         pagination={{
           current: page,
@@ -351,7 +383,9 @@ export default function KnowledgeBase() {
               >
                 <Space wrap>
                   {(Array.isArray(aiResult.related_ids) ? aiResult.related_ids : []).map((id, i) => (
-                    <Tag key={i} color="processing">#{id}</Tag>
+                    <Tag key={i} color="processing" style={{ cursor: 'pointer' }} onClick={() => openRelated(id)}>
+                      #{id} 查看
+                    </Tag>
                   ))}
                 </Space>
               </Card>
@@ -376,6 +410,70 @@ export default function KnowledgeBase() {
           <div style={{ textAlign: 'center', padding: 40 }}>
             <Spin size="large" />
             <div style={{ marginTop: 16, color: '#999' }}>加载中...</div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        title="AI 对比启发"
+        open={compareModal}
+        onCancel={() => setCompareModal(false)}
+        footer={<Button onClick={() => setCompareModal(false)}>关闭</Button>}
+        width={720}
+      >
+        <Spin spinning={compareLoading}>
+          {compareResult ? (
+            <div>
+              {compareResult.one_liner && (
+                <Alert type="success" showIcon style={{ marginBottom: 12 }} message={compareResult.one_liner} />
+              )}
+              <Descriptions column={1} bordered size="small">
+                {compareResult.common_themes && (
+                  <Descriptions.Item label="共同主题">{compareResult.common_themes}</Descriptions.Item>
+                )}
+                {compareResult.conflicts && (
+                  <Descriptions.Item label="矛盾/待验证">{compareResult.conflicts}</Descriptions.Item>
+                )}
+                {compareResult.connections && (
+                  <Descriptions.Item label="可打通连接">{compareResult.connections}</Descriptions.Item>
+                )}
+              </Descriptions>
+              {!!(compareResult.inspirations || []).length && (
+                <Card size="small" title="灵感" style={{ marginTop: 12 }}>
+                  <ul style={{ margin: 0, paddingLeft: 18 }}>
+                    {(compareResult.inspirations || []).map((x, i) => <li key={i}>{x}</li>)}
+                  </ul>
+                </Card>
+              )}
+              {!!(compareResult.next_actions || []).length && (
+                <Card size="small" title="下一步" style={{ marginTop: 12 }}>
+                  <ul style={{ margin: 0, paddingLeft: 18 }}>
+                    {(compareResult.next_actions || []).map((x, i) => <li key={i}>{x}</li>)}
+                  </ul>
+                </Card>
+              )}
+            </div>
+          ) : !compareLoading ? <Empty description="暂无结果" /> : null}
+        </Spin>
+      </Modal>
+
+      <Modal
+        title={viewing?.title || '知识详情'}
+        open={!!viewing}
+        onCancel={() => setViewing(null)}
+        footer={<Button onClick={() => setViewing(null)}>关闭</Button>}
+        width={640}
+      >
+        {viewing && (
+          <div>
+            <Space wrap style={{ marginBottom: 8 }}>
+              {viewing.category && <Tag color="blue">{viewing.category}</Tag>}
+              {(String(viewing.tags || '').split(',').filter(Boolean)).map((t, i) => (
+                <Tag key={i}>{t.trim()}</Tag>
+              ))}
+            </Space>
+            <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{viewing.content}</div>
+            {viewing.summary && <p style={{ marginTop: 12, color: '#666' }}>摘要：{viewing.summary}</p>}
           </div>
         )}
       </Modal>

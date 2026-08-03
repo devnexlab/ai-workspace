@@ -6,7 +6,7 @@
 """
 
 from config import get_collector_config, get_setting
-from modules.content_ops.platforms import PLATFORMS, PLATFORM_MAP, list_platforms
+from modules.content_ops.platforms import list_platforms, platform_map
 from modules.content_ops.age_bands import (
     keywords_for_ages, guess_age_band, list_age_bands, INSURANCE_KEYWORDS,
 )
@@ -31,10 +31,15 @@ def calc_engagement(item):
 
 def get_enabled_platforms(override=None):
     """返回已启用且可采集的平台 key 列表。"""
-    keys = override or [p['key'] for p in PLATFORMS]
+    platforms = list_platforms()
+    pmap = {p['key']: p for p in platforms}
+    keys = override or [p['key'] for p in platforms]
     enabled = []
     for key in keys:
-        if key not in PLATFORM_MAP:
+        meta = pmap.get(key)
+        if not meta:
+            continue
+        if not meta.get('enable_collector', True):
             continue
         cfg = get_collector_config(key)
         if str(cfg.get('enabled', 'true')).lower() == 'true':
@@ -50,6 +55,7 @@ def collect_platform_koubo(platforms=None, age_bands=None, count_per_keyword=5,
     from modules.collector import get_collector
 
     plats = get_enabled_platforms(platforms)
+    pmap = platform_map()
     kws = keywords_for_ages(age_bands, include_insurance=False)
     # 限制关键词数量，避免一次跑太久
     kws = kws[:max_keywords]
@@ -58,12 +64,14 @@ def collect_platform_koubo(platforms=None, age_bands=None, count_per_keyword=5,
     messages = []
 
     for plat in plats:
+        meta = pmap.get(plat, {})
+        label = meta.get('label', plat)
         collector = get_collector(plat)
         if not collector:
-            messages.append(f'{plat}: 未注册采集器')
+            messages.append(f'{label}: 未注册采集器')
             continue
         if not collector.is_ready():
-            messages.append(f'{PLATFORM_MAP[plat]["label"]}: 未配置 Cookies，已跳过')
+            messages.append(f'{label}: 未配置 Cookies，已跳过')
             continue
         try:
             items, msg = collector.collect(kws, count_per_keyword=count_per_keyword)
@@ -75,9 +83,9 @@ def collect_platform_koubo(platforms=None, age_bands=None, count_per_keyword=5,
                 it['engagement_score'] = eng
                 it['engagement_rate'] = rate
             all_items.extend(items)
-            messages.append(f'{PLATFORM_MAP[plat]["label"]}: {msg}')
+            messages.append(f'{label}: {msg}')
         except Exception as e:
-            messages.append(f'{PLATFORM_MAP[plat]["label"]}: 失败 {e}')
+            messages.append(f'{label}: 失败 {e}')
 
     return all_items, '；'.join(messages)
 
@@ -132,15 +140,16 @@ def run_full_intelligence(platforms=None, age_bands=None, include_hotspots=True,
 
     ranked = enrich_and_rank(results)
 
-    # 去重标题
+    # 去重标题（规范化后前 40 字）
     seen = set()
     unique = []
     for it in ranked:
-        t = (it.get('title') or '').strip()
+        t = ' '.join((it.get('title') or '').strip().split())
         key = t[:40]
         if not t or key in seen:
             continue
         seen.add(key)
+        it['title'] = t
         unique.append(it)
 
     return unique, ' | '.join([x for x in logs if x])
@@ -150,7 +159,9 @@ def platform_status():
     """给前端展示各平台配置状态。"""
     from modules.collector import get_collector
     rows = []
-    for p in PLATFORMS:
+    for p in list_platforms():
+        if not p.get('enable_collector', True):
+            continue
         cfg = get_collector_config(p['key'])
         enabled = str(cfg.get('enabled', 'true')).lower() == 'true'
         has_cookie = bool((cfg.get('cookies') or '').strip())

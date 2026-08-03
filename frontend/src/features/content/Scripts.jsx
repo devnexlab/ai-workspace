@@ -24,7 +24,7 @@ const typeLabels = { traffic: '泛流量', insurance: '保险干货' }
 const typeColors = { traffic: 'blue', insurance: 'orange' }
 const ageLabels = {
   '20s': '20岁段', '30s': '30岁段', '40s': '40岁段',
-  '50s': '50岁段', '60s': '60岁段', '70s': '70岁+', all: '全年龄',
+  '50s': '50岁段', '60s': '60岁段', '70s': '70岁段', '80s': '80岁+', all: '全年龄',
 }
 
 export default function Scripts() {
@@ -37,6 +37,8 @@ export default function Scripts() {
   const [genModal, setGenModal] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [planning, setPlanning] = useState(false)
+  const [runningDaily, setRunningDaily] = useState(false)
+  const [dailyStatus, setDailyStatus] = useState(null)
   const [editing, setEditing] = useState(null)
   const [viewing, setViewing] = useState(null)
   const [form] = Form.useForm()
@@ -61,6 +63,7 @@ export default function Scripts() {
     }).catch(() => {
       setBrandEnding('祁实说实话，替你的保单说话，给你最放心的选择。关注我，来找我。')
     })
+    scriptsApi.dailyRunStatus().then(setDailyStatus).catch(() => {})
   }, [])
 
   const handleDailyPlan = () => {
@@ -71,9 +74,26 @@ export default function Scripts() {
         if (res.errors?.length) message.warning(res.errors.join('；'))
         if (res.brand_ending) setBrandEnding(res.brand_ending)
         loadData(1)
+        scriptsApi.dailyRunStatus().then(setDailyStatus).catch(() => {})
       })
       .catch(err => message.error(err?.error || '生成失败，请检查 AI 与热点采集'))
       .finally(() => setPlanning(false))
+  }
+
+  const handleDailyRun = () => {
+    setRunningDaily(true)
+    message.loading({ content: '日更编排中：采热点 → 写文案 → 出片…', key: 'daily-run', duration: 0 })
+    scriptsApi.dailyRun({ refresh: true, produce_video: true, include_platforms: false })
+      .then(res => {
+        message.success({ content: res.message || '日更已启动', key: 'daily-run', duration: 6 })
+        if (res.steps?.plan?.errors?.length) {
+          message.warning(res.steps.plan.errors.join('；'))
+        }
+        loadData(1)
+        scriptsApi.dailyRunStatus().then(setDailyStatus).catch(() => {})
+      })
+      .catch(err => message.error({ content: err?.error || err?.message || '日更失败', key: 'daily-run' }))
+      .finally(() => setRunningDaily(false))
   }
 
   const handleSave = () => {
@@ -181,6 +201,27 @@ export default function Scripts() {
           description={brandEnding} />
       )}
 
+      {dailyStatus && (
+        <Alert
+          style={{ marginBottom: 16 }}
+          type={String(dailyStatus.daily_auto_enabled).toLowerCase() === 'true' ? 'success' : 'warning'}
+          showIcon
+          message={`今日进度：泛流量 ${dailyStatus.scripts?.traffic || 0}/${dailyStatus.traffic_target || 2}，保险 ${dailyStatus.scripts?.insurance || 0}/${dailyStatus.insurance_target || 1}`}
+          description={
+            <span>
+              出片状态：完成 {dailyStatus.videos?.done || 0} / 进行中 {dailyStatus.videos?.processing || 0} / 待处理 {dailyStatus.videos?.pending || 0}
+              {' · '}
+              定时日更：{String(dailyStatus.daily_auto_enabled).toLowerCase() === 'true'
+                ? `已开启（每天 ${dailyStatus.daily_run_hour || 8} 点）`
+                : '未开启（可在 系统设置 → 内容运营 打开）'}
+              {dailyStatus.daily_last_run ? ` · 上次：${dailyStatus.daily_last_run}` : ''}
+              {' · '}
+              <Link to="/videos">去视频页查看出片</Link>
+            </span>
+          }
+        />
+      )}
+
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}><Card size="small"><Statistic title="文案总数" value={data.total} prefix={<FileTextOutlined />} /></Card></Col>
         <Col span={6}><Card size="small"><Statistic title="泛流量" value={data.list.filter(d => (d.content_type || 'traffic') === 'traffic').length} valueStyle={{ color: '#1677ff' }} /></Card></Col>
@@ -208,9 +249,12 @@ export default function Scripts() {
           <Button type="primary" icon={<SearchOutlined />} onClick={() => loadData(1, filters)}>搜索</Button>
           <Button icon={<ReloadOutlined />} onClick={() => { setFilters({}); loadData(1, {}) }}>重置</Button>
         </div>
-        <Space>
-          <Button type="primary" icon={<ThunderboltOutlined />} loading={planning} onClick={handleDailyPlan}>
-            一键今日计划（2+1）
+        <Space wrap>
+          <Button type="primary" icon={<ThunderboltOutlined />} loading={runningDaily} onClick={handleDailyRun}>
+            今日计划并出片
+          </Button>
+          <Button icon={<ThunderboltOutlined />} loading={planning} onClick={handleDailyPlan}>
+            仅生成文案（2+1）
           </Button>
           <Button icon={<RobotOutlined />} loading={generating} onClick={() => setGenModal(true)}>
             AI 生成文案
@@ -276,7 +320,8 @@ export default function Scripts() {
                   { label: '40岁段', value: '40s' },
                   { label: '50岁段', value: '50s' },
                   { label: '60岁段', value: '60s' },
-                  { label: '70岁+', value: '70s' },
+                  { label: '70岁段', value: '70s' },
+                  { label: '80岁+', value: '80s' },
                 ]} />
               </Form.Item>
             </Col>

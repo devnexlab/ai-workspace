@@ -193,3 +193,54 @@ def list_categories():
     ).fetchall()
     conn.close()
     return jsonify({'list': [r['category'] for r in rows]})
+
+
+@bp.route('/api/knowledge/compare', methods=['POST'])
+def compare_knowledge():
+    """
+    多笔记对比 → 启发灵感。
+    body: { ids: [1,2,3] } 或 { contents: [{title, content}, ...] }
+    """
+    from modules.ai_writer import call_llm
+    import re
+    data = request.get_json(silent=True) or {}
+    ids = data.get('ids') or []
+    blocks = []
+
+    if ids:
+        conn = _db()
+        for kid in ids[:8]:
+            row = conn.execute('SELECT * FROM knowledge_item WHERE id=%s', (kid,)).fetchone()
+            if row:
+                blocks.append(dict(row))
+        conn.close()
+    for c in (data.get('contents') or [])[:8]:
+        blocks.append({'title': c.get('title', ''), 'content': c.get('content', '')})
+
+    if len(blocks) < 1:
+        return jsonify({'error': '请至少提供 1 条知识'}), 400
+
+    joined = '\n\n'.join([
+        f"【{i + 1}】{b.get('title', '')}\n{(b.get('content') or b.get('summary') or '')[:1200]}"
+        for i, b in enumerate(blocks)
+    ])
+    prompt = f"""以下是我零散记录的学习/交易笔记，请做对比分析并激发新灵感：
+
+{joined}
+
+请以 JSON 返回：
+{{
+  "common_themes": "共同主题",
+  "conflicts": "相互矛盾或待验证之处",
+  "connections": "可打通的知识连接",
+  "inspirations": ["灵感1", "灵感2", "灵感3"],
+  "next_actions": ["下一步可做的事1", "下一步2"],
+  "one_liner": "一句话启发"
+}}"""
+    try:
+        resp, tokens, model = call_llm(prompt, system_prompt='你是擅长跨笔记联想的学习教练，帮技术交易者把散点知识织成系统。')
+        m = re.search(r'\{[\s\S]*\}', resp or '')
+        result = json.loads(m.group()) if m else {'one_liner': (resp or '')[:300], 'inspirations': []}
+        return jsonify({'result': result, 'tokens': tokens, 'model': model, 'message': '对比完成'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

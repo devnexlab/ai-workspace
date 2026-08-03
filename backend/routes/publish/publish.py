@@ -2,7 +2,10 @@
 
 from flask import Blueprint, request, jsonify
 from config import get_db as _db
-from modules.publisher import publish_video, get_publish_status, check_playwright
+from modules.publisher import (
+    publish_video, get_publish_status, check_playwright,
+    list_sessions, close_session,
+)
 
 bp = Blueprint('publish', __name__)
 
@@ -143,11 +146,25 @@ def delete_publish(id):
     return jsonify({'message': '已删除'})
 
 
+@bp.route('/api/publish/sessions')
+def publish_sessions():
+    """当前保持打开的发布浏览器会话。"""
+    return jsonify({'list': list_sessions()})
+
+
+@bp.route('/api/publish/sessions/<sid>/close', methods=['POST'])
+def publish_session_close(sid):
+    return jsonify(close_session(sid))
+
+
 @bp.route('/api/publish/status')
 def publish_status():
     """Check publishing readiness for all platforms."""
+    from modules.content_ops.platforms import list_platforms
     statuses = {}
-    for platform in ['douyin', 'xiaohongshu', 'shipinhao']:
-        statuses[platform] = get_publish_status(platform)
+    for p in list_platforms():
+        if not p.get('enable_publish', True):
+            continue
+        statuses[p['key']] = get_publish_status(p['key'])
     statuses['playwright_installed'] = check_playwright()
     return jsonify(statuses)

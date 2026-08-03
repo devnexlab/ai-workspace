@@ -50,6 +50,14 @@ SETTINGS_MODULES = [
         'icon': 'file-text',
         'categories': ['system'],
     },
+    {
+        'key': 'stock',
+        'path': 'stock',
+        'label': '股票筛选',
+        'desc': '技术面初筛上限、匹配模式、自定义形态规则',
+        'icon': 'line-chart',
+        'categories': ['stock'],
+    },
 ]
 
 
@@ -81,17 +89,19 @@ def list_modules():
     for m in SETTINGS_MODULES:
         mod = dict(m)
         if m.get('type') == 'collector_platforms':
+            collectors = [p for p in platforms if p.get('enable_collector', True)]
             mod['platforms'] = [
                 {**p, 'category': f"collector_{p['key']}"}
-                for p in platforms
+                for p in collectors
             ]
-            mod['categories'] = [f"collector_{p['key']}" for p in platforms]
+            mod['categories'] = [f"collector_{p['key']}" for p in collectors]
         elif m.get('type') == 'publish_platforms':
+            pubs = [p for p in platforms if p.get('enable_publish', True)]
             mod['platforms'] = [
                 {**p, 'category': f"publish_{p['key']}"}
-                for p in platforms
+                for p in pubs
             ]
-            mod['categories'] = [f"publish_{p['key']}" for p in platforms]
+            mod['categories'] = [f"publish_{p['key']}" for p in pubs]
         modules.append(mod)
     return jsonify({'modules': modules})
 
@@ -122,27 +132,35 @@ def check_readiness():
     }
 
     for p in list_platforms():
-        ckey = f"collector_{p['key']}"
-        pkey = f"publish_{p['key']}"
-        readiness[ckey] = {
-            'ready': bool(settings.get(ckey, {}).get('cookies')),
-            'enabled': str(settings.get(ckey, {}).get('enabled', 'true')).lower() == 'true',
-            'message': f"{p['label']}采集 Cookies 已配置" if settings.get(ckey, {}).get('cookies') else f"未配置{p['label']}采集 Cookies",
-            'label': p['label'],
-        }
-        readiness[pkey] = {
-            'ready': bool(settings.get(pkey, {}).get('cookies')),
-            'enabled': str(settings.get(pkey, {}).get('enabled', 'false')).lower() == 'true',
-            'message': f"{p['label']}发布已配置" if settings.get(pkey, {}).get('cookies') else f"未配置{p['label']}发布",
-            'label': p['label'],
-        }
+        if p.get('enable_collector', True):
+            ckey = f"collector_{p['key']}"
+            readiness[ckey] = {
+                'ready': bool(settings.get(ckey, {}).get('cookies')),
+                'enabled': str(settings.get(ckey, {}).get('enabled', 'true')).lower() == 'true',
+                'message': f"{p['label']}采集 Cookies 已配置" if settings.get(ckey, {}).get('cookies') else f"未配置{p['label']}采集 Cookies",
+                'label': p['label'],
+            }
+        if p.get('enable_publish', True):
+            pkey = f"publish_{p['key']}"
+            readiness[pkey] = {
+                'ready': bool(settings.get(pkey, {}).get('cookies')),
+                'enabled': str(settings.get(pkey, {}).get('enabled', 'false')).lower() == 'true',
+                'message': f"{p['label']}发布已配置" if settings.get(pkey, {}).get('cookies') else f"未配置{p['label']}发布",
+                'label': p['label'],
+            }
 
-    collector_ready = any(readiness.get(f"collector_{p['key']}", {}).get('ready') for p in list_platforms())
+    collector_ready = any(
+        readiness.get(f"collector_{p['key']}", {}).get('ready')
+        for p in list_platforms() if p.get('enable_collector', True)
+    )
     readiness['collectors'] = {
         'ready': collector_ready,
         'message': '至少有一个采集平台已配置 Cookies' if collector_ready else '尚未配置任何采集平台 Cookies',
     }
-    publish_ready = any(readiness.get(f"publish_{p['key']}", {}).get('ready') for p in list_platforms())
+    publish_ready = any(
+        readiness.get(f"publish_{p['key']}", {}).get('ready')
+        for p in list_platforms() if p.get('enable_publish', True)
+    )
     readiness['publish'] = {
         'ready': publish_ready,
         'message': '至少有一个发布平台已配置' if publish_ready else '尚未配置发布平台',

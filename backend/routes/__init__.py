@@ -14,6 +14,7 @@
 
 from .system.dashboard import bp as dashboard_bp
 from .system.settings import bp as settings_bp
+from .system.platforms import bp as platforms_bp
 from .content.hot_topics import bp as hot_topics_bp
 from .content.scripts import bp as scripts_bp
 from .content.materials import bp as materials_bp
@@ -29,6 +30,7 @@ from .agents.workflows import bp as workflows_bp
 ALL_BLUEPRINTS = [
     dashboard_bp,
     settings_bp,
+    platforms_bp,
     hot_topics_bp,
     scripts_bp,
     materials_bp,

@@ -6,7 +6,7 @@ from datetime import date
 
 bp = Blueprint('scripts', __name__)
 
-AGE_ROTATION = ['20s', '30s', '40s', '50s', '60s', '70s']
+AGE_ROTATION = ['20s', '30s', '40s', '50s', '60s', '70s', '80s']
 
 
 @bp.route('/api/scripts')
@@ -171,137 +171,74 @@ def daily_plan():
       - M 条保险干货（默认 1）
     全部强制品牌收口。
     """
-    from modules.ai_writer import generate_script as gen_script, AGE_AUDIENCE
+    from modules.content_ops.daily_runner import generate_daily_scripts
 
     data = request.get_json(silent=True) or {}
-    traffic_n = int(data.get('traffic_count') or get_setting('system', 'daily_traffic_count', '2') or 2)
-    insurance_n = int(data.get('insurance_count') or get_setting('system', 'daily_insurance_count', '1') or 1)
+    traffic_n = data.get('traffic_count')
+    insurance_n = data.get('insurance_count')
+    result = generate_daily_scripts(
+        traffic_count=int(traffic_n) if traffic_n is not None else None,
+        insurance_count=int(insurance_n) if insurance_n is not None else None,
+    )
+    return jsonify(result)
 
-    conn = _db()
-    # 今日已生成数量（按 content_type）
+
+@bp.route('/api/scripts/daily-run', methods=['POST'])
+def daily_run():
+    """
+    日更编排器：采热点 → 2+1 文案 → 自动建视频并出片。
+    body:
+      refresh: bool=true
+      include_platforms: bool=false  # true 时顺带采抖音/小红书（较慢）
+      produce_video: bool=true
+      traffic_count / insurance_count: optional
+    """
+    from modules.content_ops.daily_runner import run_daily_pipeline
+
+    data = request.get_json(silent=True) or {}
+    try:
+        result = run_daily_pipeline(
+            refresh=bool(data.get('refresh', True)),
+            include_platforms=bool(data.get('include_platforms', False)),
+            produce_video=bool(data.get('produce_video', True)),
+            traffic_count=data.get('traffic_count'),
+            insurance_count=data.get('insurance_count'),
+        )
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'ok': False, 'error': str(e), 'message': f'日更失败: {e}'}), 500
+
+
+@bp.route('/api/scripts/daily-run/status')
+def daily_run_status():
+    """今日日更进度快照。"""
     today = date.today().isoformat()
-    existing = conn.execute(
+    conn = _db()
+    scripts = conn.execute(
         '''SELECT content_type, COUNT(*) as c FROM script
-           WHERE created_at::date = %s::date
-           GROUP BY content_type''',
+           WHERE created_at::date = %s::date GROUP BY content_type''',
         (today,)
     ).fetchall()
-    existing_map = {r['content_type']: r['c'] for r in existing}
-
-    need_traffic = max(0, traffic_n - existing_map.get('traffic', 0))
-    need_insurance = max(0, insurance_n - existing_map.get('insurance', 0))
-
-    # 取高分热点
-    topics = conn.execute(
-        '''SELECT * FROM hot_topic
-           WHERE status != 'ignored'
-           ORDER BY ai_score DESC NULLS LAST, (likes+comments+shares) DESC, created_at DESC
-           LIMIT 30'''
+    videos = conn.execute(
+        '''SELECT v.export_status, COUNT(*) as c FROM video_task v
+           JOIN script s ON v.script_id = s.id
+           WHERE s.created_at::date = %s::date
+           GROUP BY v.export_status''',
+        (today,)
     ).fetchall()
     conn.close()
-    topics = [dict(t) for t in topics]
-
-    created = []
-    errors = []
-    used_topic_ids = set()
-
-    # 分龄轮换：按星期选起点
-    start_idx = date.today().toordinal() % len(AGE_ROTATION)
-
-    def pick_topic(prefer_insurance=False):
-        for t in topics:
-            if t['id'] in used_topic_ids:
-                continue
-            title = (t.get('title') or '') + (t.get('keyword') or '') + (t.get('analysis') or '')
-            has_ins = any(k in title for k in ('保险', '理赔', '保单', '重疾', '医保', '养老', '保障'))
-            if prefer_insurance and not has_ins:
-                continue
-            if not prefer_insurance and has_ins and len(topics) > need_traffic + 2:
-                # 泛流量优先非保险标题，不够时再放宽
-                continue
-            used_topic_ids.add(t['id'])
-            return t
-        # 放宽：任意未用热点
-        for t in topics:
-            if t['id'] not in used_topic_ids:
-                used_topic_ids.add(t['id'])
-                return t
-        return None
-
-    # 1) 泛流量
-    for i in range(need_traffic):
-        age_band = AGE_ROTATION[(start_idx + i) % len(AGE_ROTATION)]
-        topic = pick_topic(prefer_insurance=False)
-        try:
-            if topic:
-                script = gen_script(
-                    topic, style='高转发共鸣', duration='40-60秒',
-                    content_type='traffic', age_band=age_band,
-                    tone='casual',
-                    extra_req=f'面向{AGE_AUDIENCE.get(age_band, "")}，强共鸣可转发，不硬广',
-                )
-                topic_id = topic['id']
-            else:
-                # 无热点时用主题兜底
-                prompt = f'结合今日社会热点，写一条面向{AGE_AUDIENCE.get(age_band)}的人生共鸣口播，不硬广保险'
-                script = gen_script(
-                    prompt, style='高转发共鸣', duration='40-60秒',
-                    content_type='traffic', age_band=age_band, tone='casual',
-                )
-                topic_id = None
-            conn = _db()
-            sid = _save_script(conn, script, topic_id, 'traffic', age_band)
-            conn.commit()
-            conn.close()
-            created.append({
-                'id': sid, 'content_type': 'traffic', 'age_band': age_band,
-                'title': script.get('title'), 'topic_id': topic_id,
-            })
-        except Exception as e:
-            errors.append(f'泛流量#{i+1}: {e}')
-
-    # 2) 保险干货
-    for i in range(need_insurance):
-        topic = pick_topic(prefer_insurance=True)
-        try:
-            if topic:
-                script = gen_script(
-                    topic, style='保险避坑干货', duration='40-60秒',
-                    content_type='insurance', age_band='all',
-                    tone='friendly',
-                    extra_req='专业但不吓人，用案例建立信任，引导关注来找我',
-                )
-                topic_id = topic['id']
-            else:
-                script = gen_script(
-                    '家庭保障常见误区与理赔避坑，面向全年龄段口播',
-                    style='保险避坑干货', duration='40-60秒',
-                    content_type='insurance', age_band='all', tone='friendly',
-                )
-                topic_id = None
-            conn = _db()
-            sid = _save_script(conn, script, topic_id, 'insurance', 'all')
-            conn.commit()
-            conn.close()
-            created.append({
-                'id': sid, 'content_type': 'insurance', 'age_band': 'all',
-                'title': script.get('title'), 'topic_id': topic_id,
-            })
-        except Exception as e:
-            errors.append(f'保险#{i+1}: {e}')
-
-    ending = get_setting('system', 'fixed_ending', '')
     return jsonify({
-        'message': f'今日计划完成：新生成 {len(created)} 条（目标泛流量{traffic_n}+保险{insurance_n}）',
-        'created': created,
-        'skipped': {
-            'traffic_already': existing_map.get('traffic', 0),
-            'insurance_already': existing_map.get('insurance', 0),
-            'need_traffic': need_traffic,
-            'need_insurance': need_insurance,
-        },
-        'brand_ending': ending,
-        'errors': errors,
+        'date': today,
+        'scripts': {r['content_type']: r['c'] for r in scripts},
+        'videos': {r['export_status']: r['c'] for r in videos},
+        'daily_auto_enabled': get_setting('system', 'daily_auto_enabled', 'false'),
+        'daily_run_hour': get_setting('system', 'daily_run_hour', '8'),
+        'daily_last_run': get_setting('system', 'daily_last_run', ''),
+        'daily_last_run_date': get_setting('system', 'daily_last_run_date', ''),
+        'traffic_target': get_setting('system', 'daily_traffic_count', '2'),
+        'insurance_target': get_setting('system', 'daily_insurance_count', '1'),
     })
 
 
