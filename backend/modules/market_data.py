@@ -197,3 +197,59 @@ def get_daily_bars(code: str, days: int = 120, force_refresh=False) -> pd.DataFr
     except Exception:
         pass
     return df.tail(days).reset_index(drop=True)
+
+
+_EXCLUDE_NAME_KEYWORDS = ('退',)
+
+
+def list_a_shares(force_refresh=False):
+    """返回 [{'code','name',...}, ...]；东财失败时回退代码表。"""
+    cache_file = _cache_dir() / f"spot_{datetime.now().strftime('%Y%m%d')}.csv"
+    if cache_file.exists() and not force_refresh:
+        try:
+            df = pd.read_csv(cache_file, dtype={'code': str})
+            return df.to_dict('records')
+        except Exception:
+            pass
+
+    ak = _ak()
+    df = None
+    for attempt in range(2):
+        try:
+            raw = ak.stock_zh_a_spot_em()
+            colmap = {}
+            for c in raw.columns:
+                if c in ('代码', '股票代码'):
+                    colmap[c] = 'code'
+                elif c in ('名称', '股票名称'):
+                    colmap[c] = 'name'
+                elif c in ('最新价',):
+                    colmap[c] = 'price'
+                elif c in ('涨跌幅',):
+                    colmap[c] = 'pct_chg'
+            raw = raw.rename(columns=colmap)
+            keep = [c for c in ('code', 'name', 'price', 'pct_chg') if c in raw.columns]
+            df = raw[keep].copy()
+            break
+        except Exception as e:
+            print(f'[market_data] spot_em failed ({attempt}): {e}')
+            time.sleep(1)
+
+    if df is None or df.empty:
+        try:
+            raw = ak.stock_info_a_code_name()
+            df = raw.rename(columns={'code': 'code', 'name': 'name'})[['code', 'name']].copy()
+        except Exception as e:
+            raise RuntimeError(f'无法获取 A 股列表: {e}')
+
+    df['code'] = df['code'].astype(str).str.zfill(6)
+    df = df[df['code'].str.match(r'^\d{6}$', na=False)]
+    if 'name' in df.columns:
+        mask = ~df['name'].astype(str).apply(lambda n: any(k in n for k in _EXCLUDE_NAME_KEYWORDS))
+        df = df[mask]
+    df = df[df['code'].str.startswith(('00', '30', '60', '68'))]
+    try:
+        df.to_csv(cache_file, index=False)
+    except Exception:
+        pass
+    return df.to_dict('records')
