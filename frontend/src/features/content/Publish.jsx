@@ -36,6 +36,7 @@ export default function Publish() {
   const [publishing, setPublishing] = useState(null)
   const [videos, setVideos] = useState([])
   const [pubStatus, setPubStatus] = useState({})
+  const [sessions, setSessions] = useState([])
   const [form] = Form.useForm()
 
   const loadData = (p = page, f = filters) => {
@@ -45,9 +46,18 @@ export default function Publish() {
       .finally(() => setLoading(false))
   }
 
+  const loadSessions = () => {
+    publishApi.sessions()
+      .then(res => setSessions(res.list || []))
+      .catch(() => {})
+  }
+
   useEffect(() => {
     loadData(1)
     publishApi.status().then(setPubStatus).catch(() => {})
+    loadSessions()
+    const timer = setInterval(loadSessions, 10000)
+    return () => clearInterval(timer)
   }, [])
 
   const loadVideos = () => {
@@ -69,17 +79,25 @@ export default function Publish() {
     setPublishing(id)
     publishApi.publish(id).then(res => {
       if (res.status === 'pending_review') {
-        message.info(res.message)
+        message.info({ content: res.message, duration: 8 })
       } else if (res.status === 'error') {
-        message.error(res.message)
+        message.error({ content: res.message, duration: 8 })
       } else {
         message.success(res.message || '发布成功')
       }
       loadData()
+      loadSessions()
       publishApi.status().then(setPubStatus)
     }).catch(err => {
       message.error(err?.error || '发布失败')
     }).finally(() => setPublishing(null))
+  }
+
+  const handleCloseSession = (sid) => {
+    publishApi.closeSession(sid).then(() => {
+      message.success('已请求关闭浏览器')
+      setTimeout(loadSessions, 1500)
+    }).catch(() => message.error('关闭失败'))
   }
 
   const columns = [
@@ -145,6 +163,20 @@ export default function Publish() {
         />
       )}
 
+      {sessions.length > 0 && (
+        <Card size="small" title="正在打开的发布浏览器（确认发布后再关闭）" style={{ marginBottom: 16 }}>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {sessions.map(s => (
+              <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <Tag color={s.status === 'need_login' ? 'warning' : 'processing'}>{s.label}</Tag>
+                <span style={{ flex: 1 }}>{s.message}</span>
+                <Button size="small" danger onClick={() => handleCloseSession(s.id)}>关闭浏览器</Button>
+              </div>
+            ))}
+          </Space>
+        </Card>
+      )}
+
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}><Card size="small"><Statistic title="发布任务" value={data.total} prefix={<RocketOutlined />} /></Card></Col>
         <Col span={6}><Card size="small"><Statistic title="已发布" value={data.list.filter(d => d.status === 'done').length} valueStyle={{ color: '#52c41a' }} /></Card></Col>
@@ -203,7 +235,7 @@ export default function Publish() {
             <Input />
           </Form.Item>
         </Form>
-        <Alert type="info" message="发布时会打开浏览器自动填充内容，需手动确认后点击发布按钮。" />
+        <Alert type="info" message="发布时会打开浏览器自动填充内容，浏览器会一直保持打开，等你手动点完发布再关掉即可。" />
       </Modal>
     </div>
   )

@@ -14,6 +14,9 @@ PLATFORMS = [
         'setting_category': 'collector_shipinhao',
         'desc': '主阵地，微信生态口播与熟人转发',
         'enabled_default': True,
+        'enable_publish': True,
+        'creator_url': 'https://channels.weixin.qq.com/platform/post/create',
+        'cookie_domain': '.weixin.qq.com',
     },
     {
         'key': 'douyin',
@@ -23,6 +26,9 @@ PLATFORMS = [
         'setting_category': 'collector_douyin',
         'desc': '泛流量最大，适合全年龄口播素材',
         'enabled_default': True,
+        'enable_publish': True,
+        'creator_url': 'https://creator.douyin.com/creator-micro/content/upload',
+        'cookie_domain': '.douyin.com',
     },
     {
         'key': 'xiaohongshu',
@@ -32,6 +38,9 @@ PLATFORMS = [
         'setting_category': 'collector_xiaohongshu',
         'desc': '种草与女性/家庭向口播（可随时开关）',
         'enabled_default': True,
+        'enable_publish': True,
+        'creator_url': 'https://creator.xiaohongshu.com/publish/publish',
+        'cookie_domain': '.xiaohongshu.com',
     },
     # 预留：以后加平台只在此追加，例如
     # {'key': 'bilibili', 'label': 'B站', ...},
@@ -43,6 +52,10 @@ PLATFORM_MAP = {p['key']: p for p in PLATFORMS}
 
 def list_platforms():
     return list(PLATFORMS)
+
+
+def get_platform(key):
+    return PLATFORM_MAP.get(key)
 
 
 def platform_keys():

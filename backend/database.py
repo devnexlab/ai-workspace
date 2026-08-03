@@ -363,6 +363,9 @@ DEFAULT_SETTINGS = [
     ('publish_shipinhao', 'enabled', 'false', '启用视频号发布', '', 'select', '["true","false"]', 1),
     ('publish_shipinhao', 'cookies', '', '视频号发布 Cookies', '', 'textarea', None, 2),
 
+    # ---- Publish: 通用 ----
+    ('publish', 'keep_open_minutes', '60', '发布浏览器保持打开(分钟)', '打开发布页后浏览器保留多久等待你手动确认', 'text', None, 1),
+
     # ---- Stock screening ----
     ('stock', 'max_stocks', '300', '初筛扫描上限', '0=全市场(很慢)；建议先 200~500', 'text', None, 1),
     ('stock', 'match_mode', 'and', '默认匹配模式', 'or=命中任一 / and=全部命中 / min=至少N条', 'select',
