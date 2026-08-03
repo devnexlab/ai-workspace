@@ -59,7 +59,9 @@ export const publishApi = {
   list: (params) => api.get('/publish', { params }),
   create: (data) => api.post('/publish', data),
   update: (id, data) => api.put(`/publish/${id}`, data),
-  publish: (id) => api.post(`/publish/${id}/publish`, {}, { timeout: API_LONG_TIMEOUT }),
+  publish: (id) => api.post(`/publish/${id}/publish`, {}, { timeout: API_LONG_TIMEOUT * 3 }),
   delete: (id) => api.delete(`/publish/${id}`),
   status: () => api.get('/publish/status'),
+  sessions: () => api.get('/publish/sessions'),
+  closeSession: (sid) => api.post(`/publish/sessions/${sid}/close`),
 }
