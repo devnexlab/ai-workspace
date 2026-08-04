@@ -11,6 +11,7 @@ const TYPE_MAP = {
   silent: { label: '沉默', color: 'orange' },
   high_intent: { label: '高意向', color: 'volcano' },
   follow_up: { label: '跟进', color: 'blue' },
+  stock_alert: { label: '股价预警', color: 'gold' },
   general: { label: '一般', color: 'default' },
 }
 
@@ -72,7 +73,7 @@ export default function NotificationBell() {
 
   return (
     <>
-      <Tooltip title={badgeCount ? `${badgeCount} 条客户提醒` : '暂无客户提醒'}>
+      <Tooltip title={badgeCount ? `${badgeCount} 条提醒` : '暂无提醒'}>
         <Badge count={badgeCount} overflowCount={99} size="small" offset={[-2, 2]}>
           <Button
             type="text"
@@ -94,7 +95,7 @@ export default function NotificationBell() {
       </Tooltip>
 
       <Drawer
-        title={`客户提醒${badgeCount > 0 ? `（${badgeCount}）` : ''}`}
+        title={`提醒${badgeCount > 0 ? `（${badgeCount}）` : ''}`}
         open={open}
         onClose={() => setOpen(false)}
         width={420}
@@ -148,16 +149,24 @@ export default function NotificationBell() {
                   <List.Item.Meta
                     title={(
                       <Space size={6} wrap>
-                        <span>{r.title || '未命名提醒'}</span>
+                        <span
+                          style={{ cursor: 'pointer' }}
+                          onClick={() => {
+                            setOpen(false)
+                            navigate(r.type === 'stock_alert' ? '/stocks' : '/customers?tab=reminders')
+                          }}
+                        >{r.title || '未命名提醒'}</span>
                         <Tag color={tp.color}>{tp.label}</Tag>
                         {overdue && <Tag color="red">逾期</Tag>}
                       </Space>
                     )}
                     description={(
                       <span style={{ fontSize: 12, color: '#64748b' }}>
-                        {r.customer_name || '未关联客户'}
+                        {r.type === 'stock_alert'
+                          ? (r.content || r.suggested_action || '股价提醒')
+                          : (r.customer_name || '未关联客户')}
                         {r.remind_date ? ` · ${formatDate(r.remind_date)}` : ''}
-                        {r.suggested_action ? ` · ${r.suggested_action}` : ''}
+                        {r.type !== 'stock_alert' && r.suggested_action ? ` · ${r.suggested_action}` : ''}
                       </span>
                     )}
                   />

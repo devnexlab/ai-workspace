@@ -28,27 +28,37 @@ from config import get_tts_config, get_video_config
 # Voice options for TTS
 # ============================================================
 
+# 仅保留 Microsoft Edge TTS 当前仍可用的中文音色（2026 起大量 Neural 已下线）
 VOICE_OPTIONS = {
     'zh-CN-YunxiNeural': '云希（男声·温暖知性）',
     'zh-CN-XiaoxiaoNeural': '晓晓（女声·亲切自然）',
     'zh-CN-YunyangNeural': '云扬（男声·新闻播音）',
     'zh-CN-XiaoyiNeural': '晓伊（女声·温柔甜美）',
     'zh-CN-YunjianNeural': '云健（男声·激情有力）',
-    'zh-CN-XiaochenNeural': '晓辰（女声·知性大方）',
-    'zh-CN-YunfengNeural': '云枫（男声·沉稳低沉）',
-    'zh-CN-XiaohanNeural': '晓涵（女声·温暖成熟）',
-    'zh-CN-XiaomengNeural': '晓梦（女声·活泼可爱）',
-    'zh-CN-XiaomoNeural': '晓墨（女声·文艺清新）',
-    'zh-CN-XiaoqiuNeural': '晓秋（女声·沉稳深情）',
-    'zh-CN-XiaoruiNeural': '晓睿（女声·智慧干练）',
-    'zh-CN-XiaoshuangNeural': '晓双（女声·童声活泼）',
-    'zh-CN-XiaoxuanNeural': '晓萱（女声·青春活力）',
-    'zh-CN-XiaoyanNeural': '晓颜（女声·邻家亲切）',
-    'zh-CN-XiaozhenNeural': '晓甄（女声·优雅端庄）',
-    'zh-CN-YunhaoNeural': '云皓（男声·阳光开朗）',
     'zh-CN-YunxiaNeural': '云夏（男声·少年清澈）',
-    'zh-CN-YunzeNeural': '云泽（男声·成熟稳重）',
+    'zh-CN-liaoning-XiaobeiNeural': '晓北（女声·辽宁口音）',
+    'zh-CN-shaanxi-XiaoniNeural': '晓妮（女声·陕西口音）',
 }
+
+# 已下线音色 → 近似替代，避免偏好/旧任务继续报 No audio
+_DEPRECATED_VOICE_MAP = {
+    'zh-CN-XiaoqiuNeural': 'zh-CN-XiaoxiaoNeural',
+    'zh-CN-XiaochenNeural': 'zh-CN-XiaoxiaoNeural',
+    'zh-CN-XiaohanNeural': 'zh-CN-XiaoxiaoNeural',
+    'zh-CN-XiaomengNeural': 'zh-CN-XiaoyiNeural',
+    'zh-CN-XiaomoNeural': 'zh-CN-XiaoyiNeural',
+    'zh-CN-XiaoruiNeural': 'zh-CN-XiaoxiaoNeural',
+    'zh-CN-XiaoshuangNeural': 'zh-CN-XiaoyiNeural',
+    'zh-CN-XiaoxuanNeural': 'zh-CN-XiaoyiNeural',
+    'zh-CN-XiaoyanNeural': 'zh-CN-XiaoxiaoNeural',
+    'zh-CN-XiaozhenNeural': 'zh-CN-XiaoxiaoNeural',
+    'zh-CN-YunfengNeural': 'zh-CN-YunxiNeural',
+    'zh-CN-YunhaoNeural': 'zh-CN-YunyangNeural',
+    'zh-CN-YunzeNeural': 'zh-CN-YunjianNeural',
+}
+
+_DEFAULT_EDGE_VOICE = 'zh-CN-YunxiNeural'
+_EDGE_VOICES_CACHE = {'ts': 0, 'names': set(VOICE_OPTIONS.keys())}
 
 
 # ============================================================
@@ -254,20 +264,164 @@ def generate_tts(text, output_path, voice=None, rate=None, volume=None):
     Returns:
         dict with: duration (seconds), audio_path, word_boundaries
     """
+    if not (text or '').strip():
+        raise Exception('配音文案为空，无法生成语音')
+
     config = get_tts_config()
     provider = config.get('provider', 'edge')
-    use_voice = voice or config.get('voice', 'zh-CN-YunxiNeural')
-    use_rate = rate or config.get('rate', '+0%')
-    use_volume = volume or config.get('volume', '+0%')
+    use_voice = _normalize_edge_voice(voice or config.get('voice') or 'zh-CN-YunxiNeural')
+    use_rate = _normalize_edge_rate(rate if rate not in (None, '') else config.get('rate'))
+    use_volume = _normalize_edge_volume(volume if volume not in (None, '') else config.get('volume'))
 
-    if provider == 'edge':
-        return _tts_edge_natural(text, output_path, use_voice, use_rate, use_volume)
-    elif provider == 'azure':
+    if provider == 'azure':
         return _tts_azure(text, output_path, config)
     elif provider == 'volcano':
         return _tts_volcano(text, output_path, config)
     else:
-        return _tts_edge_natural(text, output_path, use_voice, use_rate, use_volume)
+        try:
+            return _tts_edge_natural(text, output_path, use_voice, use_rate, use_volume)
+        except Exception as e:
+            err = str(e)
+            # 参数异常时回退默认音色/语速再试一次（常见于偏好里存了非法 rate/voice）
+            if 'No audio was received' in err or 'parameters are correct' in err:
+                print(f'[TTS] edge-tts failed ({use_voice}, {use_rate}): {e}; retry defaults')
+                fallback_voice = 'zh-CN-YunxiNeural'
+                fallback_rate = '+0%'
+                fallback_volume = '+0%'
+                if use_voice != fallback_voice or use_rate != fallback_rate:
+                    return _tts_edge_natural(
+                        text, output_path, fallback_voice, fallback_rate, fallback_volume,
+                    )
+            raise Exception(
+                f'配音失败: {err}。请检查网络能否访问 Edge TTS，'
+                f'或到系统设置确认音色/语速格式（如 zh-CN-YunxiNeural、+0%）'
+            ) from e
+
+
+def _refresh_edge_voices(force=False):
+    """Refresh available Edge TTS zh-CN voice names (cached ~24h)."""
+    import time
+    now = time.time()
+    if not force and _EDGE_VOICES_CACHE['names'] and now - _EDGE_VOICES_CACHE['ts'] < 86400:
+        return _EDGE_VOICES_CACHE['names']
+    try:
+        import edge_tts
+
+        async def _list():
+            voices = await edge_tts.list_voices()
+            return {
+                v['ShortName']
+                for v in voices
+                if str(v.get('ShortName') or '').startswith('zh-CN')
+            }
+
+        names = asyncio.run(_list())
+        if names:
+            _EDGE_VOICES_CACHE['names'] = names
+            _EDGE_VOICES_CACHE['ts'] = now
+            print(f'[TTS] Refreshed edge voices: {len(names)} zh-CN')
+    except Exception as e:
+        print(f'[TTS] list_voices failed: {e}')
+    return _EDGE_VOICES_CACHE['names'] or set(VOICE_OPTIONS.keys())
+
+
+def _normalize_edge_voice(voice):
+    """Map label / unknown / deprecated voice to a currently available Edge voice."""
+    v = (voice or '').strip()
+    if not v:
+        return _DEFAULT_EDGE_VOICE
+
+    # 已下线音色先映射
+    if v in _DEPRECATED_VOICE_MAP:
+        mapped = _DEPRECATED_VOICE_MAP[v]
+        print(f'[TTS] Deprecated voice "{v}" -> "{mapped}"')
+        v = mapped
+
+    available = _refresh_edge_voices()
+    if v in available:
+        return v
+    if v in VOICE_OPTIONS and v in available:
+        return v
+
+    # 允许用中文标签反查
+    for key, label in VOICE_OPTIONS.items():
+        if v == label or v in label or label in v:
+            if key in available or not available:
+                return key
+
+    aliases = {
+        'yunxi': 'zh-CN-YunxiNeural',
+        'xiaoxiao': 'zh-CN-XiaoxiaoNeural',
+        'yunyang': 'zh-CN-YunyangNeural',
+        'xiaoyi': 'zh-CN-XiaoyiNeural',
+        'yunjian': 'zh-CN-YunjianNeural',
+        'yunxia': 'zh-CN-YunxiaNeural',
+        'xiaoqiu': 'zh-CN-XiaoxiaoNeural',
+    }
+    low = v.lower()
+    for k, mapped in aliases.items():
+        if k in low:
+            return mapped if mapped in available or not available else _DEFAULT_EDGE_VOICE
+
+    print(f'[TTS] Unknown/unavailable voice "{voice}", fallback to {_DEFAULT_EDGE_VOICE}')
+    return _DEFAULT_EDGE_VOICE
+
+
+def get_voice_options_for_api():
+    """Return voice dropdown options, preferring live Edge TTS list."""
+    available = _refresh_edge_voices()
+    items = []
+    for key, label in VOICE_OPTIONS.items():
+        if not available or key in available:
+            items.append({'value': key, 'label': label})
+    # 把线上有、本地表没有的补上
+    for name in sorted(available or []):
+        if name not in VOICE_OPTIONS:
+            items.append({'value': name, 'label': name})
+    if not items:
+        items = [{'value': k, 'label': v} for k, v in VOICE_OPTIONS.items()]
+    return items
+
+
+def _normalize_edge_rate(rate):
+    """edge-tts 需要类似 +0% / -5% / +10% 的相对语速。"""
+    if rate is None or rate == '':
+        return '+0%'
+    s = str(rate).strip().replace(' ', '')
+    m = re.match(r'^([+-]?)(\d+(?:\.\d+)?)(%?)$', s)
+    if m:
+        sign, num, pct = m.group(1), m.group(2), m.group(3)
+        val = float(num)
+        # 1.0 / 0.9 这类倍率误填 → 当作默认
+        if not pct and 0 < val <= 2 and '.' in num:
+            return '+0%'
+        ival = int(round(val))
+        ival = max(-50, min(100, ival))
+        if not sign:
+            sign = '+' if ival >= 0 else ''
+        # 0 必须带 +
+        if ival == 0:
+            return '+0%'
+        return f'{sign}{abs(ival)}%' if sign == '-' else f'+{ival}%'
+    print(f'[TTS] Invalid rate "{rate}", fallback to +0%')
+    return '+0%'
+
+
+def _normalize_edge_volume(volume):
+    if volume is None or volume == '':
+        return '+0%'
+    s = str(volume).strip().replace(' ', '')
+    m = re.match(r'^([+-]?)(\d+(?:\.\d+)?)(%?)$', s)
+    if m:
+        sign, num, _pct = m.group(1), m.group(2), m.group(3)
+        ival = int(round(float(num)))
+        ival = max(-50, min(100, ival))
+        if ival == 0:
+            return '+0%'
+        if not sign:
+            sign = '+'
+        return f'{sign}{abs(ival)}%' if sign == '-' else f'+{ival}%'
+    return '+0%'
 
 
 def _split_sentences(text):
@@ -362,7 +516,18 @@ def _tts_edge_natural(text, output_path, voice, rate, volume):
             seg_rate = _adjust_rate(rate, variation)
 
         seg_path = os.path.join(segment_dir, f'_tts_seg_{i:03d}.mp3')
-        seg_result = _tts_edge(sentence, seg_path, voice, seg_rate, volume)
+        try:
+            seg_result = _tts_edge(sentence, seg_path, voice, seg_rate, volume)
+        except Exception as e1:
+            # 部分音色对非 0 语速极敏感；已下线音色也会在此暴露
+            print(f'[TTS] segment {i} failed ({seg_rate}): {e1}; retry +0%')
+            try:
+                seg_result = _tts_edge(sentence, seg_path, voice, '+0%', volume)
+            except Exception as e2:
+                print(f'[TTS] segment {i} retry failed: {e2}; fallback Yunxi')
+                seg_result = _tts_edge(
+                    sentence, seg_path, _DEFAULT_EDGE_VOICE, '+0%', volume,
+                )
 
         if seg_result['duration'] <= 0:
             print(f'[TTS] Warning: segment {i} has 0 duration, skipping')
@@ -487,14 +652,20 @@ def _tts_edge(text, output_path, voice, rate, volume):
     """Use edge-tts (free Microsoft Edge TTS) with boundary capture for subtitle sync."""
     import edge_tts
 
+    voice = _normalize_edge_voice(voice)
+    rate = _normalize_edge_rate(rate)
+    volume = _normalize_edge_volume(volume)
     boundaries = []
+    got_audio = False
 
     async def _run():
+        nonlocal got_audio
         communicate = edge_tts.Communicate(text, voice, rate=rate, volume=volume)
         with open(output_path, 'wb') as f:
             async for chunk in communicate.stream():
                 if chunk['type'] == 'audio':
                     f.write(chunk['data'])
+                    got_audio = True
                 elif chunk['type'] in ('WordBoundary', 'SentenceBoundary'):
                     # edge-tts v7+ uses SentenceBoundary, older versions use WordBoundary
                     boundaries.append({
@@ -503,7 +674,16 @@ def _tts_edge(text, output_path, voice, rate, volume):
                         'text': chunk['text'],
                     })
 
-    asyncio.run(_run())
+    try:
+        asyncio.run(_run())
+    except Exception as e:
+        raise Exception(f'{e} (voice={voice}, rate={rate}, volume={volume})') from e
+
+    if not got_audio or not os.path.exists(output_path) or os.path.getsize(output_path) < 64:
+        raise Exception(
+            f'No audio was received. Please verify that your parameters are correct. '
+            f'(voice={voice}, rate={rate}, volume={volume})'
+        )
 
     duration = _get_audio_duration(output_path)
     if duration <= 0:
@@ -1581,6 +1761,8 @@ def produce_video(script_data, video_task_id, output_dir, video_style='default',
     material_paths = material_paths or {}
     image_paths = material_paths.get('images', [])
     video_paths = material_paths.get('videos', [])
+    if not tp.get('bgm_path') and material_paths.get('bgm'):
+        tp['bgm_path'] = material_paths['bgm'][0]
 
     # If no user materials, try configured image source
     if not image_paths and not video_paths:

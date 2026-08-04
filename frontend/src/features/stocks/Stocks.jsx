@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import {
   Table, Tag, Button, Input, Select, Space, Modal, message,
   Form, Popconfirm, Tooltip, Row, Col, Card, Tabs, Checkbox,
-  InputNumber, Spin, Empty, Divider,
+  InputNumber, Spin, Empty, Divider, Switch,
 } from 'antd'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined,
@@ -325,6 +325,10 @@ export default function Stocks() {
       render: v => <Tag color={listTypeColors[v]}>{listTypeLabels[v] || v}</Tag>,
     },
     { title: '买入价', dataIndex: 'buy_price', width: 100, render: v => v ?? '-' },
+    {
+      title: '目标价', dataIndex: 'target_price', width: 90,
+      render: (v) => (v == null || v === '' || Number(v) === 0 ? '-' : Number(v).toFixed(2)),
+    },
     {
       title: '现价', dataIndex: 'current_price', width: 100,
       render: (v) => (v == null || v === '' ? '-' : Number(v).toFixed(2)),
@@ -856,6 +860,21 @@ export default function Stocks() {
                   </Form.Item>
                 </Col>
               </Row>
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Form.Item name="target_price" label="目标价（预警）">
+                    <InputNumber style={{ width: '100%' }} precision={2} placeholder="跌到此价提醒" />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item name="alert_below_cost" label="跌破成本提醒" valuePropName="checked" initialValue={true}>
+                    <Switch checkedChildren="开" unCheckedChildren="关" />
+                  </Form.Item>
+                </Col>
+              </Row>
+              <Form.Item name="alert_on_target" label="触及目标价提醒" valuePropName="checked" initialValue={true}>
+                <Switch checkedChildren="开" unCheckedChildren="关" />
+              </Form.Item>
               <Form.Item name="notes" label="备注">
                 <Input.TextArea rows={2} placeholder="添加备注信息..." />
               </Form.Item>

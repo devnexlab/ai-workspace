@@ -1,4 +1,4 @@
-"""Materials routes - upload and manage video materials (images/videos)."""
+"""Materials routes - upload and manage video materials (images/videos/audio)."""
 
 import os
 from flask import Blueprint, request, jsonify, send_file
@@ -11,13 +11,16 @@ UPLOAD_DIR = str(MATERIALS_DIR)
 
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.webp', '.bmp', '.gif'}
 VIDEO_EXTENSIONS = {'.mp4', '.avi', '.mov', '.mkv', '.flv', '.wmv', '.webm'}
+AUDIO_EXTENSIONS = {'.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'}
 
 
 @bp.route('/api/materials')
 def list_materials():
-    """List all materials, optionally filtered by type."""
+    """List materials, optionally filtered by type / asset_kind / style_key."""
     conn = _db()
     mtype = request.args.get('type', '')
+    asset_kind = request.args.get('asset_kind', '')
+    style_key = request.args.get('style_key', '')
     q = request.args.get('q', '')
 
     where = []
@@ -25,6 +28,12 @@ def list_materials():
     if mtype:
         where.append('type=?')
         params.append(mtype)
+    if asset_kind:
+        where.append("COALESCE(asset_kind, 'scene')=?")
+        params.append(asset_kind)
+    if style_key:
+        where.append('(style_key=? OR style_key=? OR style_key IS NULL)')
+        params.extend([style_key, ''])
     if q:
         where.append('name LIKE ?')
         params.append(f'%{q}%')
@@ -53,29 +62,40 @@ def create_material():
 
     name = request.form.get('name', '') or os.path.splitext(file.filename)[0]
     tags = request.form.get('tags', '')
+    asset_kind = (request.form.get('asset_kind') or 'scene').strip() or 'scene'
+    style_key = (request.form.get('style_key') or '').strip()
+    if asset_kind not in ('scene', 'bgm', 'cover'):
+        asset_kind = 'scene'
+
     filename = secure_filename(file.filename)
     if not filename:
         filename = 'material_' + str(int(__import__('time').time()))
 
-    # Preserve original extension
     ext = os.path.splitext(file.filename)[1].lower()
     filename = filename + ext if not filename.lower().endswith(ext) else filename
 
-    # Determine type
     if ext in IMAGE_EXTENSIONS:
         mtype = 'image'
+        if asset_kind == 'bgm':
+            asset_kind = 'cover' if asset_kind == 'cover' else 'scene'
     elif ext in VIDEO_EXTENSIONS:
         mtype = 'video'
+        if asset_kind == 'bgm':
+            asset_kind = 'scene'
+    elif ext in AUDIO_EXTENSIONS:
+        mtype = 'audio'
+        asset_kind = 'bgm'
     else:
-        return jsonify({'error': f'不支持的文件类型: {ext}'}), 400
+        return jsonify({'error': f'不支持的文件类型: {ext}（支持图片/视频/音频）'}), 400
 
-    # Save file with unique name
+    if asset_kind == 'cover' and mtype != 'image':
+        return jsonify({'error': '封面仅支持图片'}), 400
+
     import time
     unique_name = f'{int(time.time() * 1000)}_{filename}'
     file_path = os.path.join(UPLOAD_DIR, unique_name)
     file.save(file_path)
 
-    # Generate thumbnail for videos using ffprobe/ffmpeg
     thumbnail = ''
     if mtype == 'video':
         try:
@@ -97,15 +117,21 @@ def create_material():
 
     conn = _db()
     cur = conn.execute(
-        '''INSERT INTO video_material (name, type, file_path, thumbnail, tags)
-           VALUES (?,?,?,?,?)''',
-        (name, mtype, file_path, thumbnail, tags)
+        '''INSERT INTO video_material (name, type, file_path, thumbnail, tags, asset_kind, style_key)
+           VALUES (?,?,?,?,?,?,?)''',
+        (name, mtype, file_path, thumbnail, tags, asset_kind, style_key)
     )
     conn.commit()
     material_id = cur.lastrowid
     conn.close()
 
-    return jsonify({'id': material_id, 'message': '素材上传成功'})
+    return jsonify({
+        'id': material_id,
+        'message': '素材上传成功',
+        'type': mtype,
+        'asset_kind': asset_kind,
+        'style_key': style_key,
+    })
 
 
 @bp.route('/api/materials/<int:id>', methods=['DELETE'])
@@ -117,7 +143,6 @@ def delete_material(id):
         conn.close()
         return jsonify({'error': '素材不存在'}), 404
 
-    # Delete file
     file_path = row['file_path']
     if file_path and os.path.exists(file_path):
         try:
@@ -125,7 +150,6 @@ def delete_material(id):
         except OSError:
             pass
 
-    # Delete thumbnail
     thumb = row['thumbnail']
     if thumb and thumb != file_path and os.path.exists(thumb):
         try:
@@ -153,7 +177,12 @@ def preview_material(id):
         return jsonify({'error': '文件不存在'}), 404
 
     mtype = row['type']
-    mimetype = 'image/jpeg' if mtype == 'image' else 'video/mp4'
+    if mtype == 'image':
+        mimetype = 'image/jpeg'
+    elif mtype == 'audio':
+        mimetype = 'audio/mpeg'
+    else:
+        mimetype = 'video/mp4'
     return send_file(os.path.abspath(file_path), as_attachment=False, mimetype=mimetype)
 
 

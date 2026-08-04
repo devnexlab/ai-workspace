@@ -1,9 +1,59 @@
 """Dashboard route - aggregates real data from database (V1.2 enhanced)."""
 
+from datetime import date, timedelta
+
 from flask import Blueprint, jsonify
 from config import get_db as _db
 
 bp = Blueprint('dashboard', __name__)
+
+
+def _daily_map(conn, sql):
+    rows = conn.execute(sql).fetchall()
+    out = {}
+    for r in rows:
+        d = r['d']
+        out[d.isoformat() if hasattr(d, 'isoformat') else str(d)] = r['c']
+    return out
+
+
+def _build_trends(conn, days=7):
+    hot = _daily_map(conn, """
+        SELECT created_at::date AS d, COUNT(*) AS c FROM hot_topic
+        WHERE created_at::date >= CURRENT_DATE - INTERVAL '6 days'
+        GROUP BY d
+    """)
+    scripts = _daily_map(conn, """
+        SELECT created_at::date AS d, COUNT(*) AS c FROM script
+        WHERE created_at::date >= CURRENT_DATE - INTERVAL '6 days'
+        GROUP BY d
+    """)
+    customers = _daily_map(conn, """
+        SELECT created_at::date AS d, COUNT(*) AS c FROM customer
+        WHERE created_at::date >= CURRENT_DATE - INTERVAL '6 days'
+        GROUP BY d
+    """)
+    publish = _daily_map(conn, """
+        SELECT COALESCE(published_at, created_at)::date AS d, COUNT(*) AS c
+        FROM publish_task
+        WHERE status = 'done'
+          AND COALESCE(published_at, created_at)::date >= CURRENT_DATE - INTERVAL '6 days'
+        GROUP BY d
+    """)
+    today = date.today()
+    trends = []
+    for i in range(days - 1, -1, -1):
+        d = today - timedelta(days=i)
+        key = d.isoformat()
+        trends.append({
+            'date': key,
+            'label': f'{d.month}/{d.day}',
+            'hotTopics': hot.get(key, 0),
+            'scripts': scripts.get(key, 0),
+            'customers': customers.get(key, 0),
+            'publishDone': publish.get(key, 0),
+        })
+    return trends
 
 
 @bp.route('/api/dashboard')
@@ -160,6 +210,17 @@ def get_dashboard():
         "voice_status='failed' OR subtitle_status='failed' OR video_status='failed' OR export_status='failed'"
     ).fetchone()['c']
 
+    # --- Charts: trends & distributions ---
+    trends = _build_trends(conn)
+    script_status_dist = conn.execute(
+        "SELECT COALESCE(status, 'draft') AS status, COUNT(*) AS count "
+        "FROM script GROUP BY COALESCE(status, 'draft') ORDER BY count DESC"
+    ).fetchall()
+    customer_intention_dist = conn.execute(
+        "SELECT COALESCE(intention, 'low') AS intention, COUNT(*) AS count "
+        "FROM customer GROUP BY COALESCE(intention, 'low') ORDER BY count DESC"
+    ).fetchall()
+
     conn.close()
 
     return jsonify({
@@ -188,6 +249,15 @@ def get_dashboard():
             'overdueReminders': overdue_reminders,
             'failedVideos': failed_videos,
         },
+        'pipeline': [
+            {'key': 'scriptsDraft', 'label': '草稿文案', 'value': script_draft},
+            {'key': 'videosPending', 'label': '待做视频', 'value': video_pending},
+            {'key': 'publishPending', 'label': '待发布', 'value': publish_pending},
+            {'key': 'publishDone', 'label': '已发布', 'value': publish_done},
+        ],
+        'trends': trends,
+        'scriptStatusDist': [dict(r) for r in script_status_dist],
+        'customerIntentionDist': [dict(r) for r in customer_intention_dist],
         'recentTopics': [dict(r) for r in recent_topics],
         'recentScripts': [dict(r) for r in recent_scripts],
         'pendingVideos': [dict(r) for r in pending_videos],

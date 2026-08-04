@@ -347,8 +347,8 @@ DEFAULT_SETTINGS = [
     ('tts', 'api_key', '', 'TTS API Key',
      'Edge TTS 免费，无需填写；Azure/火山引擎需填写', 'password', None, 2),
     ('tts', 'voice', 'zh-CN-YunxiNeural', '语音角色',
-     '可在创建视频时单独选择，也可在此设置全局默认', 'select',
-     '["zh-CN-YunxiNeural","zh-CN-XiaoxiaoNeural","zh-CN-YunyangNeural","zh-CN-XiaoyiNeural","zh-CN-YunjianNeural","zh-CN-XiaochenNeural","zh-CN-YunfengNeural","zh-CN-XiaohanNeural","zh-CN-XiaomengNeural","zh-CN-XiaomoNeural","zh-CN-XiaoqiuNeural","zh-CN-XiaoruiNeural","zh-CN-XiaoshuangNeural","zh-CN-XiaoxuanNeural","zh-CN-XiaoyanNeural","zh-CN-XiaozhenNeural","zh-CN-YunhaoNeural","zh-CN-YunxiaNeural","zh-CN-YunzeNeural"]', 3),
+     '可在创建视频时单独选择，也可在此设置全局默认（仅列出 Edge TTS 仍可用的音色）', 'select',
+     '["zh-CN-YunxiNeural","zh-CN-XiaoxiaoNeural","zh-CN-YunyangNeural","zh-CN-XiaoyiNeural","zh-CN-YunjianNeural","zh-CN-YunxiaNeural","zh-CN-liaoning-XiaobeiNeural","zh-CN-shaanxi-XiaoniNeural"]', 3),
     ('tts', 'rate', '+0%', '语速', '如 +10%, -5%', 'text', None, 4),
     ('tts', 'volume', '+0%', '音量', '如 +0%', 'text', None, 5),
 
@@ -473,6 +473,17 @@ def init_db():
     _add_column_if_not_exists(cur, 'stock_screening', 'message', "TEXT DEFAULT ''")
     _add_column_if_not_exists(cur, 'knowledge_item', 'stock_code', "TEXT DEFAULT ''")
     _add_column_if_not_exists(cur, 'publish_task', 'published_at', 'TIMESTAMP')
+    _add_column_if_not_exists(cur, 'publish_task', 'got_consult', 'BOOLEAN DEFAULT FALSE')
+    _add_column_if_not_exists(cur, 'publish_task', 'likes', 'INTEGER DEFAULT 0')
+    _add_column_if_not_exists(cur, 'publish_task', 'comments', 'INTEGER DEFAULT 0')
+    _add_column_if_not_exists(cur, 'publish_task', 'session_id', "TEXT DEFAULT ''")
+    _add_column_if_not_exists(cur, 'publish_task', 'engagement_synced_at', 'TIMESTAMP')
+    _add_column_if_not_exists(cur, 'stock_watchlist', 'target_price', 'REAL DEFAULT 0')
+    _add_column_if_not_exists(cur, 'stock_watchlist', 'alert_below_cost', 'BOOLEAN DEFAULT TRUE')
+    _add_column_if_not_exists(cur, 'stock_watchlist', 'alert_on_target', 'BOOLEAN DEFAULT TRUE')
+    _add_column_if_not_exists(cur, 'video_material', 'asset_kind', "TEXT DEFAULT 'scene'")
+    _add_column_if_not_exists(cur, 'video_material', 'style_key', "TEXT DEFAULT ''")
+    _add_column_if_not_exists(cur, 'knowledge_item', 'source_file', "TEXT DEFAULT ''")
 
     # 强制校正品牌内容运营关键设置（修正旧默认值）
     _upsert_setting(cur, 'system', 'fixed_ending',
@@ -491,6 +502,52 @@ def init_db():
         if row and ('AI副业' in (row[0] or '') or 'AI赚钱' in (row[0] or '') or 'AI工具' in (row[0] or '')):
             _upsert_setting(cur, cat, 'keywords', new_kw)
     _upsert_setting(cur, 'collector_shipinhao', 'enabled', 'true')
+
+    # Edge TTS 大量中文音色已下线：更新下拉选项，并把已失效音色映射到仍可用的
+    _alive_voices = [
+        'zh-CN-YunxiNeural', 'zh-CN-XiaoxiaoNeural', 'zh-CN-YunyangNeural',
+        'zh-CN-XiaoyiNeural', 'zh-CN-YunjianNeural', 'zh-CN-YunxiaNeural',
+        'zh-CN-liaoning-XiaobeiNeural', 'zh-CN-shaanxi-XiaoniNeural',
+    ]
+    import json as _json
+    cur.execute(
+        '''UPDATE system_setting SET options=%s, description=%s
+           WHERE category=%s AND key=%s''',
+        (
+            _json.dumps(_alive_voices, ensure_ascii=False),
+            '可在创建视频时单独选择，也可在此设置全局默认（仅列出 Edge TTS 仍可用的音色）',
+            'tts', 'voice',
+        ),
+    )
+    _voice_remap = {
+        'zh-CN-XiaoqiuNeural': 'zh-CN-XiaoxiaoNeural',
+        'zh-CN-XiaochenNeural': 'zh-CN-XiaoxiaoNeural',
+        'zh-CN-XiaohanNeural': 'zh-CN-XiaoxiaoNeural',
+        'zh-CN-XiaomengNeural': 'zh-CN-XiaoyiNeural',
+        'zh-CN-XiaomoNeural': 'zh-CN-XiaoyiNeural',
+        'zh-CN-XiaoruiNeural': 'zh-CN-XiaoxiaoNeural',
+        'zh-CN-XiaoshuangNeural': 'zh-CN-XiaoyiNeural',
+        'zh-CN-XiaoxuanNeural': 'zh-CN-XiaoyiNeural',
+        'zh-CN-XiaoyanNeural': 'zh-CN-XiaoxiaoNeural',
+        'zh-CN-XiaozhenNeural': 'zh-CN-XiaoxiaoNeural',
+        'zh-CN-YunfengNeural': 'zh-CN-YunxiNeural',
+        'zh-CN-YunhaoNeural': 'zh-CN-YunyangNeural',
+        'zh-CN-YunzeNeural': 'zh-CN-YunjianNeural',
+    }
+    for old, new in _voice_remap.items():
+        cur.execute(
+            'UPDATE system_setting SET value=%s WHERE category=%s AND key=%s AND value=%s',
+            (new, 'tts', 'voice', old),
+        )
+        cur.execute(
+            'UPDATE system_setting SET value=%s WHERE category=%s AND key=%s AND value=%s',
+            (new, 'video_prefs', 'last_voice', old),
+        )
+        cur.execute(
+            '''UPDATE video_task SET voice=%s
+               WHERE voice=%s AND COALESCE(export_status,'') != 'done' ''',
+            (new, old),
+        )
 
     conn.commit()
     conn.close()

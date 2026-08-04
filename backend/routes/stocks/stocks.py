@@ -30,11 +30,15 @@ def add_to_watchlist():
     conn = _db()
     cur = conn.execute(
         '''INSERT INTO stock_watchlist
-           (stock_code, stock_name, list_type, buy_price, quantity, notes)
-           VALUES (%s, %s, %s, %s, %s, %s)''',
+           (stock_code, stock_name, list_type, buy_price, quantity, notes,
+            target_price, alert_below_cost, alert_on_target)
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)''',
         (data.get('stock_code', ''), data.get('stock_name', ''),
          data.get('list_type', 'watch'), data.get('buy_price', 0),
-         data.get('quantity', 0), data.get('notes', ''))
+         data.get('quantity', 0), data.get('notes', ''),
+         data.get('target_price', 0) or 0,
+         bool(data.get('alert_below_cost', True)),
+         bool(data.get('alert_on_target', True)))
     )
     new_id = cur.lastrowid
     conn.commit()
@@ -58,10 +62,14 @@ def update_watchlist(id):
     data = request.get_json(silent=True) or {}
     conn = _db()
     fields, params = [], []
-    for k in ['stock_code', 'stock_name', 'list_type', 'buy_price', 'current_price', 'quantity', 'notes']:
+    for k in ['stock_code', 'stock_name', 'list_type', 'buy_price', 'current_price', 'quantity',
+              'notes', 'target_price', 'alert_below_cost', 'alert_on_target']:
         if k in data:
             fields.append(f'{k}=%s')
-            params.append(data[k])
+            val = data[k]
+            if k in ('alert_below_cost', 'alert_on_target'):
+                val = bool(val)
+            params.append(val)
     if fields:
         params.append(id)
         conn.execute(f'UPDATE stock_watchlist SET {",".join(fields)} WHERE id=%s', params)

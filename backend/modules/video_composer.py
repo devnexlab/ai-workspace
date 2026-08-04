@@ -792,7 +792,29 @@ def compose_video_moviepy(audio_path, subtitle_path, image_paths, output_path,
     if grade_fn:
         base_video = base_video.transform(grade_fn)
 
-    # 4. Add audio
+    # 4. Add audio (+ optional BGM)
+    bgm_path = (tp.get('bgm_path') or '').strip()
+    if bgm_path and os.path.exists(bgm_path):
+        try:
+            from moviepy import CompositeAudioClip
+            try:
+                bgm_vol = float(tp.get('bgm_volume') or 0.12)
+            except (TypeError, ValueError):
+                bgm_vol = 0.12
+            bgm = AudioFileClip(bgm_path)
+            if hasattr(bgm, 'with_volume_scaled'):
+                bgm = bgm.with_volume_scaled(bgm_vol)
+            elif hasattr(bgm, 'volumex'):
+                bgm = bgm.volumex(bgm_vol)
+            if bgm.duration < duration:
+                loops = int(duration / max(bgm.duration, 0.1)) + 1
+                from moviepy import concatenate_audioclips
+                bgm = concatenate_audioclips([bgm] * loops)
+            bgm = bgm.subclipped(0, duration) if hasattr(bgm, 'subclipped') else bgm.subclip(0, duration)
+            audio = CompositeAudioClip([audio, bgm])
+            print(f'[VideoComposer] Mixed BGM at volume {bgm_vol}')
+        except Exception as e:
+            print(f'[VideoComposer] BGM mix skipped: {e}')
     base_video = base_video.with_audio(audio)
 
     # 5. Build overlay layers (subtitles, title, vignette, letterbox)

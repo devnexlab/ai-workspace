@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import {
   Table, Tag, Button, Input, Select, Space, Modal, message,
   Popconfirm, Tooltip, Row, Col, Card, Statistic, Form, Steps, Alert,
-  Upload, Image as AntImage, Empty, Checkbox, Badge, InputNumber,
+  Upload, Image as AntImage, Empty, Checkbox, Badge, InputNumber, Tabs,
 } from 'antd'
 import {
   PlusOutlined, DeleteOutlined, SearchOutlined, ReloadOutlined,
@@ -53,8 +53,12 @@ export default function Videos() {
   const [selectedMaterialIds, setSelectedMaterialIds] = useState([])
   const [uploading, setUploading] = useState(false)
   const [materialFilter, setMaterialFilter] = useState({ type: '', q: '' })
-  // Per-task video defaults (from system settings)
+  // Per-task video defaults (from system settings + last successful prefs)
   const [videoDefaults, setVideoDefaults] = useState({})
+  const [lastPrefs, setLastPrefs] = useState(null)
+  const [materialKindTab, setMaterialKindTab] = useState('scene')
+  // create=创建任务选景 | scene=场景编排补素材 | library=仅浏览素材库
+  const [materialPickFor, setMaterialPickFor] = useState('create')
   // Voice options and narration presets from backend
   const [voiceOptions, setVoiceOptions] = useState([])
   const [narrationPresets, setNarrationPresets] = useState([])
@@ -67,6 +71,16 @@ export default function Videos() {
   const [scenes, setScenes] = useState([])
   const [sceneMaterials, setSceneMaterials] = useState([])
   const [sceneLoading, setSceneLoading] = useState(false)
+
+  const toMaterialId = (id) => Number(id)
+  const openSceneMaterialPicker = (extra = {}) => {
+    setMaterialPickFor(extra.for || 'create')
+    setMaterialKindTab('scene')
+    const next = { ...materialFilter, ...extra.filter, type: '', asset_kind: 'scene' }
+    setMaterialFilter(next)
+    setMaterialModal(true)
+    loadMaterials(next)
+  }
 
   const loadData = (p = page, f = filters) => {
     setLoading(true)
@@ -158,6 +172,7 @@ export default function Videos() {
       const v = (res.video || []).reduce((acc, s) => { acc[s.key] = s.value; return acc }, {})
       setVideoDefaults(v)
     }).catch(() => {})
+    videosApi.lastPrefs().then(setLastPrefs).catch(() => setLastPrefs(null))
     videosApi.voiceOptions().then(res => {
       setVoiceOptions(res.voices || [])
       setNarrationPresets(res.narration_presets || [])
@@ -200,11 +215,36 @@ export default function Videos() {
     materialsApi.list({ ...f, pageSize: 100 }).then(res => setMaterials(res.list || [])).catch(() => {})
   }
 
+  const openCreateModal = () => {
+    loadScripts()
+    const prefs = lastPrefs || {}
+    const ids = String(prefs.material_ids || '')
+      .split(',')
+      .map((x) => Number(x.trim()))
+      .filter(Boolean)
+    form.setFieldsValue({
+      video_style: prefs.video_style || 'default',
+      resolution: prefs.resolution || videoDefaults.default_resolution || '1080x1920',
+      fps: prefs.fps || videoDefaults.default_fps || '30',
+      render_quality: prefs.render_quality || videoDefaults.default_render_quality || 'high',
+      video_engine: prefs.video_engine || videoDefaults.default_video_engine || 'moviepy',
+      fade_transition: prefs.fade_transition || videoDefaults.default_fade_transition || 'true',
+      title_overlay: prefs.title_overlay || videoDefaults.default_title_overlay || 'true',
+      voice: prefs.voice || undefined,
+      voice_rate: prefs.voice_rate || undefined,
+      narration_prompt: prefs.narration_prompt || undefined,
+      script_id: undefined,
+      title: undefined,
+    })
+    setSelectedMaterialIds(ids)
+    setCreateModal(true)
+  }
+
   const handleCreate = () => {
     form.validateFields().then(values => {
       const payload = {
         ...values,
-        material_ids: selectedMaterialIds.join(','),
+        material_ids: selectedMaterialIds.map(toMaterialId).filter(Boolean).join(','),
       }
       videosApi.create(payload).then(() => {
         message.success('视频任务已创建')
@@ -243,10 +283,13 @@ export default function Videos() {
     formData.append('file', file)
     const fileName = file.name.replace(/\.[^.]+$/, '')
     formData.append('name', fileName)
+    formData.append('asset_kind', materialKindTab || 'scene')
+    const style = form.getFieldValue('video_style')
+    if (style) formData.append('style_key', style)
     setUploading(true)
     materialsApi.upload(formData).then(() => {
       message.success('素材上传成功')
-      loadMaterials()
+      loadMaterials({ ...materialFilter, asset_kind: materialKindTab })
     }).catch(err => {
       message.error(err?.error || '上传失败')
     }).finally(() => setUploading(false))
@@ -271,6 +314,9 @@ export default function Videos() {
     videosApi.getScenes(taskId).then(res => {
       setScenes(res.scenes || [])
       setSceneMaterials(res.materials_info || [])
+      // 预填任务已绑定的素材，便于在编排里改选
+      const bound = (res.materials_info || []).map(m => toMaterialId(m.id)).filter(Boolean)
+      if (bound.length) setSelectedMaterialIds(bound)
     }).catch(() => {
       message.error('加载场景失败')
     }).finally(() => setSceneLoading(false))
@@ -278,14 +324,49 @@ export default function Videos() {
 
   const handleGenerateScenes = () => {
     if (!sceneTaskId) return
+    const ids = selectedMaterialIds.map(toMaterialId).filter(Boolean)
+    const payload = ids.length ? { material_ids_override: ids.join(',') } : {}
     setSceneLoading(true)
-    videosApi.generateScenes(sceneTaskId, {}).then(res => {
+    videosApi.generateScenes(sceneTaskId, payload).then(res => {
       setScenes(res.scenes || [])
       setSceneMaterials(res.materials_info || [])
       message.success(res.message || '场景生成完成')
     }).catch(err => {
       message.error(err?.error || '场景生成失败')
     }).finally(() => setSceneLoading(false))
+  }
+
+  const finishMaterialPick = () => {
+    const ids = selectedMaterialIds.map(toMaterialId).filter(Boolean)
+    if (materialPickFor === 'scene' && sceneTaskId) {
+      if (!ids.length) {
+        message.warning('请至少选择一个场景图片或视频')
+        return
+      }
+      videosApi.update(sceneTaskId, { material_ids: ids.join(',') }).then(() => {
+        message.success(`已绑定 ${ids.length} 个场景素材`)
+        setMaterialModal(false)
+        videosApi.getScenes(sceneTaskId).then(res => {
+          setSceneMaterials(res.materials_info || [])
+        }).catch(() => {})
+      }).catch(err => message.error(err?.error || '保存素材失败'))
+      return
+    }
+    setMaterialModal(false)
+  }
+
+  const toggleMaterialSelect = (rawId, assetKind) => {
+    const id = toMaterialId(rawId)
+    if (!id) return
+    // 创建任务 / 场景编排只允许选场景素材
+    if ((materialPickFor === 'create' || materialPickFor === 'scene') && assetKind && assetKind !== 'scene') {
+      message.info('分镜请选择「场景」图片或视频；BGM/封面请在素材库单独管理')
+      return
+    }
+    setSelectedMaterialIds(prev => {
+      const cur = prev.map(toMaterialId)
+      return cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]
+    })
   }
 
   const handleSaveScenes = () => {
@@ -394,6 +475,23 @@ export default function Videos() {
               </Button>
             </Tooltip>
           ) : null}
+          <Tooltip title="绑定场景素材（文案出片后可在此补选）">
+            <Button
+              size="small"
+              icon={<PictureOutlined />}
+              type={r.material_ids ? 'default' : 'dashed'}
+              disabled={isProcessing}
+              onClick={() => {
+                setSceneTaskId(r.id)
+                const ids = String(r.material_ids || '')
+                  .split(',')
+                  .map(x => Number(x.trim()))
+                  .filter(Boolean)
+                setSelectedMaterialIds(ids)
+                openSceneMaterialPicker({ for: 'scene' })
+              }}
+            />
+          </Tooltip>
           <Tooltip title="配音">
             <Button size="small" icon={<SoundOutlined />}
               loading={executing === `${r.id}-voice`}
@@ -448,7 +546,7 @@ export default function Videos() {
     <div>
       <div className="page-title">视频中心</div>
       <div className="page-desc">
-        从文案创建视频任务，完成配音、字幕、剪辑与导出。完成后可到发布中心发往各平台。
+        从文案出片或在此创建任务。可绑定场景素材、编排分镜，再配音/字幕/合成。文案中心出片后也会跳转到对应任务。
       </div>
 
       {ffmpegOk === false && (
@@ -483,11 +581,9 @@ export default function Videos() {
         </div>
         <Space>
           <Button icon={<PictureOutlined />} onClick={() => {
-            setMaterialModal(true); loadMaterials()
+            openSceneMaterialPicker({ for: 'library' })
           }}>素材库</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => {
-            loadScripts(); form.resetFields(); setSelectedMaterialIds([]); setCreateModal(true)
-          }}>创建视频任务</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>创建视频任务</Button>
         </Space>
       </div>
 
@@ -504,16 +600,15 @@ export default function Videos() {
       {/* Create Modal */}
       <Modal title="创建视频任务" open={createModal} onOk={handleCreate}
         onCancel={() => { setCreateModal(false); setSelectedMaterialIds([]) }} width={720}>
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}
-          initialValues={{
-            video_style: 'default',
-            resolution: videoDefaults.default_resolution || '1080x1920',
-            fps: videoDefaults.default_fps || '30',
-            render_quality: videoDefaults.default_render_quality || 'high',
-            video_engine: videoDefaults.default_video_engine || 'moviepy',
-            fade_transition: videoDefaults.default_fade_transition || 'true',
-            title_overlay: videoDefaults.default_title_overlay || 'true',
-          }}>
+        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+          {lastPrefs?.has_saved ? (
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 12 }}
+              message="已填入上次成功出片的音色 / 分辨率 / 风格 / 素材，可按需改"
+            />
+          ) : null}
           <Form.Item name="script_id" label="选择文案" rules={[{ required: true }]}>
             <Select showSearch optionFilterProp="label" placeholder="选择已有文案"
               options={scripts.map(s => ({ label: s.title, value: s.id }))} />
@@ -524,12 +619,12 @@ export default function Videos() {
           <Form.Item name="video_style" label="视频风格">
             <Select options={styles.map(s => ({ label: s.name, value: s.key }))} />
           </Form.Item>
-          <Form.Item label="选择素材" extra="从素材库选择图片或视频作为背景，不选则使用纯色背景">
+          <Form.Item label="选择素材" extra="从素材库选择「场景」图片或视频作为背景，不选则使用纯色背景（BGM/封面请在素材库单独上传）">
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Badge count={selectedMaterialIds.length}>
-                <Button icon={<PictureOutlined />} onClick={() => {
-                  setMaterialModal(true); loadMaterials()
-                }}>从素材库选择</Button>
+                <Button icon={<PictureOutlined />} onClick={() => openSceneMaterialPicker({ for: 'create' })}>
+                  从素材库选择
+                </Button>
               </Badge>
               {selectedMaterialIds.length > 0 && (
                 <span style={{ color: '#999' }}>
@@ -655,26 +750,56 @@ export default function Videos() {
       </Modal>
 
       {/* Material Library Modal */}
-      <Modal title="素材库" open={materialModal}
+      <Modal
+        title={materialPickFor === 'scene' ? '选择场景素材（用于分镜）' : materialPickFor === 'create' ? '选择场景素材' : '素材库'}
+        open={materialModal}
         onCancel={() => setMaterialModal(false)}
         footer={null} width={800}>
+        <Tabs
+          activeKey={materialKindTab}
+          onChange={(k) => {
+            if ((materialPickFor === 'create' || materialPickFor === 'scene') && k !== 'scene') {
+              message.info('生成视频分镜请使用「场景」素材；BGM/封面请从顶部「素材库」管理')
+              return
+            }
+            setMaterialKindTab(k)
+            const next = { ...materialFilter, asset_kind: k, type: '' }
+            setMaterialFilter(next)
+            loadMaterials(next)
+          }}
+          items={
+            (materialPickFor === 'create' || materialPickFor === 'scene')
+              ? [{ key: 'scene', label: '场景（图片/视频）' }]
+              : [
+                { key: 'scene', label: '场景' },
+                { key: 'bgm', label: 'BGM' },
+                { key: 'cover', label: '封面' },
+              ]
+          }
+        />
         <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Space>
+            {materialKindTab === 'scene' && (
             <Select placeholder="类型" allowClear style={{ width: 100 }}
               value={materialFilter.type}
-              onChange={v => { setMaterialFilter({ ...materialFilter, type: v }); loadMaterials({ ...materialFilter, type: v }) }}
+              onChange={v => { const next = { ...materialFilter, type: v, asset_kind: materialKindTab }; setMaterialFilter(next); loadMaterials(next) }}
               options={[{ label: '图片', value: 'image' }, { label: '视频', value: 'video' }]} />
+            )}
             <Input placeholder="搜索名称" allowClear style={{ width: 180 }}
               value={materialFilter.q}
               onChange={e => setMaterialFilter({ ...materialFilter, q: e.target.value })}
-              onPressEnter={() => loadMaterials()} />
+              onPressEnter={() => loadMaterials({ ...materialFilter, asset_kind: materialKindTab })} />
             <Button icon={<ReloadOutlined />} onClick={() => {
-              setMaterialFilter({ type: '', q: '' }); loadMaterials({ type: '', q: '' })
+              const next = { type: '', q: '', asset_kind: materialKindTab }
+              setMaterialFilter(next)
+              loadMaterials(next)
             }}>刷新</Button>
           </Space>
           <Upload beforeUpload={handleUpload} showUploadList={false}
-            accept="image/*,video/*">
-            <Button type="primary" icon={<UploadOutlined />} loading={uploading}>上传素材</Button>
+            accept={materialKindTab === 'bgm' ? 'audio/*' : materialKindTab === 'cover' ? 'image/*' : 'image/*,video/*'}>
+            <Button type="primary" icon={<UploadOutlined />} loading={uploading}>
+              {materialKindTab === 'bgm' ? '上传 BGM' : materialKindTab === 'cover' ? '上传封面' : '上传素材'}
+            </Button>
           </Upload>
         </div>
 
@@ -683,22 +808,25 @@ export default function Videos() {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, maxHeight: 500, overflow: 'auto' }}>
             {materials.map(m => {
-              const selected = selectedMaterialIds.includes(m.id)
+              const mid = toMaterialId(m.id)
+              const selected = selectedMaterialIds.map(toMaterialId).includes(mid)
+              const kind = m.asset_kind || 'scene'
               return (
                 <div key={m.id}
                   style={{
                     position: 'relative', border: selected ? '2px solid #1890ff' : '1px solid #d9d9d9',
                     borderRadius: 8, cursor: 'pointer', overflow: 'hidden',
                   }}
-                  onClick={() => {
-                    setSelectedMaterialIds(prev =>
-                      prev.includes(m.id) ? prev.filter(x => x !== m.id) : [...prev, m.id]
-                    )
-                  }}>
+                  onClick={() => toggleMaterialSelect(m.id, kind)}>
                   <div style={{ width: '100%', height: 120, background: '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {m.type === 'image' ? (
                       <img src={`/api/materials/${m.id}/preview`} alt={m.name}
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : m.type === 'audio' ? (
+                      <div style={{ textAlign: 'center' }}>
+                        <FileOutlined style={{ fontSize: 40, color: '#999' }} />
+                        <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>音频</div>
+                      </div>
                     ) : (
                       <div style={{ textAlign: 'center' }}>
                         <FileOutlined style={{ fontSize: 40, color: '#999' }} />
@@ -711,7 +839,9 @@ export default function Videos() {
                       {m.name}
                     </div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Tag color={m.type === 'image' ? 'blue' : 'purple'}>{m.type === 'image' ? '图片' : '视频'}</Tag>
+                      <Tag color={m.type === 'image' ? 'blue' : m.type === 'audio' ? 'orange' : 'purple'}>
+                        {kind === 'bgm' ? 'BGM' : kind === 'cover' ? '封面' : (m.type === 'image' ? '图片' : m.type === 'audio' ? '音频' : '视频')}
+                      </Tag>
                       <Popconfirm title="确认删除？" onConfirm={(e) => {
                         e.stopPropagation(); handleDeleteMaterial(m.id)
                       }}>
@@ -741,7 +871,7 @@ export default function Videos() {
             </span>
             <Button onClick={() => setSelectedMaterialIds([])}>清空选择</Button>
             <Button type="primary" style={{ marginLeft: 8 }}
-              onClick={() => setMaterialModal(false)}>完成</Button>
+              onClick={finishMaterialPick}>完成</Button>
           </div>
         )}
       </Modal>
@@ -763,12 +893,22 @@ export default function Videos() {
               AI 会将旁白拆分为多个场景段落，并为每个场景匹配最合适的素材
             </div>
             <div style={{ marginTop: 8, color: '#999', fontSize: 12 }}>
-              需要先选择素材并创建任务，才能生成场景
+              {sceneMaterials.length > 0
+                ? `已绑定 ${sceneMaterials.length} 个场景素材，可直接生成`
+                : selectedMaterialIds.length > 0
+                  ? `已选 ${selectedMaterialIds.length} 个素材，生成时会写入任务`
+                  : '请先选择「场景」图片/视频素材，再生成场景'}
             </div>
-            <Button type="primary" icon={<ThunderboltOutlined />} style={{ marginTop: 20 }}
-              onClick={handleGenerateScenes}>
-              生成场景
-            </Button>
+            <Space style={{ marginTop: 20 }}>
+              <Button icon={<PictureOutlined />} onClick={() => openSceneMaterialPicker({ for: 'scene' })}>
+                {sceneMaterials.length || selectedMaterialIds.length ? '重选素材' : '选择场景素材'}
+              </Button>
+              <Button type="primary" icon={<ThunderboltOutlined />}
+                disabled={!sceneMaterials.length && !selectedMaterialIds.length}
+                onClick={handleGenerateScenes}>
+                生成场景
+              </Button>
+            </Space>
           </div>
         ) : (
           <>

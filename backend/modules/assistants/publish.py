@@ -174,12 +174,14 @@ def _task_do_publish(task_id: int) -> dict:
             description=t.get('description') or '',
             tags=t.get('tags') or '',
             cover_text=t.get('cover_text') or '',
+            task_id=task_id,
         )
         status = (result or {}).get('status')
+        sid = (result or {}).get('session_id') or ''
         if status == 'pending_review':
             conn.execute(
-                "UPDATE publish_task SET status='reviewing', error_msg=%s WHERE id=%s",
-                ((result or {}).get('message') or '', task_id),
+                "UPDATE publish_task SET status='reviewing', error_msg=%s, session_id=%s WHERE id=%s",
+                ((result or {}).get('message') or '', sid, task_id),
             )
             msg = (result or {}).get('message') or '已打开发布页，请在浏览器中确认发布'
         elif status == 'error':

@@ -86,6 +86,92 @@ def create_knowledge():
     return jsonify({'id': new_id, 'message': '知识已添加'})
 
 
+@bp.route('/api/knowledge/upload', methods=['POST'])
+def upload_knowledge():
+    """上传 PDF / 音频，抽取文本写入 knowledge_item。"""
+    import os
+    import time
+    from pathlib import Path
+    from werkzeug.utils import secure_filename
+    from config import KNOWLEDGE_DIR
+
+    if 'file' not in request.files:
+        return jsonify({'error': '没有文件上传'}), 400
+    file = request.files['file']
+    if not file.filename:
+        return jsonify({'error': '文件名为空'}), 400
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    pdf_ext = {'.pdf'}
+    audio_ext = {'.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac', '.webm'}
+    if ext not in pdf_ext and ext not in audio_ext:
+        return jsonify({'error': f'仅支持 PDF 或音频文件，当前：{ext}'}), 400
+
+    KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
+    safe = secure_filename(file.filename) or f'upload{ext}'
+    unique = f'{int(time.time() * 1000)}_{safe}'
+    save_path = Path(KNOWLEDGE_DIR) / unique
+    file.save(str(save_path))
+
+    title = request.form.get('title') or os.path.splitext(file.filename)[0]
+    category = request.form.get('category') or ''
+    content = ''
+    source_type = 'pdf' if ext in pdf_ext else 'voice'
+
+    try:
+        if source_type == 'pdf':
+            try:
+                from pypdf import PdfReader
+            except ImportError:
+                return jsonify({'error': '未安装 pypdf，请执行: pip install pypdf'}), 500
+            reader = PdfReader(str(save_path))
+            parts = []
+            for page in reader.pages[:80]:
+                try:
+                    parts.append(page.extract_text() or '')
+                except Exception:
+                    continue
+            content = '\n'.join(parts).strip()
+            if not content:
+                content = '（未能从 PDF 抽出文本，可能是扫描件）'
+        else:
+            try:
+                from faster_whisper import WhisperModel
+            except ImportError:
+                return jsonify({
+                    'error': '未安装 faster-whisper，请执行: pip install faster-whisper',
+                    'hint': '安装后重启后端即可转写音频',
+                }), 500
+            model_size = request.form.get('model') or 'base'
+            model = WhisperModel(model_size, device='cpu', compute_type='int8')
+            segments, info = model.transcribe(str(save_path), language='zh')
+            content = '\n'.join(seg.text.strip() for seg in segments if seg.text).strip()
+            if not content:
+                content = '（音频转写结果为空）'
+            if info and getattr(info, 'language', None):
+                content = f'[lang={info.language}]\n{content}'
+    except Exception as e:
+        return jsonify({'error': f'解析失败: {e}'}), 500
+
+    conn = _db()
+    cur = conn.execute(
+        '''INSERT INTO knowledge_item
+           (title, content, source_type, category, tags, source_url, source_file)
+           VALUES (%s, %s, %s, %s, %s, %s, %s)''',
+        (title, content, source_type, category, '', '', str(save_path))
+    )
+    new_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({
+        'id': new_id,
+        'title': title,
+        'source_type': source_type,
+        'content_preview': content[:400],
+        'message': '已导入并抽取文本，可继续 AI 整理',
+    })
+
+
 @bp.route('/api/knowledge/<int:id>', methods=['PUT'])
 def update_knowledge(id):
     data = request.get_json(silent=True) or {}
@@ -149,7 +235,7 @@ def ai_process_knowledge(id):
 
 请以JSON格式返回：
 {{
-  "category": "合适的分类",
+  "category": "必须从这些分类里选一个：股票交易、股票市场分析、交易复盘、保险干货、客户跟进、产品话术、内容运营、学习笔记、政策法规、生活灵感、未分类",
   "tags": "逗号分隔的标签",
   "summary": "100字以内的摘要",
   "related_ids": [相关知识的ID列表],
@@ -183,16 +269,39 @@ def ai_process_knowledge(id):
         return jsonify({'error': str(e)}), 500
 
 
+# 默认知识分类（与库内已用分类合并返回）
+DEFAULT_KNOWLEDGE_CATEGORIES = [
+    '股票交易',
+    '股票市场分析',
+    '交易复盘',
+    '保险干货',
+    '客户跟进',
+    '产品话术',
+    '内容运营',
+    '学习笔记',
+    '政策法规',
+    '生活灵感',
+    '未分类',
+]
+
+
 @bp.route('/api/knowledge/categories')
 def list_categories():
-    """List all distinct categories."""
+    """预设分类 + 库内已用分类（去重）。"""
     conn = _db()
     rows = conn.execute(
         'SELECT DISTINCT category FROM knowledge_item WHERE category IS NOT NULL AND category != %s ORDER BY category',
         ('',)
     ).fetchall()
     conn.close()
-    return jsonify({'list': [r['category'] for r in rows]})
+    used = [r['category'] for r in rows if r['category']]
+    merged = []
+    seen = set()
+    for c in DEFAULT_KNOWLEDGE_CATEGORIES + used:
+        if c and c not in seen:
+            seen.add(c)
+            merged.append(c)
+    return jsonify({'list': merged, 'presets': DEFAULT_KNOWLEDGE_CATEGORIES, 'used': used})
 
 
 @bp.route('/api/knowledge/compare', methods=['POST'])

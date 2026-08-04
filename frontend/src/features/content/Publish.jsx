@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
   Table, Tag, Button, Input, Select, Space, Modal, message,
-  Popconfirm, Tooltip, Row, Col, Card, Statistic, Form, Alert,
+  Popconfirm, Tooltip, Row, Col, Card, Statistic, Form, Alert, Checkbox, Switch,
 } from 'antd'
 import {
   PlusOutlined, DeleteOutlined, SearchOutlined, ReloadOutlined,
-  RocketOutlined, CheckOutlined, LinkOutlined,
+  RocketOutlined, CheckOutlined, LinkOutlined, SyncOutlined,
 } from '@ant-design/icons'
 import { Link, useSearchParams } from 'react-router-dom'
 import { publishApi, videosApi, platformsApi } from '../../api'
@@ -30,7 +30,10 @@ export default function Publish() {
   const [createModal, setCreateModal] = useState(false)
   const [confirmModal, setConfirmModal] = useState({ open: false, id: null })
   const [confirmUrl, setConfirmUrl] = useState('')
+  const [confirmConsult, setConfirmConsult] = useState(false)
+  const [weekStats, setWeekStats] = useState(null)
   const [publishing, setPublishing] = useState(null)
+  const [syncing, setSyncing] = useState(null)
   const [videos, setVideos] = useState([])
   const [pubStatus, setPubStatus] = useState({})
   const [platforms, setPlatforms] = useState([])
@@ -76,6 +79,7 @@ export default function Publish() {
     if (focus) setFocusId(Number(focus) || focus)
     loadData(1, next)
     publishApi.status().then(setPubStatus).catch(() => {})
+    publishApi.analytics({ range: 'week' }).then(setWeekStats).catch(() => setWeekStats(null))
     platformsApi.list()
       .then(res => setPlatforms(res.list || []))
       .catch(() => {})
@@ -83,6 +87,17 @@ export default function Publish() {
     const timer = setInterval(loadSessions, 10000)
     return () => clearInterval(timer)
   }, [searchParams])
+
+  // 确认弹窗打开时，若会话新抓到链接则自动填入
+  useEffect(() => {
+    if (!confirmModal.open || !confirmModal.id || confirmUrl.trim()) return
+    const row = data.list.find(x => x.id === confirmModal.id)
+    const fromSession = sessions.find(s =>
+      s.task_id === confirmModal.id || (row?.session_id && s.id === row.session_id)
+    )
+    const autoUrl = (row?.publish_url || fromSession?.detected_url || '').trim()
+    if (autoUrl) setConfirmUrl(autoUrl)
+  }, [sessions, confirmModal, data.list])
 
   const loadVideos = () => {
     videosApi.list({ export_status: 'done', pageSize: 100 }).then(res => setVideos(res.list)).catch(() => {})
@@ -129,19 +144,38 @@ export default function Publish() {
   }
 
   const openConfirm = (id) => {
-    setConfirmUrl('')
+    const row = data.list.find(x => x.id === id)
+    const fromSession = sessions.find(s =>
+      s.task_id === id || (row?.session_id && s.id === row.session_id)
+    )
+    const autoUrl = (row?.publish_url || fromSession?.detected_url || '').trim()
+    setConfirmUrl(autoUrl)
+    setConfirmConsult(!!row?.got_consult)
     setConfirmModal({ open: true, id })
   }
 
   const handleConfirm = () => {
     const id = confirmModal.id
     if (!id) return
-    publishApi.confirm(id, { publish_url: confirmUrl.trim() }).then(() => {
+    publishApi.confirm(id, { publish_url: confirmUrl.trim(), got_consult: confirmConsult }).then(() => {
       message.success(confirmUrl.trim() ? '已标记已发布，并保存作品链接' : '已标记为已发布')
       setConfirmModal({ open: false, id: null })
       setConfirmUrl('')
+      setConfirmConsult(false)
       loadData()
+      publishApi.analytics({ range: 'week' }).then(setWeekStats).catch(() => {})
     }).catch(err => message.error(err?.error || '确认失败'))
+  }
+
+  const handleSync = (id) => {
+    setSyncing(id)
+    publishApi.sync(id).then(res => {
+      message.success(res.message || '同步完成')
+      loadData()
+      publishApi.analytics({ range: 'week' }).then(setWeekStats).catch(() => {})
+    }).catch(err => {
+      message.error(err?.error || err?.message || '同步失败：请确认已登录创作者后台，或先保持发布浏览器打开')
+    }).finally(() => setSyncing(null))
   }
 
   const handleCloseSession = (sid) => {
@@ -169,6 +203,33 @@ export default function Publish() {
       render: v => <Tag color={statusColors[v]}>{statusLabels[v] || v}</Tag>
     },
     {
+      title: '有咨询', dataIndex: 'got_consult', width: 90,
+      render: (v, r) => (
+        <Switch
+          size="small"
+          checked={!!v}
+          disabled={r.status !== 'done'}
+          onChange={(checked) => {
+            publishApi.update(r.id, { got_consult: checked })
+              .then(() => {
+                message.success(checked ? '已标记有咨询' : '已取消咨询标记')
+                loadData()
+                publishApi.analytics({ range: 'week' }).then(setWeekStats).catch(() => {})
+              })
+              .catch(err => message.error(err?.error || '更新失败'))
+          }}
+        />
+      ),
+    },
+    {
+      title: '赞/评', key: 'engage', width: 80,
+      render: (_, r) => (
+        <span style={{ fontSize: 12, color: '#64748b' }}>
+          {Number(r.likes || 0)}/{Number(r.comments || 0)}
+        </span>
+      ),
+    },
+    {
       title: '作品链接', dataIndex: 'publish_url', width: 140, ellipsis: true,
       render: (v) => (v
         ? <a href={v} target="_blank" rel="noreferrer"><LinkOutlined /> 查看</a>
@@ -184,7 +245,7 @@ export default function Publish() {
     { title: '定时', dataIndex: 'scheduled_time', width: 160, render: v => formatDateTime(v) },
     { title: '创建时间', dataIndex: 'created_at', width: 160, render: v => formatDateTime(v) },
     {
-      title: '操作', key: 'action', width: 200, fixed: 'right',
+      title: '操作', key: 'action', width: 260, fixed: 'right',
       render: (_, r) => (
         <Space size="small">
           {r.status === 'reviewing' || r.status === 'pending' ? (
@@ -209,6 +270,18 @@ export default function Publish() {
                 loading={publishing === r.id}
                 onClick={() => handlePublish(r.id)}
               />
+            </Tooltip>
+          ) : null}
+          {(r.status === 'done' || r.status === 'reviewing') ? (
+            <Tooltip title="从创作者后台同步作品链接与点赞/评论；有赞或评则自动标有咨询">
+              <Button
+                size="small"
+                icon={<SyncOutlined />}
+                loading={syncing === r.id}
+                onClick={() => handleSync(r.id)}
+              >
+                同步
+              </Button>
             </Tooltip>
           ) : null}
           {r.status === 'done' && !r.publish_url ? (
@@ -246,7 +319,7 @@ export default function Publish() {
     <div>
       <div className="page-title">发布中心</div>
       <div className="page-desc">
-        选择成品视频，半自动打开抖音 / 小红书 / 视频号创作者后台并填充内容；你在平台点发表后，回到这里「确认已发」并可填写作品链接。
+        半自动打开发布页并填充；平台点发表后回来「确认已发」。浏览器会话会尽量自动抓作品链接；也可点「同步」从创作者后台回填链接与赞/评——有点赞或评论会自动标「有咨询」（不等于真实私信，仍可手动改）。
       </div>
 
       {pubStatus.playwright_installed === false && (
@@ -275,6 +348,9 @@ export default function Publish() {
               <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Tag color={s.status === 'need_login' ? 'warning' : 'processing'}>{s.label}</Tag>
                 <span style={{ flex: 1, color: '#555' }}>{s.message}</span>
+                {s.detected_url ? (
+                  <a href={s.detected_url} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>已抓到链接</a>
+                ) : null}
                 <Button size="small" onClick={() => handleCloseSession(s.id)}>关闭浏览器</Button>
               </div>
             ))}
@@ -284,10 +360,21 @@ export default function Publish() {
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}><Card size="small"><Statistic title="发布任务" value={data.total} prefix={<RocketOutlined />} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="已发布" value={data.list.filter(d => d.status === 'done').length} valueStyle={{ color: '#52c41a' }} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="待发布" value={data.list.filter(d => d.status === 'pending').length} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="待确认" value={data.list.filter(d => d.status === 'reviewing').length} /></Card></Col>
+        <Col span={6}><Card size="small"><Statistic title="本周已发" value={weekStats?.published ?? '-'} valueStyle={{ color: '#52c41a' }} /></Card></Col>
+        <Col span={6}><Card size="small"><Statistic title="本周有咨询" value={weekStats?.consult ?? '-'} /></Card></Col>
+        <Col span={6}><Card size="small"><Statistic title="咨询率" value={weekStats ? `${Math.round((weekStats.consult_rate || 0) * 100)}%` : '-'} /></Card></Col>
       </Row>
+      {weekStats?.by_content_type?.length > 0 && (
+        <Card size="small" style={{ marginBottom: 16 }} title="本周选题类型">
+          <Space wrap>
+            {weekStats.by_content_type.map((x) => (
+              <Tag key={x.key} color={x.key === 'insurance' ? 'gold' : 'blue'}>
+                {x.label} {x.count} 条 · 咨询 {x.consult}
+              </Tag>
+            ))}
+          </Space>
+        </Card>
+      )}
 
       <div className="table-toolbar">
         <div className="table-toolbar-left">
@@ -325,14 +412,19 @@ export default function Publish() {
         okText="确认已发"
       >
         <p style={{ marginBottom: 12, color: '#64748b' }}>
-          请确认已在平台点过发表。可选填作品链接，方便以后回看。
+          请确认已在平台点过发表。若发布会话已抓到作品链接会自动填入；也可稍后点「同步」从作品管理页拉取。
         </p>
         <Input
           prefix={<LinkOutlined />}
-          placeholder="作品链接（可选）https://..."
+          placeholder="作品链接（可选，可自动回填）https://..."
           value={confirmUrl}
           onChange={(e) => setConfirmUrl(e.target.value)}
         />
+        <div style={{ marginTop: 12 }}>
+          <Checkbox checked={confirmConsult} onChange={(e) => setConfirmConsult(e.target.checked)}>
+            这条带来了咨询 / 私信（也可事后用「同步」按赞/评自动标）
+          </Checkbox>
+        </div>
       </Modal>
 
       <Modal title="创建发布任务" open={createModal} onOk={handleCreate}

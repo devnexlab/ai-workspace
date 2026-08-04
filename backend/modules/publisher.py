@@ -18,6 +18,7 @@ Playwright needs to be installed: pip install playwright && playwright install c
 """
 
 import os
+import re
 import threading
 import time
 import uuid
@@ -33,6 +34,13 @@ PLATFORM_URLS = {
     'shipinhao': 'https://channels.weixin.qq.com/platform/post/create',
 }
 
+# 创作者「作品管理」页（用于同步链接与互动）
+MANAGE_URLS = {
+    'douyin': 'https://creator.douyin.com/creator-micro/content/manage',
+    'xiaohongshu': 'https://creator.xiaohongshu.com/new/note-manager',
+    'shipinhao': 'https://channels.weixin.qq.com/platform/post/list',
+}
+
 # Platform display names
 PLATFORM_NAMES = {
     'douyin': '抖音',
@@ -43,6 +51,19 @@ PLATFORM_NAMES = {
 # session_id -> session dict
 _SESSIONS = {}
 _SESSIONS_LOCK = threading.Lock()
+
+_CONTENT_URL_HINTS = (
+    'douyin.com/video/',
+    'v.douyin.com/',
+    'xiaohongshu.com/explore/',
+    'xiaohongshu.com/discovery/item/',
+    'xhslink.com/',
+    'weixin.qq.com/sph/',
+    'channels.weixin.qq.com/web/',
+)
+_EXCLUDE_URL_HINTS = (
+    'upload', 'publish/publish', 'post/create', 'login', 'passport',
+)
 
 
 def _platform_meta(platform):
@@ -214,6 +235,8 @@ def list_sessions():
             'warnings': s['warnings'],
             'logged_in': s['logged_in'],
             'created_at': s['created_at'],
+            'task_id': s.get('task_id'),
+            'detected_url': s.get('detected_url') or '',
         }
         for s in items
         if s['status'] not in ('closed', 'error')
@@ -236,7 +259,7 @@ def _drop_session(sid):
 
 # ---------------- public entry ----------------
 
-def publish_video(platform, video_path, title, description, tags, cover_text=''):
+def publish_video(platform, video_path, title, description, tags, cover_text='', task_id=None):
     """
     打开平台创作后台、填充内容，浏览器保持打开等待人工确认发布。
     立即返回（不阻塞到用户点发布），返回体里带 session_id。
@@ -269,6 +292,9 @@ def publish_video(platform, video_path, title, description, tags, cover_text='')
         }
 
     session = _new_session(platform, label)
+    session['task_id'] = task_id
+    session['title'] = title or ''
+    session['detected_url'] = ''
     args = (session, meta, video_path, title or '', description or '',
             tags or '', config.get('cookies', ''))
     threading.Thread(target=_session_worker, args=args, daemon=True).start()
@@ -422,6 +448,7 @@ def _session_worker(session, meta, video_path, title, description, tags, cookies
                 session['ready'].set()
 
             # 保持浏览器打开，直到用户关窗 / 手动关闭 / 超时
+            # 期间尽量捕捉作品链接，并处理「同步互动」请求
             deadline = time.time() + _keep_open_seconds()
             while time.time() < deadline and not session['stop'].is_set():
                 try:
@@ -429,6 +456,22 @@ def _session_worker(session, meta, video_path, title, description, tags, cookies
                         break
                 except Exception:
                     break
+                try:
+                    active = context.pages[0]
+                    _maybe_capture_publish_url(session, active)
+                    req = session.pop('sync_request', None)
+                    if req:
+                        try:
+                            session['sync_result'] = _scrape_manage_page(
+                                active, platform, req.get('title') or session.get('title') or '',
+                            )
+                        except Exception as e:
+                            session['sync_result'] = {'ok': False, 'error': str(e)}
+                        done = session.get('sync_done')
+                        if done:
+                            done.set()
+                except Exception:
+                    pass
                 time.sleep(1.5)
 
             session['status'] = 'closed'
@@ -444,6 +487,251 @@ def _session_worker(session, meta, video_path, title, description, tags, cookies
     finally:
         session['ready'].set()
         threading.Timer(120, _drop_session, args=(session['id'],)).start()
+
+
+def _is_content_url(url):
+    u = (url or '').lower()
+    if not u.startswith('http'):
+        return False
+    if any(x in u for x in _EXCLUDE_URL_HINTS):
+        return False
+    return any(x in u for x in _CONTENT_URL_HINTS)
+
+
+def _detect_url_from_page(page):
+    """从当前页 URL 或页面链接里尽量找出作品公开链。"""
+    try:
+        cur = page.url or ''
+    except Exception:
+        cur = ''
+    if _is_content_url(cur):
+        return cur
+    try:
+        hrefs = page.eval_on_selector_all(
+            'a[href]',
+            'els => els.map(e => e.href).filter(Boolean)',
+        ) or []
+    except Exception:
+        hrefs = []
+    for h in hrefs:
+        if _is_content_url(h):
+            return h
+    # 正文里可能出现分享短链
+    try:
+        text = page.inner_text('body', timeout=1500) or ''
+        for m in re.finditer(r'https?://[^\s\"\'<>]+', text):
+            if _is_content_url(m.group(0)):
+                return m.group(0).rstrip('.,);]')
+    except Exception:
+        pass
+    return ''
+
+
+def _write_task_publish_url(task_id, url):
+    if not task_id or not url:
+        return
+    try:
+        from config import get_db
+        conn = get_db()
+        conn.execute(
+            "UPDATE publish_task SET publish_url=? "
+            "WHERE id=? AND (publish_url IS NULL OR publish_url='')",
+            (url, int(task_id)),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+
+def _maybe_capture_publish_url(session, page):
+    if session.get('detected_url'):
+        return
+    url = _detect_url_from_page(page)
+    if not url:
+        return
+    session['detected_url'] = url
+    session['message'] = f"已检测到作品链接，确认时可自动回填"
+    _write_task_publish_url(session.get('task_id'), url)
+
+
+def _parse_cn_count(text):
+    """解析 1.2万 / 3千 / 128 等中文互动数。"""
+    if text is None:
+        return 0
+    s = str(text).strip().replace(',', '').replace(' ', '')
+    if not s or s in ('-', '—', '赞', '评论'):
+        return 0
+    m = re.match(r'^([\d.]+)\s*([万wW千kK])?', s)
+    if not m:
+        digits = re.sub(r'[^\d]', '', s)
+        return int(digits) if digits else 0
+    num = float(m.group(1))
+    unit = (m.group(2) or '').lower()
+    if unit in ('万', 'w'):
+        num *= 10000
+    elif unit in ('千', 'k'):
+        num *= 1000
+    return int(num)
+
+
+def _scrape_manage_page(page, platform, title):
+    """在创作者作品管理页按标题匹配，提取链接与点赞/评论（尽力而为）。"""
+    manage = MANAGE_URLS.get(platform) or ''
+    if manage:
+        try:
+            page.goto(manage, wait_until='domcontentloaded', timeout=60000)
+            page.wait_for_timeout(3500)
+        except Exception as e:
+            return {'ok': False, 'error': f'打开作品管理页失败: {e}'}
+
+    title_key = (title or '').strip()[:24]
+    try:
+        items = page.evaluate(
+            '''(titleKey) => {
+              const norm = (s) => (s || '').replace(/\\s+/g, ' ').trim();
+              const parseNum = (s) => {
+                s = String(s || '').trim().replace(/,/g, '');
+                const m = s.match(/^([\\d.]+)\\s*([万wW千kK])?/);
+                if (!m) {
+                  const d = s.replace(/[^\\d]/g, '');
+                  return d ? parseInt(d, 10) : 0;
+                }
+                let n = parseFloat(m[1]);
+                const u = (m[2] || '').toLowerCase();
+                if (u === '万' || u === 'w') n *= 10000;
+                if (u === '千' || u === 'k') n *= 1000;
+                return Math.round(n);
+              };
+              const isContent = (href) => {
+                const u = (href || '').toLowerCase();
+                if (!u.startsWith('http')) return false;
+                if (/upload|publish\\/publish|post\\/create|login|passport/.test(u)) return false;
+                return /douyin\\.com\\/video\\/|v\\.douyin\\.com\\/|xiaohongshu\\.com\\/(explore|discovery\\/item)\\/|xhslink\\.com\\/|weixin\\.qq\\.com\\/sph\\/|channels\\.weixin\\.qq\\.com\\/web\\//.test(u);
+              };
+              const cards = [];
+              const nodes = Array.from(document.querySelectorAll('a, [class*="item"], [class*="card"], [class*="row"], li, tr'));
+              for (const el of nodes) {
+                const t = norm(el.innerText || el.textContent || '');
+                if (!t || t.length < 2) continue;
+                if (titleKey && !t.includes(titleKey) && !(el.innerText || '').includes(titleKey.slice(0, 12))) continue;
+                if (!titleKey && t.length > 80) continue;
+                let href = '';
+                if (el.tagName === 'A' && isContent(el.href)) href = el.href;
+                if (!href) {
+                  const a = el.querySelector && el.querySelector('a[href]');
+                  if (a && isContent(a.href)) href = a.href;
+                }
+                const likesM = t.match(/(?:点赞|赞)\\s*[:：]?\\s*([\\d.]+\\s*[万wW千kK]?)/) || t.match(/👍\\s*([\\d.]+\\s*[万wW千kK]?)/);
+                const commentsM = t.match(/(?:评论|回复)\\s*[:：]?\\s*([\\d.]+\\s*[万wW千kK]?)/) || t.match(/💬\\s*([\\d.]+\\s*[万wW千kK]?)/);
+                const nums = (t.match(/[\\d.]+\\s*[万wW千kK]?/g) || []).map(parseNum).filter(n => n >= 0);
+                cards.push({
+                  title: t.slice(0, 80),
+                  url: href,
+                  likes: likesM ? parseNum(likesM[1]) : (nums[0] || 0),
+                  comments: commentsM ? parseNum(commentsM[1]) : (nums[1] || 0),
+                });
+                if (cards.length >= 8) break;
+              }
+              return cards;
+            }''',
+            title_key,
+        ) or []
+    except Exception as e:
+        return {'ok': False, 'error': f'解析作品列表失败: {e}'}
+
+    if not items:
+        # 退而求其次：页面上任意内容链
+        url = _detect_url_from_page(page)
+        if url:
+            return {'ok': True, 'publish_url': url, 'likes': 0, 'comments': 0, 'matched': False}
+        return {'ok': False, 'error': '未在作品管理页匹配到该标题，请确认已发布成功'}
+
+    best = items[0]
+    for it in items:
+        if it.get('url'):
+            best = it
+            break
+    return {
+        'ok': True,
+        'publish_url': best.get('url') or '',
+        'likes': int(best.get('likes') or 0),
+        'comments': int(best.get('comments') or 0),
+        'matched': True,
+        'matched_title': best.get('title') or '',
+    }
+
+
+def request_session_sync(session_id, title=''):
+    """向已打开会话请求同步互动；成功返回结果 dict，超时/失败返回 error。"""
+    with _SESSIONS_LOCK:
+        session = _SESSIONS.get(session_id)
+    if not session or session.get('status') in ('closed', 'error'):
+        return None
+    done = threading.Event()
+    session['sync_done'] = done
+    session['sync_result'] = None
+    session['sync_request'] = {'title': title}
+    if not done.wait(timeout=45):
+        return {'ok': False, 'error': '同步超时，请稍后重试'}
+    return session.get('sync_result') or {'ok': False, 'error': '无同步结果'}
+
+
+def sync_publish_engagement(task):
+    """
+    同步作品链接与点赞/评论。
+    优先复用同平台已打开的发布浏览器；否则临时启动登录态浏览器打开作品管理页。
+    规则：likes>0 或 comments>0 → 建议标记 got_consult。
+    """
+    platform = (task.get('platform') or '').strip()
+    title = task.get('title') or ''
+    if not platform:
+        return {'ok': False, 'error': '任务未设置平台'}
+    if not check_playwright():
+        return {'ok': False, 'error': 'Playwright 未安装'}
+
+    # 1) 复用会话
+    with _SESSIONS_LOCK:
+        live = [
+            s for s in _SESSIONS.values()
+            if s.get('platform') == platform and s.get('status') not in ('closed', 'error', 'starting')
+        ]
+    if live:
+        sid = live[0]['id']
+        result = request_session_sync(sid, title=title)
+        if result is not None:
+            if result.get('ok') and not result.get('publish_url') and live[0].get('detected_url'):
+                result['publish_url'] = live[0]['detected_url']
+            return result
+
+    # 2) 临时浏览器
+    meta = _platform_meta(platform)
+    label = meta['label']
+    profile = _profile_dir(platform)
+    _stop_platform_sessions(platform)
+    time.sleep(1.2)
+
+    from playwright.sync_api import sync_playwright
+    try:
+        with sync_playwright() as p:
+            context = _launch_persistent(p, profile)
+            try:
+                page = context.pages[0] if context.pages else context.new_page()
+                page.set_default_timeout(20000)
+                result = _scrape_manage_page(page, platform, title)
+                return result
+            finally:
+                try:
+                    context.close()
+                except Exception:
+                    pass
+    except Exception as e:
+        return {'ok': False, 'error': _launch_error_hint(e, profile, label)}
+
+
+def apply_engagement_to_consult(likes, comments):
+    """点赞或评论/回复视为「有咨询」（互动代理，非真实私信）。"""
+    return int(likes or 0) > 0 or int(comments or 0) > 0
 
 
 def _nav_error_hint(err):

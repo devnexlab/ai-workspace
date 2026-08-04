@@ -1,28 +1,36 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Row, Col, Card, Spin, message, Button, Empty, Tag } from 'antd'
+import { Row, Col, Card, Spin, message, Button, Empty } from 'antd'
 import {
   FireOutlined, FileTextOutlined, VideoCameraOutlined, TeamOutlined,
-  RocketOutlined, BulbOutlined, StockOutlined,
-  RobotOutlined, ApartmentOutlined, ArrowRightOutlined,
-  LikeOutlined, UserAddOutlined, CalendarOutlined,
-  CheckCircleOutlined, WarningOutlined, BellOutlined,
-  SettingOutlined, ThunderboltOutlined, DashboardOutlined,
+  RocketOutlined, BulbOutlined, LikeOutlined, UserAddOutlined,
+  CalendarOutlined, DashboardOutlined, ArrowRightOutlined,
 } from '@ant-design/icons'
+import {
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid,
+  Tooltip, Legend, PieChart, Pie, Cell, BarChart, Bar,
+} from 'recharts'
 import { useNavigate } from 'react-router-dom'
-import { dashboardApi, settingsApi } from '../../api'
+import { dashboardApi, publishApi } from '../../api'
 import { APP_NAME } from '../../config'
 import './Dashboard.css'
 
 const intentionLabels = { high: '高意向', medium: '中意向', low: '低意向' }
 
 const PLATFORM_META = {
-  xiaohongshu: { label: '小红书', tone: 'rose' },
-  toutiao_hot: { label: '今日头条', tone: 'red' },
-  weibo_hot: { label: '微博热搜', tone: 'orange' },
-  baidu_hot: { label: '百度热榜', tone: 'blue' },
-  zhihu_hot: { label: '知乎热榜', tone: 'sky' },
-  douyin: { label: '抖音', tone: 'ink' },
-  bilibili: { label: 'B站', tone: 'pink' },
+  xiaohongshu: { label: '小红书', color: '#e11d48' },
+  toutiao_hot: { label: '今日头条', color: '#dc2626' },
+  weibo_hot: { label: '微博热搜', color: '#ea580c' },
+  baidu_hot: { label: '百度热榜', color: '#2563eb' },
+  zhihu_hot: { label: '知乎热榜', color: '#0284c7' },
+  douyin: { label: '抖音', color: '#0f172a' },
+  bilibili: { label: 'B站', color: '#db2777' },
+}
+
+const SCRIPT_STATUS_META = {
+  draft: { label: '草稿', color: '#94a3b8' },
+  reviewing: { label: '审阅中', color: '#f59e0b' },
+  approved: { label: '已通过', color: '#3b82f6' },
+  used: { label: '已出片', color: '#10b981' },
 }
 
 const SCRIPT_STATUS = {
@@ -31,6 +39,22 @@ const SCRIPT_STATUS = {
   approved: { label: '草稿', cls: 'neutral' },
   used: { label: '已出片', cls: 'green' },
 }
+
+const INTENTION_META = {
+  high: { label: '高意向', color: '#e11d48' },
+  medium: { label: '中意向', color: '#d97706' },
+  low: { label: '低意向', color: '#059669' },
+}
+
+const PIPELINE_COLORS = ['#fb923c', '#6366f1', '#f59e0b', '#10b981']
+const TREND_COLORS = {
+  hotTopics: '#e11d48',
+  scripts: '#2563eb',
+  customers: '#059669',
+  publishDone: '#d97706',
+}
+
+const PLATFORM_FALLBACK = ['#e11d48', '#dc2626', '#ea580c', '#2563eb', '#0284c7', '#0f172a', '#db2777', '#7c3aed']
 
 function greeting() {
   const h = new Date().getHours()
@@ -53,8 +77,8 @@ function platformLabel(key) {
   return PLATFORM_META[key]?.label || key || '未知'
 }
 
-function platformTone(key) {
-  return PLATFORM_META[key]?.tone || 'blue'
+function platformColor(key, i = 0) {
+  return PLATFORM_META[key]?.color || PLATFORM_FALLBACK[i % PLATFORM_FALLBACK.length]
 }
 
 function scoreClass(s) {
@@ -66,22 +90,42 @@ function scoreClass(s) {
   return 'low'
 }
 
-function SectionFrame({ kicker, title, icon, sub, extra, children, variant = 'screen' }) {
+function ChartCard({ title, sub, extra, children, className = '' }) {
   return (
-    <section className={`dash-block dash-block-${variant}`}>
-      <div className="dash-block-head">
-        <div className="dash-block-head-main">
-          <div className="dash-block-kicker">
-            <span className="dash-block-icon">{icon}</span>
-            {kicker}
-          </div>
-          <h2 className="dash-block-title">{title}</h2>
-          {sub ? <p className="dash-block-sub">{sub}</p> : null}
+    <div className={`dash-chart-card ${className}`}>
+      <div className="dash-chart-card-head">
+        <div>
+          <div className="dash-chart-card-title">{title}</div>
+          {sub ? <div className="dash-chart-card-sub">{sub}</div> : null}
         </div>
-        {extra ? <div className="dash-block-extra">{extra}</div> : null}
+        {extra}
       </div>
-      <div className="dash-block-body">{children}</div>
-    </section>
+      <div className="dash-chart-card-body">{children}</div>
+    </div>
+  )
+}
+
+function ChartEmpty({ tip }) {
+  return (
+    <div className="dash-chart-empty">
+      <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={tip || '暂无数据'} />
+    </div>
+  )
+}
+
+function ChartTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="dash-tooltip">
+      {label ? <div className="dash-tooltip-label">{label}</div> : null}
+      {payload.map((p) => (
+        <div key={p.dataKey || p.name} className="dash-tooltip-row">
+          <span className="dot" style={{ background: p.color || p.fill }} />
+          <span>{p.name}</span>
+          <strong>{p.value}</strong>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -131,24 +175,68 @@ function FeedRow({ index, title, meta, side, onClick, accent }) {
 export default function Dashboard() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [readiness, setReadiness] = useState(null)
+  const [weekReview, setWeekReview] = useState(null)
   const navigate = useNavigate()
 
   useEffect(() => {
     dashboardApi.get().then(d => { setData(d); setLoading(false) })
       .catch(() => { message.error('加载仪表盘失败'); setLoading(false) })
-    settingsApi.check().then(setReadiness).catch(() => setReadiness(null))
+    publishApi.analytics({ range: 'week' }).then(setWeekReview).catch(() => setWeekReview(null))
   }, [])
 
-  const platformMax = useMemo(() => {
-    if (!data?.platformDist?.length) return 1
-    return Math.max(...data.platformDist.map(p => p.count || 0), 1)
+  const platformData = useMemo(() => {
+    if (!data?.platformDist?.length) return []
+    return data.platformDist.map((p, i) => ({
+      name: platformLabel(p.platform),
+      value: p.count || 0,
+      color: platformColor(p.platform, i),
+      platform: p.platform,
+    })).filter((d) => d.value > 0)
   }, [data])
 
-  const platformTotal = useMemo(() => {
-    if (!data?.platformDist?.length) return 0
-    return data.platformDist.reduce((sum, p) => sum + (p.count || 0), 0)
+  const platformTotal = useMemo(
+    () => platformData.reduce((s, d) => s + d.value, 0),
+    [platformData],
+  )
+
+  const pipelineData = useMemo(() => {
+    const src = data?.pipeline
+    if (src?.length) return src
+    if (!data?.stats) return []
+    const s = data.stats
+    return [
+      { key: 'scriptsDraft', label: '草稿文案', value: s.scriptsDraft || 0 },
+      { key: 'videosPending', label: '待做视频', value: s.videosPending || 0 },
+      { key: 'publishPending', label: '待发布', value: s.publishPending || 0 },
+      { key: 'publishDone', label: '已发布', value: s.publishDone || 0 },
+    ]
   }, [data])
+
+  const pipelineMax = useMemo(
+    () => Math.max(...pipelineData.map((p) => p.value || 0), 1),
+    [pipelineData],
+  )
+
+  const scriptStatusData = useMemo(() => {
+    if (!data?.scriptStatusDist?.length) return []
+    return data.scriptStatusDist.map((r) => {
+      const meta = SCRIPT_STATUS_META[r.status] || { label: r.status || '未知', color: '#94a3b8' }
+      return { name: meta.label, value: r.count || 0, color: meta.color, status: r.status }
+    }).filter((d) => d.value > 0)
+  }, [data])
+
+  const intentionData = useMemo(() => {
+    if (!data?.customerIntentionDist?.length) return []
+    return data.customerIntentionDist.map((r) => {
+      const meta = INTENTION_META[r.intention] || { label: r.intention || '未知', color: '#94a3b8' }
+      return { name: meta.label, value: r.count || 0, color: meta.color }
+    }).filter((d) => d.value > 0)
+  }, [data])
+
+  const trends = data?.trends || []
+  const hasTrendSignal = trends.some(
+    (t) => (t.hotTopics || 0) + (t.scripts || 0) + (t.customers || 0) + (t.publishDone || 0) > 0,
+  )
 
   if (loading) {
     return (
@@ -161,105 +249,32 @@ export default function Dashboard() {
 
   const {
     stats, recentTopics, recentScripts,
-    recentCustomers, platformDist, recentKnowledge,
-    todayWorkbench,
+    recentCustomers, recentKnowledge,
   } = data
 
   const topics = recentTopics || []
   const scripts = recentScripts || []
   const customers = recentCustomers || []
   const knowledge = recentKnowledge || []
-  const wb = todayWorkbench || { counts: {} }
-  const wbCounts = wb.counts || {}
 
-  const workItems = [
-    {
-      key: 'scripts',
-      title: '待出片文案',
-      count: wbCounts.scripts || 0,
-      hint: '草稿待出片',
-      icon: <FileTextOutlined />,
-      tone: 'blue',
-      path: '/scripts?status=draft',
-      items: (wb.scripts || []).slice(0, 3),
-      itemLabel: (x) => x.title || `文案 #${x.id}`,
-      itemPath: (x) => `/scripts?status=draft&focus=${x.id}`,
-    },
-    {
-      key: 'videos',
-      title: '待做 / 失败视频',
-      count: wbCounts.videos || 0,
-      hint: wbCounts.failedVideos ? `${wbCounts.failedVideos} 条失败待重试` : '未完成导出',
-      icon: <VideoCameraOutlined />,
-      tone: 'violet',
-      path: '/videos?pending=1',
-      items: (wb.videos || []).slice(0, 3),
-      itemLabel: (x) => x.title || `视频 #${x.id}`,
-      itemPath: (x) => `/videos?focus=${x.id}`,
-    },
-    {
-      key: 'publish',
-      title: '待发布',
-      count: wbCounts.publish || 0,
-      hint: '待发或待确认',
-      icon: <RocketOutlined />,
-      tone: 'amber',
-      path: '/publish?status=pending',
-      items: (wb.publish || []).slice(0, 3),
-      itemLabel: (x) => x.video_title || x.title || `发布 #${x.id}`,
-      itemPath: (x) => `/publish?focus=${x.id}`,
-    },
-    {
-      key: 'reminders',
-      title: '逾期 / 今日提醒',
-      count: wbCounts.reminders || 0,
-      hint: wbCounts.overdueReminders ? `${wbCounts.overdueReminders} 条已逾期` : '客户日程',
-      icon: <BellOutlined />,
-      tone: 'rose',
-      path: '/customers?tab=reminders',
-      items: (wb.reminders || []).slice(0, 3),
-      itemLabel: (x) => x.title || x.customer_name || `提醒 #${x.id}`,
-      itemPath: () => '/customers?tab=reminders',
-    },
-    {
-      key: 'follow',
-      title: '待跟进客户',
-      count: wbCounts.follow || 0,
-      hint: '高/中意向久未跟进',
-      icon: <TeamOutlined />,
-      tone: 'teal',
-      path: '/customers',
-      items: (wb.followCustomers || []).slice(0, 3),
-      itemLabel: (x) => x.nickname || `客户 #${x.id}`,
-      itemPath: (x) => `/customers?focus=${x.id}`,
-    },
-  ].filter((w) => w.count > 0 || (w.items && w.items.length > 0))
-
-  const readyList = readiness?.summary || []
-  const notReady = readyList.filter((r) => !r.ready && !r.optional)
-  const optionalWarn = readyList.filter((r) => !r.ready && r.optional)
-  const todoTotal = (wbCounts.scripts || 0) + (wbCounts.videos || 0)
-    + (wbCounts.publish || 0) + (wbCounts.reminders || 0) + (wbCounts.follow || 0)
-
-  const metrics = [
+  const kpis = [
     { title: '热点', value: stats.hotTopics, sub: `今日 +${stats.hotTopicsToday}`, icon: <FireOutlined />, accent: '#e11d48', path: '/hot-topics' },
     { title: '文案', value: stats.scripts, sub: `草稿 ${stats.scriptsDraft}`, icon: <FileTextOutlined />, accent: '#2563eb', path: '/scripts' },
-    { title: '视频', value: stats.videosPending + stats.videosDone, sub: `完成 ${stats.videosDone}`, icon: <VideoCameraOutlined />, accent: '#4f46e5', path: '/videos' },
+    { title: '视频', value: (stats.videosPending || 0) + (stats.videosDone || 0), sub: `完成 ${stats.videosDone}`, icon: <VideoCameraOutlined />, accent: '#4f46e5', path: '/videos' },
     { title: '客户', value: stats.customers, sub: `今日 +${stats.customersNew}`, icon: <TeamOutlined />, accent: '#059669', path: '/customers' },
     { title: '待发布', value: stats.publishPending, sub: `已发 ${stats.publishDone}`, icon: <RocketOutlined />, accent: '#d97706', path: '/publish' },
   ]
 
-  const shortcuts = [
-    { title: '知识库', value: stats.knowledgeItems, hint: `今日 +${stats.knowledgeToday}`, icon: <BulbOutlined />, path: '/knowledge', tone: 'teal' },
-    { title: '自选股', value: stats.stockCount, hint: `持仓 ${stats.stockHolding}`, icon: <StockOutlined />, path: '/stocks', tone: 'rose' },
-    { title: 'Agents', value: stats.agents, hint: `活跃 ${stats.agentsActive}`, icon: <RobotOutlined />, path: '/agents', tone: 'indigo' },
-    { title: 'AI助手', value: '工作流', hint: '客户 / 运营 / 发布', icon: <ApartmentOutlined />, path: '/workflows', tone: 'amber' },
-  ]
-
   const link = (path) => () => navigate(path)
+  const pipelinePaths = {
+    scriptsDraft: '/scripts?status=draft',
+    videosPending: '/videos?pending=1',
+    publishPending: '/publish?status=pending',
+    publishDone: '/publish',
+  }
 
   return (
-    <div className="dash">
+    <div className="dash dash-v2 dash-charts">
       <header className="dash-topbar">
         <div className="dash-topbar-left">
           <div className="dash-topbar-kicker">
@@ -269,9 +284,11 @@ export default function Dashboard() {
           <h1 className="dash-topbar-title">{greeting()}</h1>
         </div>
         <div className="dash-topbar-right">
-          <div className="dash-date">
-            <CalendarOutlined />
-            {formatDate()}
+          <div className="dash-topbar-meta">
+            <div className="dash-date">
+              <CalendarOutlined />
+              {formatDate()}
+            </div>
           </div>
           <div className="dash-quick">
             {[
@@ -288,302 +305,353 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* —— 1. 数据大屏 —— */}
-      <SectionFrame
-        variant="screen"
-        kicker="Dashboard"
-        title="数据大屏"
-        icon={<DashboardOutlined />}
-        sub="运营数据一览：指标、模块入口与最新动态"
-        extra={(
-          <div className="dash-screen-stat">
-            <span>热点 {stats.hotTopics}</span>
-            <span className="sep" />
-            <span>客户 {stats.customers}</span>
-            <span className="sep" />
-            <span>已发 {stats.publishDone}</span>
+      <section className="dash-block dash-block-screen">
+        <div className="dash-block-head">
+          <div className="dash-block-head-main">
+            <div className="dash-block-kicker">
+              <span className="dash-block-icon"><DashboardOutlined /></span>
+              Dashboard
+            </div>
+            <h2 className="dash-block-title">数据大屏</h2>
+            <p className="dash-block-sub">流水线、平台分布与近 7 日走势</p>
           </div>
-        )}
-      >
-        <div className="dash-metrics">
-          {metrics.map((s, i) => (
-            <button
-              key={s.title}
-              type="button"
-              className="dash-metric"
-              style={{ '--accent': s.accent, animationDelay: `${i * 40}ms` }}
-              onClick={() => navigate(s.path)}
-            >
-              <div className="dash-metric-top">
-                <span className="dash-metric-label">{s.title}</span>
-                <span className="dash-metric-icon">{s.icon}</span>
-              </div>
-              <div className="dash-metric-value">{s.value}</div>
-              <div className="dash-metric-sub">{s.sub}</div>
-            </button>
-          ))}
+          <div className="dash-block-extra">
+            <div className="dash-screen-stat">
+              <span>热点 {stats.hotTopics}</span>
+              <span className="sep" />
+              <span>客户 {stats.customers}</span>
+              <span className="sep" />
+              <span>已发 {stats.publishDone}</span>
+            </div>
+          </div>
         </div>
 
-        <div className="dash-shortcuts">
-          {shortcuts.map((s) => (
-            <button
-              key={s.title}
-              type="button"
-              className={`dash-shortcut tone-${s.tone}`}
-              onClick={() => navigate(s.path)}
-            >
-              <span className="dash-shortcut-icon">{s.icon}</span>
-              <span className="dash-shortcut-body">
-                <span className="dash-shortcut-title">{s.title}</span>
-                <span className="dash-shortcut-value">{s.value}</span>
-                <span className="dash-shortcut-hint">{s.hint}</span>
-              </span>
-            </button>
-          ))}
-        </div>
-
-        {platformDist?.length > 0 && (
-          <div className="dash-platform">
-            <div className="dash-platform-head">
-              <div>
-                <div className="dash-platform-title">热点平台分布</div>
-                <div className="dash-platform-sub">共 {platformTotal} 条 · 按来源</div>
-              </div>
-              <Button type="link" size="small" onClick={() => navigate('/hot-topics')}>
-                查看情报 <ArrowRightOutlined />
-              </Button>
-            </div>
-            <div className="dash-platform-grid">
-              {platformDist.map((p) => {
-                const tone = platformTone(p.platform)
-                const pct = Math.round((p.count / platformMax) * 100)
-                return (
-                  <button
-                    key={p.platform}
-                    type="button"
-                    className={`dash-plat tone-${tone}`}
-                    onClick={() => navigate('/hot-topics')}
-                  >
-                    <div className="dash-plat-top">
-                      <span className="dash-plat-name">{platformLabel(p.platform)}</span>
-                      <span className="dash-plat-count">{p.count}</span>
-                    </div>
-                    <div className="dash-plat-track">
-                      <div className="dash-plat-fill" style={{ width: `${Math.max(8, pct)}%` }} />
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-        )}
-
-        <Row gutter={[14, 14]} className="dash-lists">
-          {topics.length > 0 && (
-            <Col xs={24} lg={12}>
-              <Panel title="最新热点" icon={<FireOutlined />} mark="#e11d48"
-                extra={<Button type="link" size="small" onClick={link('/hot-topics')}>全部</Button>}
+        <div className="dash-block-body">
+          <div className="dash-kpi-row">
+            {kpis.map((s) => (
+              <button
+                key={s.title}
+                type="button"
+                className="dash-kpi"
+                style={{ '--accent': s.accent }}
+                onClick={() => navigate(s.path)}
               >
-                <Feed empty="暂无热点">
-                  {topics.map((t, i) => (
-                    <FeedRow
-                      key={t.id}
-                      index={i + 1}
-                      accent="#e11d48"
-                      title={t.title}
-                      onClick={link('/hot-topics')}
-                      meta={(
-                        <>
-                          <span className="dash-tag soft">{platformLabel(t.platform)}</span>
-                          <span><LikeOutlined /> {(t.likes?.toLocaleString?.() ?? t.likes ?? 0)}</span>
-                        </>
-                      )}
-                      side={<span className={`dash-score ${scoreClass(t.ai_score)}`}>{t.ai_score ?? '-'}</span>}
-                    />
-                  ))}
-                </Feed>
-              </Panel>
-            </Col>
-          )}
-
-          {scripts.length > 0 && (
-            <Col xs={24} lg={topics.length ? 12 : 24}>
-              <Panel title="最新文案" icon={<FileTextOutlined />} mark="#2563eb"
-                extra={<Button type="link" size="small" onClick={link('/scripts')}>全部</Button>}
-              >
-                <Feed empty="暂无文案">
-                  {scripts.map((s, i) => {
-                    const st = SCRIPT_STATUS[s.status] || { label: s.status, cls: 'neutral' }
-                    return (
-                      <FeedRow
-                        key={s.id}
-                        index={i + 1}
-                        accent="#2563eb"
-                        title={s.title}
-                        onClick={link('/scripts')}
-                        meta={<span>版本 v{s.version}</span>}
-                        side={<span className={`dash-badge ${st.cls}`}>{st.label}</span>}
-                      />
-                    )
-                  })}
-                </Feed>
-              </Panel>
-            </Col>
-          )}
-
-          {customers.length > 0 && (
-            <Col xs={24} lg={12}>
-              <Panel title="新增客户" icon={<UserAddOutlined />} mark="#059669"
-                extra={<Button type="link" size="small" onClick={link('/customers')}>全部</Button>}
-              >
-                <Feed empty="暂无新增客户">
-                  {customers.map((c, i) => (
-                    <FeedRow
-                      key={c.id}
-                      index={i + 1}
-                      accent="#059669"
-                      title={c.nickname || `客户 #${c.id}`}
-                      onClick={link('/customers')}
-                      meta={<span>{c.source_video || c.source_channel || '未标注来源'}</span>}
-                      side={(
-                        <span className={`dash-badge intent-${c.intention || 'low'}`}>
-                          {intentionLabels[c.intention] || '意向未知'}
-                        </span>
-                      )}
-                    />
-                  ))}
-                </Feed>
-              </Panel>
-            </Col>
-          )}
-
-          {knowledge.length > 0 && (
-            <Col xs={24} lg={customers.length ? 12 : 24}>
-              <Panel title="最新知识" icon={<BulbOutlined />} mark="#0d9488"
-                extra={<Button type="link" size="small" onClick={link('/knowledge')}>全部</Button>}
-              >
-                <Feed empty="暂无知识条目">
-                  {knowledge.map((k, i) => (
-                    <FeedRow
-                      key={k.id}
-                      index={i + 1}
-                      accent="#0d9488"
-                      title={k.title}
-                      onClick={link('/knowledge')}
-                      meta={(
-                        <>
-                          <span>{k.category || '未分类'}</span>
-                          {k.source_type ? <span>· {k.source_type}</span> : null}
-                        </>
-                      )}
-                      side={k.category ? <span className="dash-badge cyan">{k.category}</span> : null}
-                    />
-                  ))}
-                </Feed>
-              </Panel>
-            </Col>
-          )}
-        </Row>
-      </SectionFrame>
-
-      {/* —— 2. 今日工作台 —— */}
-      <SectionFrame
-        variant="work"
-        kicker="Workbench"
-        title="今日工作台"
-        icon={<ThunderboltOutlined />}
-        sub="先处理积压，点进去就能继续干"
-        extra={(
-          <div className="dash-work-badge">
-            {todoTotal > 0 ? (
-              <>
-                <span className="num">{todoTotal}</span>
-                <span className="lbl">项待办</span>
-              </>
-            ) : (
-              <span className="lbl ok">暂无积压</span>
-            )}
-          </div>
-        )}
-      >
-        {workItems.length === 0 ? (
-          <div className="dash-workbench-empty">
-            <CheckCircleOutlined />
-            <div>
-              <strong>今天没有积压待办</strong>
-              <p>可以去内容情报找选题，或在文案中心开「今日计划并出片」。</p>
-            </div>
-            <Button type="primary" onClick={() => navigate('/hot-topics')}>去找选题</Button>
-          </div>
-        ) : (
-          <div className="dash-workbench-grid">
-            {workItems.map((w) => (
-              <div key={w.key} className={`dash-wb-card tone-${w.tone}`}>
-                <button type="button" className="dash-wb-top" onClick={() => navigate(w.path)}>
-                  <span className="dash-wb-icon">{w.icon}</span>
-                  <span className="dash-wb-meta">
-                    <span className="dash-wb-name">{w.title}</span>
-                    <span className="dash-wb-hint">{w.hint}</span>
-                  </span>
-                  <span className="dash-wb-count">{w.count}</span>
-                </button>
-                <div className="dash-wb-list">
-                  {(w.items || []).length === 0 ? (
-                    <div className="dash-wb-none">暂无明细</div>
-                  ) : (
-                    w.items.map((it) => (
-                      <button
-                        key={`${w.key}-${it.id}`}
-                        type="button"
-                        className="dash-wb-item"
-                        onClick={() => navigate(w.itemPath(it))}
-                      >
-                        <span className="dash-wb-item-title">{w.itemLabel(it)}</span>
-                        <ArrowRightOutlined />
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
+                <span className="dash-kpi-icon">{s.icon}</span>
+                <span className="dash-kpi-body">
+                  <span className="dash-kpi-label">{s.title}</span>
+                  <span className="dash-kpi-value">{s.value}</span>
+                  <span className="dash-kpi-sub">{s.sub}</span>
+                </span>
+              </button>
             ))}
           </div>
-        )}
 
-        {readyList.length > 0 && (
-          <div className="dash-ready">
-            <div className="dash-ready-head">
-              <div className="dash-ready-title">
-                <SettingOutlined /> 配置就绪
-              </div>
-              <Button type="link" size="small" onClick={() => navigate('/settings/ai')}>去设置</Button>
-            </div>
-            <div className="dash-ready-grid">
-              {readyList.map((r) => (
-                <button
-                  key={r.key}
-                  type="button"
-                  className={`dash-ready-chip ${r.ready ? 'ok' : r.optional ? 'warn' : 'bad'}`}
-                  onClick={() => navigate(r.path || '/settings/ai')}
-                  title={r.message}
-                >
-                  {r.ready ? <CheckCircleOutlined /> : <WarningOutlined />}
-                  <span>{r.label}</span>
-                  <Tag color={r.ready ? 'success' : r.optional ? 'warning' : 'error'}>
-                    {r.ready ? '就绪' : r.optional ? '建议' : '未就绪'}
-                  </Tag>
-                </button>
+          {weekReview && (
+            <button type="button" className="dash-review-strip" onClick={() => navigate('/publish')}>
+              <span className="dash-review-title">本周复盘</span>
+              <span>已发 <strong>{weekReview.published || 0}</strong></span>
+              <span className="sep" />
+              <span>有咨询 <strong>{weekReview.consult || 0}</strong></span>
+              <span className="sep" />
+              <span>咨询率 <strong>{Math.round((weekReview.consult_rate || 0) * 100)}%</strong></span>
+              {(weekReview.by_content_type || []).map((x) => (
+                <span key={x.key} className="dash-review-chip">{x.label} {x.count}</span>
               ))}
-            </div>
-            {(notReady.length > 0 || optionalWarn.length > 0) && (
-              <div className="dash-ready-tip">
-                {notReady.length > 0
-                  ? `还有 ${notReady.map((x) => x.label).join('、')} 未就绪。`
-                  : `可选：${optionalWarn.map((x) => x.label).join('、')} 未安装。`}
-              </div>
+            </button>
+          )}
+
+          <Row gutter={[12, 12]}>
+            <Col xs={24} lg={12}>
+              <ChartCard title="内容流水线" sub="草稿 → 视频 → 待发 → 已发">
+                {pipelineData.every((p) => !p.value) ? (
+                  <ChartEmpty tip="暂无流水线数据" />
+                ) : (
+                  <div className="dash-funnel">
+                    {pipelineData.map((p, i) => {
+                      const pct = Math.round(((p.value || 0) / pipelineMax) * 100)
+                      return (
+                        <button
+                          key={p.key}
+                          type="button"
+                          className="dash-funnel-row"
+                          onClick={() => navigate(pipelinePaths[p.key] || '/')}
+                        >
+                          <span className="dash-funnel-label">{p.label}</span>
+                          <span className="dash-funnel-track">
+                            <span
+                              className="dash-funnel-fill"
+                              style={{
+                                width: `${Math.max(p.value ? 8 : 0, pct)}%`,
+                                background: PIPELINE_COLORS[i % PIPELINE_COLORS.length],
+                              }}
+                            />
+                          </span>
+                          <span className="dash-funnel-value">{p.value}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </ChartCard>
+            </Col>
+
+            <Col xs={24} lg={12}>
+              <ChartCard
+                title="热点平台分布"
+                sub={platformTotal ? `共 ${platformTotal} 条` : '按来源'}
+                extra={(
+                  <Button type="link" size="small" onClick={() => navigate('/hot-topics')}>
+                    情报 <ArrowRightOutlined />
+                  </Button>
+                )}
+              >
+                {!platformData.length ? (
+                  <ChartEmpty tip="暂无平台分布" />
+                ) : (
+                  <div className="dash-donut-wrap">
+                    <ResponsiveContainer width="100%" height={220}>
+                      <PieChart>
+                        <Pie
+                          data={platformData}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={58}
+                          outerRadius={82}
+                          paddingAngle={2}
+                          stroke="none"
+                        >
+                          {platformData.map((d) => (
+                            <Cell key={d.platform} fill={d.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip content={<ChartTooltip />} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="dash-donut-legend">
+                      {platformData.map((d) => (
+                        <button
+                          key={d.platform}
+                          type="button"
+                          className="dash-legend-item"
+                          onClick={() => navigate('/hot-topics')}
+                        >
+                          <span className="swatch" style={{ background: d.color }} />
+                          <span className="name">{d.name}</span>
+                          <span className="val">{d.value}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </ChartCard>
+            </Col>
+
+            <Col span={24}>
+              <ChartCard title="近 7 日趋势" sub="热点 / 文案 / 客户 / 已发布">
+                {!hasTrendSignal ? (
+                  <ChartEmpty tip="近 7 日暂无新增" />
+                ) : (
+                  <ResponsiveContainer width="100%" height={260}>
+                    <AreaChart data={trends} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
+                      <defs>
+                        {Object.entries(TREND_COLORS).map(([k, c]) => (
+                          <linearGradient key={k} id={`grad-${k}`} x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={c} stopOpacity={0.28} />
+                            <stop offset="100%" stopColor={c} stopOpacity={0.02} />
+                          </linearGradient>
+                        ))}
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(15,23,42,0.06)" vertical={false} />
+                      <XAxis dataKey="label" tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
+                      <YAxis allowDecimals={false} tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} width={32} />
+                      <Tooltip content={<ChartTooltip />} />
+                      <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+                      <Area type="monotone" dataKey="hotTopics" name="热点" stroke={TREND_COLORS.hotTopics} fill={`url(#grad-hotTopics)`} strokeWidth={2} />
+                      <Area type="monotone" dataKey="scripts" name="文案" stroke={TREND_COLORS.scripts} fill={`url(#grad-scripts)`} strokeWidth={2} />
+                      <Area type="monotone" dataKey="customers" name="客户" stroke={TREND_COLORS.customers} fill={`url(#grad-customers)`} strokeWidth={2} />
+                      <Area type="monotone" dataKey="publishDone" name="已发" stroke={TREND_COLORS.publishDone} fill={`url(#grad-publishDone)`} strokeWidth={2} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </ChartCard>
+            </Col>
+
+            <Col xs={24} lg={12}>
+              <ChartCard title="文案状态" sub="按 status 分布" extra={(
+                <Button type="link" size="small" onClick={() => navigate('/scripts')}>全部</Button>
+              )}>
+                {!scriptStatusData.length ? (
+                  <ChartEmpty tip="暂无文案" />
+                ) : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={scriptStatusData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(15,23,42,0.06)" vertical={false} />
+                      <XAxis dataKey="name" tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} />
+                      <YAxis allowDecimals={false} tick={{ fill: '#94a3b8', fontSize: 12 }} axisLine={false} tickLine={false} width={28} />
+                      <Tooltip content={<ChartTooltip />} />
+                      <Bar dataKey="value" name="数量" radius={[6, 6, 0, 0]} maxBarSize={48}>
+                        {scriptStatusData.map((d) => (
+                          <Cell key={d.status || d.name} fill={d.color} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+              </ChartCard>
+            </Col>
+
+            <Col xs={24} lg={12}>
+              <ChartCard title="客户意向" sub="高 / 中 / 低" extra={(
+                <Button type="link" size="small" onClick={() => navigate('/customers')}>全部</Button>
+              )}>
+                {!intentionData.length ? (
+                  <ChartEmpty tip="暂无客户" />
+                ) : (
+                  <div className="dash-donut-wrap compact">
+                    <ResponsiveContainer width="100%" height={220}>
+                      <PieChart>
+                        <Pie
+                          data={intentionData}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="42%"
+                          cy="50%"
+                          outerRadius={78}
+                          paddingAngle={2}
+                          stroke="none"
+                        >
+                          {intentionData.map((d) => (
+                            <Cell key={d.name} fill={d.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip content={<ChartTooltip />} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="dash-donut-legend">
+                      {intentionData.map((d) => (
+                        <div key={d.name} className="dash-legend-item static">
+                          <span className="swatch" style={{ background: d.color }} />
+                          <span className="name">{d.name}</span>
+                          <span className="val">{d.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </ChartCard>
+            </Col>
+          </Row>
+
+          <Row gutter={[14, 14]} className="dash-lists">
+            {topics.length > 0 && (
+              <Col xs={24} lg={12}>
+                <Panel title="最新热点" icon={<FireOutlined />} mark="#e11d48"
+                  extra={<Button type="link" size="small" onClick={link('/hot-topics')}>全部</Button>}
+                >
+                  <Feed empty="暂无热点">
+                    {topics.map((t, i) => (
+                      <FeedRow
+                        key={t.id}
+                        index={i + 1}
+                        accent="#e11d48"
+                        title={t.title}
+                        onClick={link('/hot-topics')}
+                        meta={(
+                          <>
+                            <span className="dash-tag soft">{platformLabel(t.platform)}</span>
+                            <span><LikeOutlined /> {(t.likes?.toLocaleString?.() ?? t.likes ?? 0)}</span>
+                          </>
+                        )}
+                        side={<span className={`dash-score ${scoreClass(t.ai_score)}`}>{t.ai_score ?? '-'}</span>}
+                      />
+                    ))}
+                  </Feed>
+                </Panel>
+              </Col>
             )}
-          </div>
-        )}
-      </SectionFrame>
+
+            {scripts.length > 0 && (
+              <Col xs={24} lg={topics.length ? 12 : 24}>
+                <Panel title="最新文案" icon={<FileTextOutlined />} mark="#2563eb"
+                  extra={<Button type="link" size="small" onClick={link('/scripts')}>全部</Button>}
+                >
+                  <Feed empty="暂无文案">
+                    {scripts.map((s, i) => {
+                      const st = SCRIPT_STATUS[s.status] || { label: s.status, cls: 'neutral' }
+                      return (
+                        <FeedRow
+                          key={s.id}
+                          index={i + 1}
+                          accent="#2563eb"
+                          title={s.title}
+                          onClick={link('/scripts')}
+                          meta={<span>版本 v{s.version}</span>}
+                          side={<span className={`dash-badge ${st.cls}`}>{st.label}</span>}
+                        />
+                      )
+                    })}
+                  </Feed>
+                </Panel>
+              </Col>
+            )}
+
+            {customers.length > 0 && (
+              <Col xs={24} lg={12}>
+                <Panel title="新增客户" icon={<UserAddOutlined />} mark="#059669"
+                  extra={<Button type="link" size="small" onClick={link('/customers')}>全部</Button>}
+                >
+                  <Feed empty="暂无新增客户">
+                    {customers.map((c, i) => (
+                      <FeedRow
+                        key={c.id}
+                        index={i + 1}
+                        accent="#059669"
+                        title={c.nickname || `客户 #${c.id}`}
+                        onClick={link('/customers')}
+                        meta={<span>{c.source_video || c.source_channel || '未标注来源'}</span>}
+                        side={(
+                          <span className={`dash-badge intent-${c.intention || 'low'}`}>
+                            {intentionLabels[c.intention] || '意向未知'}
+                          </span>
+                        )}
+                      />
+                    ))}
+                  </Feed>
+                </Panel>
+              </Col>
+            )}
+
+            {knowledge.length > 0 && (
+              <Col xs={24} lg={customers.length ? 12 : 24}>
+                <Panel title="最新知识" icon={<BulbOutlined />} mark="#0d9488"
+                  extra={<Button type="link" size="small" onClick={link('/knowledge')}>全部</Button>}
+                >
+                  <Feed empty="暂无知识条目">
+                    {knowledge.map((k, i) => (
+                      <FeedRow
+                        key={k.id}
+                        index={i + 1}
+                        accent="#0d9488"
+                        title={k.title}
+                        onClick={link('/knowledge')}
+                        meta={(
+                          <>
+                            <span>{k.category || '未分类'}</span>
+                            {k.source_type ? <span>· {k.source_type}</span> : null}
+                          </>
+                        )}
+                        side={k.category ? <span className="dash-badge cyan">{k.category}</span> : null}
+                      />
+                    ))}
+                  </Feed>
+                </Panel>
+              </Col>
+            )}
+          </Row>
+        </div>
+      </section>
     </div>
   )
 }

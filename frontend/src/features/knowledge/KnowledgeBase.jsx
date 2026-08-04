@@ -2,12 +2,12 @@ import { useState, useEffect } from 'react'
 import {
   Table, Tag, Button, Input, Select, Space, Modal, message,
   Form, Popconfirm, Tooltip, Row, Col, Card, Statistic, Descriptions,
-  Spin, Empty, Alert,
+  Spin, Empty, Alert, Upload,
 } from 'antd'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined,
   ReloadOutlined, RobotOutlined, BookOutlined, TagsOutlined,
-  FileTextOutlined,
+  FileTextOutlined, UploadOutlined,
 } from '@ant-design/icons'
 import { knowledgeApi } from '../../api'
 import { formatDateTime } from '../../utils/date'
@@ -63,6 +63,7 @@ export default function KnowledgeBase() {
   const [editing, setEditing] = useState(null)
   const [categories, setCategories] = useState([])
   const [viewing, setViewing] = useState(null)
+  const [uploading, setUploading] = useState(false)
   const loadData = (p = page, f = filters) => {
     setLoading(true)
     knowledgeApi.list({ page: p, pageSize: 15, ...f })
@@ -79,17 +80,25 @@ export default function KnowledgeBase() {
 
   const handleSave = () => {
     form.validateFields().then(values => {
+      const payload = {
+        ...values,
+        category: Array.isArray(values.category)
+          ? (values.category[0] || '')
+          : (values.category || ''),
+      }
       if (editing) {
-        knowledgeApi.update(editing.id, values).then(() => {
+        knowledgeApi.update(editing.id, payload).then(() => {
           message.success('已更新')
           setEditModal(false)
           loadData()
+          knowledgeApi.categories().then(res => setCategories(res.list || [])).catch(() => {})
         })
       } else {
-        knowledgeApi.create(values).then(() => {
+        knowledgeApi.create(payload).then(() => {
           message.success('知识已添加')
           setEditModal(false)
           loadData(1)
+          knowledgeApi.categories().then(res => setCategories(res.list || [])).catch(() => {})
         })
       }
     })
@@ -261,6 +270,32 @@ export default function KnowledgeBase() {
           <Button icon={<ReloadOutlined />} onClick={() => { setFilters({}); loadData(1, {}) }}>重置</Button>
         </div>
         <Space>
+          <Upload
+            showUploadList={false}
+            accept=".pdf,audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac,.webm"
+            beforeUpload={(file) => {
+              const fd = new FormData()
+              fd.append('file', file)
+              setUploading(true)
+              knowledgeApi.upload(fd)
+                .then((res) => {
+                  message.success(res.message || '导入成功')
+                  loadData(1)
+                  if (res.id) {
+                    knowledgeApi.get(res.id).then((item) => {
+                      setEditing(item)
+                      form.setFieldsValue(item)
+                      setEditModal(true)
+                    }).catch(() => {})
+                  }
+                })
+                .catch((err) => message.error(err?.error || err?.message || '导入失败'))
+                .finally(() => setUploading(false))
+              return false
+            }}
+          >
+            <Button icon={<UploadOutlined />} loading={uploading}>上传 PDF/录音</Button>
+          </Upload>
           <Button icon={<RobotOutlined />} loading={compareLoading} onClick={handleCompare}
             disabled={!selectedRowKeys.length}>
             AI 对比启发 ({selectedRowKeys.length})
@@ -322,11 +357,15 @@ export default function KnowledgeBase() {
           </Row>
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="category" label="分类">
+              <Form.Item name="category" label="分类"
+                getValueFromEvent={(v) => (Array.isArray(v) ? (v[0] || undefined) : v)}
+                normalize={(v) => (v ? [v] : [])}
+              >
                 <Select
                   placeholder="选择或输入分类"
                   mode="tags"
                   maxCount={1}
+                  allowClear
                   options={categories.map(c => ({ value: c, label: c }))}
                 />
               </Form.Item>

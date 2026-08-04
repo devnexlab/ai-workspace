@@ -180,17 +180,20 @@ def generate_daily_scripts(traffic_count=None, insurance_count=None):
 
 
 def _video_defaults():
-    vcfg = get_video_config() or {}
-    tcfg = get_tts_config() or {}
+    from routes.video.videos import get_last_video_prefs
+    prefs = get_last_video_prefs()
     return {
-        'resolution': vcfg.get('default_resolution') or '1080x1920',
-        'fps': vcfg.get('default_fps') or '30',
-        'render_quality': vcfg.get('default_render_quality') or 'high',
-        'fade_transition': vcfg.get('default_fade_transition') or 'true',
-        'title_overlay': vcfg.get('default_title_overlay') or 'true',
-        'video_engine': vcfg.get('default_video_engine') or 'moviepy',
-        'voice': tcfg.get('voice') or '',
-        'voice_rate': tcfg.get('rate') or '',
+        'resolution': prefs.get('resolution') or '1080x1920',
+        'fps': prefs.get('fps') or '30',
+        'render_quality': prefs.get('render_quality') or 'high',
+        'fade_transition': prefs.get('fade_transition') or 'true',
+        'title_overlay': prefs.get('title_overlay') or 'true',
+        'video_engine': prefs.get('video_engine') or 'moviepy',
+        'voice': prefs.get('voice') or '',
+        'voice_rate': prefs.get('voice_rate') or '',
+        'video_style': prefs.get('video_style') or 'default',
+        'material_ids': prefs.get('material_ids') or '',
+        'narration_prompt': prefs.get('narration_prompt') or '',
     }
 
 
@@ -243,11 +246,13 @@ def enqueue_videos_for_scripts(script_ids, start_produce=True):
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                 (
                     sid, script.get('title') or f'脚本#{sid}',
-                    'default', '',
+                    defaults.get('video_style') or 'default',
+                    defaults.get('material_ids') or '',
                     defaults['resolution'], defaults['fps'],
                     defaults['render_quality'], defaults['fade_transition'],
                     defaults['title_overlay'], defaults['video_engine'],
-                    '', defaults['voice'], defaults['voice_rate'],
+                    defaults.get('narration_prompt') or '',
+                    defaults['voice'], defaults['voice_rate'],
                     'pending', 'pending', 'pending', 'pending',
                 )
             )

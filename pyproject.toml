@@ -15,6 +15,7 @@ dependencies = [
     "playwright>=1.40",
     "pandas>=2.0",
     "akshare>=1.14",
+    "pypdf>=4.0",
 ]
 
 [build-system]

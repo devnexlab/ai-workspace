@@ -2,14 +2,14 @@ import { useState, useEffect } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Table, Tag, Button, Input, Select, Space, Modal, message,
-  Popconfirm, Tooltip, Row, Col, Card, Form, Drawer, Alert,
+  Popconfirm, Tooltip, Row, Col, Card, Form, Drawer, Alert, Badge, Empty,
 } from 'antd'
 import {
   PlusOutlined, DeleteOutlined, SearchOutlined, ReloadOutlined,
   RobotOutlined, EditOutlined, EyeOutlined, ThunderboltOutlined,
-  VideoCameraOutlined,
+  VideoCameraOutlined, CheckCircleOutlined, FileOutlined,
 } from '@ant-design/icons'
-import { scriptsApi, settingsApi } from '../../api'
+import { scriptsApi, settingsApi, materialsApi, videosApi } from '../../api'
 import { formatDateTime } from '../../utils/date'
 
 const { TextArea } = Input
@@ -48,6 +48,11 @@ export default function Scripts() {
   const [planning, setPlanning] = useState(false)
   const [runningDaily, setRunningDaily] = useState(false)
   const [producingId, setProducingId] = useState(null)
+  const [produceModal, setProduceModal] = useState({ open: false, script: null })
+  const [produceMaterials, setProduceMaterials] = useState([])
+  const [produceSelectedIds, setProduceSelectedIds] = useState([])
+  const [produceVoice, setProduceVoice] = useState(undefined)
+  const [voiceOptions, setVoiceOptions] = useState([])
   const [dailyStatus, setDailyStatus] = useState(null)
   const [editing, setEditing] = useState(null)
   const [viewing, setViewing] = useState(null)
@@ -113,15 +118,44 @@ export default function Scripts() {
   }
 
   const handleProduce = (row) => {
+    setProduceModal({ open: true, script: row })
+    setProduceSelectedIds([])
+    setProduceVoice(undefined)
+    materialsApi.list({ asset_kind: 'scene', pageSize: 100 })
+      .then(res => setProduceMaterials(res.list || []))
+      .catch(() => setProduceMaterials([]))
+    videosApi.lastPrefs().then(prefs => {
+      const ids = String(prefs?.material_ids || '')
+        .split(',')
+        .map(x => Number(x.trim()))
+        .filter(Boolean)
+      setProduceSelectedIds(ids)
+      if (prefs?.voice) setProduceVoice(prefs.voice)
+    }).catch(() => {})
+    videosApi.voiceOptions().then(res => {
+      setVoiceOptions(res.voices || [])
+    }).catch(() => {})
+  }
+
+  const confirmProduce = () => {
+    const row = produceModal.script
+    if (!row) return
     setProducingId(row.id)
-    scriptsApi.produce(row.id)
+    const payload = {
+      material_ids: produceSelectedIds.join(','),
+      voice: produceVoice || '',
+    }
+    scriptsApi.produce(row.id, payload)
       .then(res => {
         message.success(res.message || '已创建视频任务')
+        setProduceModal({ open: false, script: null })
         loadData()
         if (viewing?.id === row.id) {
           setViewing({ ...viewing, status: 'used' })
+          setViewDrawer(false)
         }
-        navigate('/videos')
+        const vid = res.video_id
+        navigate(vid ? `/videos?focus=${vid}` : '/videos')
       })
       .catch(err => message.error(err?.error || err?.message || '出片失败'))
       .finally(() => setProducingId(null))
@@ -227,7 +261,7 @@ export default function Scripts() {
     <div>
       <div className="page-title">文案中心</div>
       <div className="page-desc">
-        管理口播文案，点「出片」即可生成视频任务。出片后状态变为「已出片」，仍可再次出片（有进行中的任务会复用，已完成的可新建）。
+        管理口播文案，点「出片」可选场景素材并创建视频任务。出片后状态变为「已出片」，仍可再次出片（有进行中的任务会复用并更新素材，已完成的可新建）。
       </div>
 
       {!readiness.ai?.ready && (
@@ -538,6 +572,92 @@ export default function Scripts() {
             <Select options={statusOptions} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title={`出片 — ${produceModal.script?.title || ''}`}
+        open={produceModal.open}
+        onOk={confirmProduce}
+        onCancel={() => setProduceModal({ open: false, script: null })}
+        okText="创建视频任务"
+        confirmLoading={!!producingId}
+        width={720}
+        destroyOnClose
+      >
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="请选择场景图片/视频（用于分镜背景）。不选则可用纯色背景，稍后也可在视频中心补选。"
+        />
+        <div style={{ marginBottom: 12 }}>
+          <span style={{ marginRight: 8 }}>音色：</span>
+          <Select
+            allowClear
+            placeholder="默认系统音色"
+            style={{ width: 320 }}
+            value={produceVoice}
+            onChange={setProduceVoice}
+            options={voiceOptions}
+            showSearch
+            optionFilterProp="label"
+          />
+        </div>
+        <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
+          <Badge count={produceSelectedIds.length} offset={[8, 0]}>
+            <span>场景素材</span>
+          </Badge>
+          <Button size="small" onClick={() => setProduceSelectedIds([])}>清空</Button>
+        </div>
+        {produceMaterials.length === 0 ? (
+          <Empty description="暂无场景素材，可先到视频中心素材库上传" />
+        ) : (
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10,
+            maxHeight: 360, overflow: 'auto',
+          }}>
+            {produceMaterials.map(m => {
+              const id = Number(m.id)
+              const selected = produceSelectedIds.includes(id)
+              return (
+                <div
+                  key={m.id}
+                  onClick={() => setProduceSelectedIds(prev =>
+                    prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+                  )}
+                  style={{
+                    border: selected ? '2px solid #1677ff' : '1px solid #e5e7eb',
+                    borderRadius: 8, cursor: 'pointer', overflow: 'hidden', position: 'relative',
+                  }}
+                >
+                  <div style={{
+                    height: 88, background: '#f5f5f5',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    {m.type === 'image' ? (
+                      <img
+                        src={`/api/materials/${m.id}/preview`}
+                        alt={m.name}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                    ) : (
+                      <FileOutlined style={{ fontSize: 28, color: '#999' }} />
+                    )}
+                  </div>
+                  <div style={{ padding: '4px 6px', fontSize: 12 }} title={m.name}>
+                    {m.name}
+                  </div>
+                  {selected && (
+                    <CheckCircleOutlined style={{
+                      position: 'absolute', top: 6, right: 6, color: '#1677ff', fontSize: 16,
+                      background: '#fff', borderRadius: '50%',
+                    }} />
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
       </Modal>
 
       <Drawer

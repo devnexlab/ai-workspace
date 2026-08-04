@@ -270,6 +270,15 @@ def _get_script_or_404(conn, script_id):
 def produce_script(id):
     """从文案创建视频任务（若已有未完成任务则复用）。个人使用，无需审核。"""
     data = request.get_json(silent=True) or {}
+    from routes.video.videos import get_last_video_prefs
+    prefs = get_last_video_prefs()
+
+    def pick(key, fallback=''):
+        val = data.get(key)
+        if val is None or val == '':
+            return prefs.get(key, fallback)
+        return val
+
     conn = _db()
     row = _get_script_or_404(conn, id)
     if not row:
@@ -278,12 +287,25 @@ def produce_script(id):
 
     # 复用未完成的视频任务
     existing = conn.execute(
-        '''SELECT id, title, export_status FROM video_task
+        '''SELECT id, title, export_status, material_ids FROM video_task
            WHERE script_id=? AND COALESCE(export_status, '') != 'done'
            ORDER BY id DESC LIMIT 1''',
         (id,)
     ).fetchone()
     if existing:
+        # 出片时可补绑/更新素材与音色
+        updates = []
+        params = []
+        for key in ('material_ids', 'voice', 'voice_rate', 'video_style', 'narration_prompt'):
+            if key in data and data.get(key) is not None and data.get(key) != '':
+                updates.append(f'{key}=?')
+                params.append(data.get(key))
+        if updates:
+            params.append(existing['id'])
+            conn.execute(
+                f'UPDATE video_task SET {", ".join(updates)} WHERE id=?',
+                params,
+            )
         conn.execute('UPDATE script SET status=? WHERE id=?', ('used', id))
         conn.commit()
         vid = dict(existing)
@@ -304,11 +326,11 @@ def produce_script(id):
            voice_status,subtitle_status,video_status,export_status)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
         (id, title,
-         data.get('video_style', 'default'), data.get('material_ids', ''),
-         data.get('resolution', '1080x1920'), data.get('fps', '30'),
-         data.get('render_quality', 'high'), data.get('fade_transition', 'true'),
-         data.get('title_overlay', 'true'), data.get('video_engine', 'moviepy'),
-         data.get('narration_prompt', ''), data.get('voice', ''), data.get('voice_rate', ''),
+         pick('video_style', 'default'), pick('material_ids', ''),
+         pick('resolution', '1080x1920'), pick('fps', '30'),
+         pick('render_quality', 'high'), pick('fade_transition', 'true'),
+         pick('title_overlay', 'true'), pick('video_engine', 'moviepy'),
+         pick('narration_prompt', ''), pick('voice', ''), pick('voice_rate', ''),
          'pending', 'pending', 'pending', 'pending')
     )
     video_id = cur.lastrowid

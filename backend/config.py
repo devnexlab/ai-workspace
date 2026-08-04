@@ -71,10 +71,12 @@ FLASK_THREADED = _env_bool('FLASK_THREADED', True)
 OUTPUT_DIR = Path(_env('OUTPUT_DIR', str(BASE_DIR / 'outputs')))
 UPLOAD_DIR = Path(_env('UPLOAD_DIR', str(BASE_DIR / 'uploads')))
 MATERIALS_DIR = UPLOAD_DIR / 'materials'
+KNOWLEDGE_DIR = UPLOAD_DIR / 'knowledge'
 
 # 确保目录存在
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 MATERIALS_DIR.mkdir(parents=True, exist_ok=True)
+KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ---- PostgreSQL 连接包装（兼容原 sqlite3 风格接口）----
