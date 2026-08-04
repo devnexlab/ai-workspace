@@ -13,6 +13,7 @@ import {
 } from '@ant-design/icons'
 import { customersApi, followsApi, remindersApi } from '../../api'
 import dayjs from 'dayjs'
+import { formatDate, formatDateTime } from '../../utils/date'
 
 function parseAssistantPayload(aiAnalysis) {
   if (!aiAnalysis) return null
@@ -503,8 +504,8 @@ export default function Customers() {
     },
     { title: '微信', dataIndex: 'wechat', width: 110, ellipsis: true },
     {
-      title: '最后跟进', dataIndex: 'last_follow_time', width: 150,
-      render: v => v || <span style={{ color: '#ff4d4f' }}>未跟进</span>,
+      title: '最后跟进', dataIndex: 'last_follow_time', width: 160,
+      render: v => (v ? formatDateTime(v) : <span style={{ color: '#ff4d4f' }}>未跟进</span>),
     },
     {
       title: '操作', key: 'action', width: 200, fixed: 'right',
@@ -558,11 +559,11 @@ export default function Customers() {
       },
     },
     {
-      title: '日期', dataIndex: 'remind_date', width: 110,
+      title: '日期', dataIndex: 'remind_date', width: 120,
       render: v => {
         if (!v) return '-'
         const overdue = dayjs(v).isBefore(dayjs(), 'day')
-        return <span style={{ color: overdue ? '#ff4d4f' : undefined }}>{String(v).slice(0, 10)}</span>
+        return <span style={{ color: overdue ? '#ff4d4f' : undefined }}>{formatDate(v)}</span>
       },
     },
     {
@@ -583,7 +584,7 @@ export default function Customers() {
   return (
     <div>
       <div className="page-title">客户管理</div>
-      <div style={{ color: '#888', marginBottom: 16, fontSize: 13 }}>
+      <div className="page-desc">
         工作流：新增 → 约访 → 跟踪 → 方案 → 成交 → 售后；谁谈的谁约谁负责，按客户性格实时提醒跟进
       </div>
 
@@ -1309,7 +1310,7 @@ export default function Customers() {
                           <>
                             <div>{r.content}</div>
                             <div style={{ color: '#5b6eff' }}>{r.suggested_action}</div>
-                            <div style={{ fontSize: 12, color: '#999' }}>{String(r.remind_date || '').slice(0, 10)}</div>
+                            <div style={{ fontSize: 12, color: '#999' }}>{formatDate(r.remind_date)}</div>
                           </>
                         }
                       />
@@ -1340,11 +1341,11 @@ export default function Customers() {
                       <div>
                         <div style={{ fontWeight: 600 }}>{r.content}</div>
                         <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>
-                          {r.follow_time}
+                          {formatDateTime(r.follow_time)}
                           {r.operator && ` · ${r.operator}`}
                           {r.method && ` · ${METHOD_OPTIONS.find(m => m.value === r.method)?.label || r.method}`}
                           {r.follow_result && ` · ${FOLLOW_RESULTS.find(f => f.value === r.follow_result)?.label || r.follow_result}`}
-                          {r.next_time && ` · 下次：${r.next_time}`}
+                          {r.next_time && ` · 下次：${formatDateTime(r.next_time)}`}
                         </div>
                       </div>
                     ),

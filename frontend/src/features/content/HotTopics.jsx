@@ -10,6 +10,7 @@ import {
 } from '@ant-design/icons'
 import { Link } from 'react-router-dom'
 import { hotTopicsApi, settingsApi } from '../../api'
+import { formatDateTime } from '../../utils/date'
 
 const SOURCE_LABELS = { hotspot: '全网热点', platform: '平台口播', manual: '手动' }
 const KIND_LABELS = { hotspot: '热点选题', koubo: '口播素材' }
@@ -98,7 +99,7 @@ export default function HotTopics() {
     hotTopicsApi.generateScript(record.id, {
       content_type,
       age_band: record.age_band || 'all',
-      duration: '40-60秒',
+      duration: '60秒',
     })
       .then(() => message.success('已生成口播文案（含品牌收口），去文案中心查看'))
       .catch(err => message.error(err?.error || '生成失败'))
@@ -164,7 +165,7 @@ export default function HotTopics() {
         </span>
       ) : '-',
     },
-    { title: '时间', dataIndex: 'created_at', width: 150, render: v => String(v || '').slice(0, 16) },
+    { title: '时间', dataIndex: 'created_at', width: 160, render: v => formatDateTime(v) },
     {
       title: '操作', key: 'action', width: 160, fixed: 'right',
       render: (_, r) => (
@@ -194,7 +195,7 @@ export default function HotTopics() {
   return (
     <div>
       <div className="page-title">内容情报</div>
-      <div style={{ color: '#888', marginBottom: 12, fontSize: 13 }}>
+      <div className="page-desc">
         全网实时热点 + 视频号/抖音/小红书分龄口播素材 · 按点赞/收藏等互动率排序 · 一键变成「祁实说实话」口播文案
       </div>
 

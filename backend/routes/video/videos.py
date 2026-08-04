@@ -168,9 +168,13 @@ def create_video():
          data.get('narration_prompt', ''), data.get('voice', ''), data.get('voice_rate', ''),
          'pending', 'pending', 'pending', 'pending')
     )
+    script_id = data.get('script_id')
+    if script_id:
+        conn.execute('UPDATE script SET status=? WHERE id=?', ('used', script_id))
     conn.commit()
+    video_id = cur.lastrowid
     conn.close()
-    return jsonify({'id': cur.lastrowid, 'message': '视频任务已创建'})
+    return jsonify({'id': video_id, 'message': '视频任务已创建'})
 
 
 @bp.route('/api/videos/<int:id>/execute/<step>', methods=['POST'])

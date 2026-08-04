@@ -137,8 +137,8 @@ def call_llm(prompt, system_prompt=None, temperature=None, max_tokens=None):
 # ---- Prompt templates ----
 
 SYSTEM_PROMPT = """你是短视频口播编剧，专为保险从业者「祁实说实话」打造全网泛流量与保险干货文案。
-要求：开头3秒抓人；40-60秒口播（约150-220字正文）；口语化、适合朗读；强共鸣可转发；
-结尾必须引导「关注我，来找我」，形成品牌记忆。
+要求：开头3秒抓人；标准成片为约60秒口播；正文（content）须写满约280-360字（汉字），朗读约55-65秒，信息量充足，不要写成短金句堆砌；
+口语化、适合朗读；有观点、有例子、有递进；强共鸣可转发；结尾必须引导「关注我，来找我」，形成品牌记忆。
 你只返回JSON，不要多余解释。"""
 
 TONE_DESC = {
@@ -167,7 +167,7 @@ def apply_brand_ending(script):
     return script
 
 
-def build_script_prompt(topic, style='干货分享', duration='40-60秒',
+def build_script_prompt(topic, style='干货分享', duration='60秒',
                         audience='', tone='casual', extra_req='',
                         content_type='traffic', age_band='all'):
     """Build the prompt for generating a video script from a hot topic."""
@@ -190,12 +190,12 @@ def build_script_prompt(topic, style='干货分享', duration='40-60秒',
     else:
         topic_block = f'创作主题: {topic}'
 
-    return f"""根据以下信息，创作一条原创短视频口播文案（适合视频号/抖音/小红书）。
+    return f"""根据以下信息，创作一条原创短视频口播文案（适合视频号/抖音/小红书，约60秒口播）。
 
 {topic_block}
 内容类型提示: {type_hint}
 风格要求: {style}
-视频时长: {duration}（正文口播控制在约150-220字，40-60秒能讲完）
+视频时长: {duration}（正文 content 必须约280-360字，按每秒约5字语速朗读约60秒；禁止少于250字）
 {audience_line}{tone_line}{extra_line}
 品牌固定收口（ending 字段必须原样使用，一个字都不要改）:
 {brand_ending}
@@ -203,15 +203,17 @@ def build_script_prompt(topic, style='干货分享', duration='40-60秒',
 创作规则:
 1. 结合实时热点或爆款标题做「同题异构」原创，禁止照抄原文
 2. 开头 hook 必须痛点/反差/好奇，3秒留人
-3. 正文口语化，适合中老年也能听懂；少用英文和生僻词
-4. 泛流量文案不要上来就卖保险；保险文案用案例/避坑建立信任
-5. ending 必须等于上面的品牌固定收口原文
+3. 正文结构建议：钩子承接 → 讲清一个具体现象/故事 → 给出观点或避坑 → 轻量行动建议；口语化，中老年也能听懂
+4. 多用短句，可有口语停顿感（“你看”“说实话”“很多人不知道”），但字数必须写够
+5. 泛流量文案不要上来就卖保险；保险文案用案例/避坑建立信任
+6. ending 必须等于上面的品牌固定收口原文
+7. content 字段不要偷懒缩写，不要只写提纲式几句
 
 请返回JSON（只返回JSON）:
 {{
   "title": "视频标题（吸引眼球，15字以内）",
   "hook": "开头3秒钩子（一句话）",
-  "content": "正文口播（150-220字，口语化）",
+  "content": "正文口播（280-360字，口语化，完整可朗读约60秒）",
   "ending": "{brand_ending}",
   "cover_text": "封面大字（5-10字）",
   "tags": "标签，逗号分隔，3-5个"
@@ -221,18 +223,19 @@ def build_script_prompt(topic, style='干货分享', duration='40-60秒',
 def build_rewrite_prompt(script_text, style='更口语化'):
     """Build prompt for rewriting an existing script."""
     brand_ending = get_brand_ending()
-    return f"""重写以下短视频文案，要求{style}，时长适合40-60秒口播。
+    return f"""重写以下短视频文案，要求{style}，标准成片约60秒口播。
 
 原文案:
 {script_text}
 
+要求：正文 content 约280-360字（不少于250字），口语化、信息完整，适合朗读约60秒。
 ending 必须原样使用：{brand_ending}
 
 请返回JSON格式（只返回JSON）:
 {{
   "title": "标题",
   "hook": "开头钩子",
-  "content": "正文内容",
+  "content": "正文内容（280-360字）",
   "ending": "{brand_ending}",
   "cover_text": "封面文案",
   "tags": "标签"
@@ -275,7 +278,7 @@ def parse_script_response(result):
     }
 
 
-def generate_script(topic, style='干货分享', duration='40-60秒',
+def generate_script(topic, style='干货分享', duration='60秒',
                     audience='', tone='casual', extra_req='',
                     content_type='traffic', age_band='all'):
     """

@@ -3,6 +3,7 @@ import { Badge, Button, Drawer, Empty, List, Space, Tag, Tooltip, message } from
 import { BellOutlined, CheckOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { remindersApi } from '../../api'
+import { formatDate } from '../../utils/date'
 
 const TYPE_MAP = {
   birthday: { label: '生日', color: 'pink' },
@@ -157,7 +158,7 @@ export default function NotificationBell() {
                     description={(
                       <span style={{ fontSize: 12, color: '#64748b' }}>
                         {r.customer_name || '未关联客户'}
-                        {r.remind_date ? ` · ${String(r.remind_date).slice(0, 10)}` : ''}
+                        {r.remind_date ? ` · ${formatDate(r.remind_date)}` : ''}
                         {r.suggested_action ? ` · ${r.suggested_action}` : ''}
                       </span>
                     )}

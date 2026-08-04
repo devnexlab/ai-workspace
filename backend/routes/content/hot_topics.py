@@ -375,7 +375,7 @@ def generate_script(id):
         script = gen_script(
             topic_dict,
             style=data.get('style', '高转发共鸣'),
-            duration=data.get('duration', '40-60秒'),
+            duration=data.get('duration', '60秒'),
             audience=data.get('audience') or ai_config.get('default_audience', ''),
             tone=data.get('tone') or ai_config.get('default_tone', 'casual'),
             content_type=content_type,
@@ -429,7 +429,7 @@ def batch_generate_scripts():
         topic = dict(row)
         try:
             script = gen_script(
-                topic, style='高转发共鸣', duration='40-60秒',
+                topic, style='高转发共鸣', duration='60秒',
                 audience=ai_config.get('default_audience', ''),
                 tone=ai_config.get('default_tone', 'casual'),
                 content_type=content_type,

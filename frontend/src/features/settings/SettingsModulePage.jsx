@@ -78,10 +78,10 @@ export default function SettingsModulePage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <div style={{ fontSize: 18, fontWeight: 600 }}>{mod.label}</div>
-          <div style={{ color: '#888', fontSize: 13, marginTop: 4 }}>{mod.desc}</div>
+          <div className="page-title">{mod.label}</div>
+          <div className="page-desc" style={{ marginBottom: 0 }}>{mod.desc}</div>
         </div>
         <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
           保存
@@ -214,10 +214,10 @@ function PlatformsPage({ mod }) {
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16 }}>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
         <div>
-          <div style={{ fontSize: 18, fontWeight: 600 }}>{mod.label}</div>
-          <div style={{ color: '#888', fontSize: 13, marginTop: 4 }}>{mod.desc}</div>
+          <div className="page-title">{mod.label}</div>
+          <div className="page-desc" style={{ marginBottom: 0 }}>{mod.desc}</div>
           {moduleReady && (
             <Alert
               style={{ marginTop: 12 }}

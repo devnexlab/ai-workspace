@@ -2,14 +2,15 @@ import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   Table, Tag, Button, Input, Select, Space, Modal, message,
-  Popconfirm, Tooltip, Row, Col, Card, Statistic, Form, Drawer, Alert,
+  Popconfirm, Tooltip, Row, Col, Card, Form, Drawer, Alert,
 } from 'antd'
 import {
   PlusOutlined, DeleteOutlined, SearchOutlined, ReloadOutlined,
-  RobotOutlined, EditOutlined, EyeOutlined, FileTextOutlined, ThunderboltOutlined,
+  RobotOutlined, EditOutlined, EyeOutlined, ThunderboltOutlined,
   VideoCameraOutlined,
 } from '@ant-design/icons'
 import { scriptsApi, settingsApi } from '../../api'
+import { formatDateTime } from '../../utils/date'
 
 const { TextArea } = Input
 
@@ -177,7 +178,7 @@ export default function Scripts() {
       title: '状态', dataIndex: 'status', width: 80,
       render: v => <Tag color={statusColors[v] || 'default'}>{statusLabels[v] || v}</Tag>,
     },
-    { title: '创建时间', dataIndex: 'created_at', width: 150 },
+    { title: '创建时间', dataIndex: 'created_at', width: 160, render: v => formatDateTime(v) },
     {
       title: '操作', key: 'action', width: 200, fixed: 'right',
       render: (_, r) => (
@@ -217,16 +218,9 @@ export default function Scripts() {
   return (
     <div>
       <div className="page-title">文案中心</div>
-      <div style={{ color: '#888', marginBottom: 12, fontSize: 13 }}>
-        每日建议：2 条泛流量涨粉 + 1 条保险干货 · 40-60 秒口播 · 统一收口「祁实说实话…关注我，来找我」
+      <div className="page-desc">
+        管理口播文案，点「出片」即可生成视频任务。出片后状态变为「已出片」，仍可再次出片（有进行中的任务会复用，已完成的可新建）。
       </div>
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 16 }}
-        message="出片流程"
-        description="点「出片」创建视频任务 → 视频中心生产 → 成品再到发布中心发平台。无需审核。"
-      />
 
       {!readiness.ai?.ready && (
         <Alert
@@ -242,43 +236,81 @@ export default function Scripts() {
         />
       )}
 
-      {brandEnding && (
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-          message="品牌固定收口（所有文案自动带上）"
-          description={brandEnding}
-        />
-      )}
-
-      {dailyStatus && (
-        <Alert
-          style={{ marginBottom: 16 }}
-          type={String(dailyStatus.daily_auto_enabled).toLowerCase() === 'true' ? 'success' : 'warning'}
-          showIcon
-          message={`今日进度：泛流量 ${dailyStatus.scripts?.traffic || 0}/${dailyStatus.traffic_target || 2}，保险 ${dailyStatus.scripts?.insurance || 0}/${dailyStatus.insurance_target || 1}`}
-          description={(
-            <span>
-              出片状态：完成 {dailyStatus.videos?.done || 0} / 进行中 {dailyStatus.videos?.processing || 0} / 待处理 {dailyStatus.videos?.pending || 0}
-              {' · '}
-              定时日更：{String(dailyStatus.daily_auto_enabled).toLowerCase() === 'true'
-                ? `已开启（每天 ${dailyStatus.daily_run_hour || 8} 点）`
-                : '未开启（可在 系统设置 → 内容运营 打开）'}
-              {dailyStatus.daily_last_run ? ` · 上次：${dailyStatus.daily_last_run}` : ''}
-              {' · '}
-              <Link to="/videos">去视频页查看出片</Link>
-            </span>
-          )}
-        />
-      )}
-
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}><Card size="small"><Statistic title="文案总数" value={data.total} prefix={<FileTextOutlined />} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="泛流量" value={data.list.filter(d => (d.content_type || 'traffic') === 'traffic').length} valueStyle={{ color: '#1677ff' }} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="保险干货" value={data.list.filter(d => d.content_type === 'insurance').length} valueStyle={{ color: '#fa8c16' }} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="已出片" value={data.list.filter(d => d.status === 'used').length} valueStyle={{ color: '#52c41a' }} /></Card></Col>
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        {[
+          {
+            title: '文案总数',
+            value: data.total,
+            color: '#0f172a',
+          },
+          {
+            title: '今日泛流量',
+            value: dailyStatus?.scripts?.traffic || 0,
+            suffix: `/ ${dailyStatus?.traffic_target || 2}`,
+            color: '#1677ff',
+          },
+          {
+            title: '今日保险',
+            value: dailyStatus?.scripts?.insurance || 0,
+            suffix: `/ ${dailyStatus?.insurance_target || 1}`,
+            color: '#fa8c16',
+          },
+          {
+            title: '今日已出片',
+            value: dailyStatus?.videos?.done || 0,
+            color: '#52c41a',
+            onClick: () => navigate('/videos'),
+            hint: '点击查看视频',
+          },
+        ].map((item) => (
+          <Col xs={12} sm={6} key={item.title}>
+            <Card
+              size="small"
+              className="stat-card"
+              hoverable={!!item.onClick}
+              onClick={item.onClick}
+              styles={{ body: { padding: '16px 12px', textAlign: 'center', minHeight: 96 } }}
+              style={{ cursor: item.onClick ? 'pointer' : 'default' }}
+            >
+              <div style={{ fontSize: 13, color: '#64748b', marginBottom: 8 }}>{item.title}</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: item.color, lineHeight: 1.2 }}>
+                {item.value}
+                {item.suffix ? (
+                  <span style={{ fontSize: 16, fontWeight: 500, color: '#94a3b8', marginLeft: 4 }}>
+                    {item.suffix}
+                  </span>
+                ) : null}
+              </div>
+              {item.hint ? (
+                <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>{item.hint}</div>
+              ) : (
+                <div style={{ height: 18, marginTop: 6 }} />
+              )}
+            </Card>
+          </Col>
+        ))}
       </Row>
+
+      {brandEnding ? (
+        <div
+          style={{
+            marginBottom: 16,
+            padding: '10px 14px',
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: 12,
+            fontSize: 13,
+            color: '#475569',
+            display: 'flex',
+            gap: 10,
+            alignItems: 'flex-start',
+            flexWrap: 'wrap',
+          }}
+        >
+          <Tag color="blue" style={{ margin: 0 }}>品牌收口</Tag>
+          <span style={{ flex: 1, minWidth: 200 }}>{brandEnding}</span>
+        </div>
+      ) : null}
 
       <div className="table-toolbar">
         <div className="table-toolbar-left">
@@ -371,11 +403,11 @@ export default function Scripts() {
               </Form.Item>
             </Col>
             <Col span={12}>
-              <Form.Item name="duration" label="视频时长" initialValue="40-60秒">
+              <Form.Item name="duration" label="视频时长" initialValue="60秒">
                 <Select options={[
-                  { label: '40-60秒 (推荐口播)', value: '40-60秒' },
+                  { label: '60秒口播（推荐）', value: '60秒' },
+                  { label: '40-60秒', value: '40-60秒' },
                   { label: '15-30秒 (短快爆)', value: '15-30秒' },
-                  { label: '30-60秒 (标准)', value: '30-60秒' },
                   { label: '1-3分钟 (深度)', value: '1-3分钟' },
                 ]}
                 />

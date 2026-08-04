@@ -10,7 +10,7 @@ import {
   FileTextOutlined,
 } from '@ant-design/icons'
 import { knowledgeApi } from '../../api'
-import dayjs from 'dayjs'
+import { formatDateTime } from '../../utils/date'
 
 const sourceTypeOptions = [
   { value: 'note', label: '笔记' },
@@ -157,8 +157,8 @@ export default function KnowledgeBase() {
       render: v => v || <span style={{ color: '#ccc' }}>暂无摘要，可点击 AI 整理生成</span>,
     },
     {
-      title: '创建时间', dataIndex: 'created_at', width: 170,
-      render: v => v ? dayjs(v).format('YYYY-MM-DD HH:mm') : '-',
+      title: '创建时间', dataIndex: 'created_at', width: 160,
+      render: v => formatDateTime(v),
     },
     {
       title: '操作', key: 'action', width: 220, fixed: 'right',
@@ -204,6 +204,9 @@ export default function KnowledgeBase() {
   return (
     <div>
       <div className="page-title">AI知识库</div>
+      <div className="page-desc">
+        沉淀话术、资料与经验，供写文案和客户跟进时调用。
+      </div>
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}>

@@ -10,7 +10,7 @@ import {
   ClockCircleOutlined, ExclamationCircleOutlined,
 } from '@ant-design/icons'
 import { agentsApi } from '../../api'
-import dayjs from 'dayjs'
+import { formatDateTime } from '../../utils/date'
 
 const { TextArea } = Input
 const { Paragraph, Text } = Typography
@@ -153,7 +153,7 @@ export default function Agents() {
   return (
     <div>
       <div className="page-title">AI Agent 中心</div>
-      <div style={{ color: '#888', marginBottom: 16, marginTop: -8 }}>
+      <div className="page-desc">
         创建助手并填写系统提示词。执行时按提示词完成客户跟进 / 采写拍 / 发布等重复工作，结果在「AI助手」中使用。
       </div>
 
@@ -220,9 +220,7 @@ export default function Agents() {
                     {agent.system_prompt || '（未设置，将使用默认）'}
                   </Paragraph>
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    <ClockCircleOutlined /> 上次执行：{agent.last_run
-                      ? dayjs(agent.last_run).format('YYYY-MM-DD HH:mm')
-                      : '未执行'}
+                    <ClockCircleOutlined /> 上次执行：{agent.last_run ? formatDateTime(agent.last_run) : '未执行'}
                   </Text>
                 </Card>
               </Col>

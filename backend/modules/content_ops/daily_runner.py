@@ -109,7 +109,7 @@ def generate_daily_scripts(traffic_count=None, insurance_count=None):
         try:
             if topic:
                 script = gen_script(
-                    topic, style='高转发共鸣', duration='40-60秒',
+                    topic, style='高转发共鸣', duration='60秒',
                     content_type='traffic', age_band=age_band,
                     tone='casual',
                     extra_req=f'面向{AGE_AUDIENCE.get(age_band, "")}，强共鸣可转发，不硬广',
@@ -118,7 +118,7 @@ def generate_daily_scripts(traffic_count=None, insurance_count=None):
             else:
                 script = gen_script(
                     f'结合今日社会热点，写一条面向{AGE_AUDIENCE.get(age_band)}的人生共鸣口播，不硬广保险',
-                    style='高转发共鸣', duration='40-60秒',
+                    style='高转发共鸣', duration='60秒',
                     content_type='traffic', age_band=age_band, tone='casual',
                 )
                 topic_id = None
@@ -138,7 +138,7 @@ def generate_daily_scripts(traffic_count=None, insurance_count=None):
         try:
             if topic:
                 script = gen_script(
-                    topic, style='保险避坑干货', duration='40-60秒',
+                    topic, style='保险避坑干货', duration='60秒',
                     content_type='insurance', age_band='all',
                     tone='friendly',
                     extra_req='专业但不吓人，用案例建立信任，引导关注来找我',
@@ -147,7 +147,7 @@ def generate_daily_scripts(traffic_count=None, insurance_count=None):
             else:
                 script = gen_script(
                     '家庭保障常见误区与理赔避坑，面向全年龄段口播',
-                    style='保险避坑干货', duration='40-60秒',
+                    style='保险避坑干货', duration='60秒',
                     content_type='insurance', age_band='all', tone='friendly',
                 )
                 topic_id = None
@@ -220,6 +220,8 @@ def enqueue_videos_for_scripts(script_ids, start_produce=True):
         ).fetchone()
 
         if existing and existing['export_status'] == 'done':
+            conn.execute('UPDATE script SET status=? WHERE id=?', ('used', sid))
+            conn.commit()
             results.append({
                 'script_id': sid,
                 'video_id': existing['id'],
@@ -255,6 +257,10 @@ def enqueue_videos_for_scripts(script_ids, start_produce=True):
                 'SELECT * FROM video_task WHERE id=?', (video_id,)
             ).fetchone())
             created_new = True
+
+        # 文案标记为已出片（仍可再次点出片做新成片）
+        conn.execute('UPDATE script SET status=? WHERE id=?', ('used', sid))
+        conn.commit()
 
         started = False
         if start_produce and task_dict.get('export_status') != 'done':

@@ -22,7 +22,6 @@ import TodoBell from '../features/notifications/TodoBell'
 
 const { Header, Sider, Content } = Layout
 
-// path → parent group key mapping for auto-expand
 const pathGroupMap = {
   '/hot-topics': 'content',
   '/scripts': 'content',
@@ -37,6 +36,24 @@ const pathGroupMap = {
   '/settings/publish': 'settings',
   '/settings/media': 'settings',
   '/settings/content': 'settings',
+}
+
+const pageTitleMap = {
+  '/': '总览',
+  '/hot-topics': '内容情报',
+  '/scripts': '文案中心',
+  '/videos': '视频中心',
+  '/publish': '发布中心',
+  '/customers': '客户管理',
+  '/knowledge': 'AI 知识库',
+  '/agents': 'Agent 中心',
+  '/workflows': 'AI助手',
+  '/stocks': '股票研究',
+  '/settings/ai': 'AI 大模型',
+  '/settings/collectors': '采集平台',
+  '/settings/publish': '发布平台',
+  '/settings/media': '配音与视频',
+  '/settings/content': '内容运营',
 }
 
 const menuItems = [
@@ -99,6 +116,8 @@ export default function MainLayout() {
     return location.pathname
   }, [location.pathname])
 
+  const pageTitle = pageTitleMap[selectedKey] || APP_NAME
+
   const [openKeys, setOpenKeys] = useState(() => {
     const group = pathGroupMap[location.pathname]
     return group ? [group] : []
@@ -112,11 +131,13 @@ export default function MainLayout() {
   }, [location.pathname, selectedKey])
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout className="app-shell">
       <Sider
+        className="app-sider"
         collapsible
         collapsed={collapsed}
         onCollapse={setCollapsed}
+        width={220}
         style={{
           overflow: 'auto',
           height: '100vh',
@@ -125,20 +146,7 @@ export default function MainLayout() {
           left: 0,
         }}
       >
-        <div style={{
-          height: 56,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: '#fff',
-          fontWeight: 700,
-          fontSize: collapsed ? 14 : 16,
-          whiteSpace: 'nowrap',
-          overflow: 'hidden',
-          background: 'rgba(255,255,255,0.08)',
-          margin: '8px 12px',
-          borderRadius: 8,
-        }}>
+        <div className="app-brand" style={{ fontSize: collapsed ? 14 : 15 }}>
           {collapsed ? 'AI' : APP_NAME}
         </div>
         <Menu
@@ -154,32 +162,18 @@ export default function MainLayout() {
         />
       </Sider>
       <Layout>
-        <Header style={{
-          padding: '0 24px',
-          background: '#fff',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
-          position: 'sticky',
-          top: 0,
-          zIndex: 10,
-        }}>
-          <span style={{ fontSize: 16, fontWeight: 600, color: '#1a1a2e' }}>
-            {APP_NAME}
-          </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <Header className="app-header">
+          <div className="app-header-title">
+            <span className="crumb">{APP_NAME}</span>
+            <span className="sep">/</span>
+            <span>{pageTitle}</span>
+          </div>
+          <div className="app-header-actions">
             <TodoBell />
             <NotificationBell />
           </div>
         </Header>
-        <Content style={{
-          margin: 16,
-          padding: 24,
-          background: '#fff',
-          borderRadius: 12,
-          minHeight: 280,
-        }}>
+        <Content className="app-content">
           <Outlet />
         </Content>
       </Layout>

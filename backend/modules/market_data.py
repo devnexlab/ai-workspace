@@ -40,10 +40,29 @@ def _ak():
     return ak
 
 
+def _normalize_stock_code(code) -> str:
+    """统一成 6 位数字代码。支持 600519 / sh600519 / 600519.SH / 600519.0。"""
+    raw = str(code or '').strip().upper()
+    if not raw or raw.lower() in ('nan', 'none'):
+        return ''
+    raw = raw.replace('SH', '').replace('SZ', '').replace('.', '')
+    # 去掉非数字（如前缀残留）
+    digits = ''.join(ch for ch in raw if ch.isdigit())
+    if not digits:
+        return ''
+    # 处理 float 残留：6005190 来自 600519.0 去掉点后多一位 0
+    if len(digits) == 7 and digits.endswith('0'):
+        digits = digits[:-1]
+    if len(digits) > 6:
+        digits = digits[-6:]
+    return digits.zfill(6)
+
+
 def list_a_shares(force_refresh=False):
     """
     返回 [{'code','name',...}, ...]
     优先读当日缓存；东财现货失败时回退到代码表。
+    注意：代码表回退没有价格，不会覆盖已有「带价格」的现货缓存。
     """
     cache_file = _cache_dir() / f"spot_{datetime.now().strftime('%Y%m%d')}.csv"
     if cache_file.exists() and not force_refresh:
@@ -55,6 +74,7 @@ def list_a_shares(force_refresh=False):
 
     ak = _ak()
     df = None
+    from_spot = False
     # 1) 东财现货（字段全，但偶发断连）
     for attempt in range(2):
         try:
@@ -78,20 +98,22 @@ def list_a_shares(force_refresh=False):
             raw = raw.rename(columns=colmap)
             keep = [c for c in ('code', 'name', 'price', 'pct_chg', 'volume', 'amount', 'turnover') if c in raw.columns]
             df = raw[keep].copy()
+            from_spot = 'price' in df.columns
             break
         except Exception as e:
             print(f'[market_data] spot_em failed ({attempt}): {e}')
             time.sleep(1.5)
 
-    # 2) 回退：A股代码名称表（稳）
+    # 2) 回退：A股代码名称表（稳，但无价格）
     if df is None or df.empty:
         try:
             raw = ak.stock_info_a_code_name()
             df = raw.rename(columns={'code': 'code', 'name': 'name'})[['code', 'name']].copy()
+            from_spot = False
         except Exception as e:
             raise RuntimeError(f'无法获取 A 股列表: {e}')
 
-    df['code'] = df['code'].astype(str).str.zfill(6)
+    df['code'] = df['code'].map(_normalize_stock_code)
     df = df[df['code'].str.match(r'^\d{6}$', na=False)]
     if 'name' in df.columns:
         mask = ~df['name'].astype(str).apply(lambda n: any(k in n for k in _EXCLUDE_NAME_KEYWORDS))
@@ -99,19 +121,87 @@ def list_a_shares(force_refresh=False):
     # 过滤北交所/基金等常见前缀：只保留主板/创业板/科创常见
     df = df[df['code'].str.startswith(('00', '30', '60', '68'))]
 
-    try:
-        df.to_csv(cache_file, index=False)
-    except Exception:
-        pass
+    # 只有真正带价格的现货才覆盖缓存，避免把无价代码表写进 spot_*.csv
+    if from_spot:
+        try:
+            df.to_csv(cache_file, index=False)
+        except Exception:
+            pass
     return df.to_dict('records')
 
 
 def _market_symbol(code: str) -> str:
     """腾讯/新浪日 K 需要 sh/sz 前缀。"""
-    code = str(code).zfill(6)
+    code = _normalize_stock_code(code)
     if code.startswith(('5', '6', '9')):
         return f'sh{code}'
     return f'sz{code}'
+
+
+def fetch_spot_prices(codes) -> dict:
+    """
+    按代码批量取实时/最新价（腾讯行情），返回 { '600519': 1333.0, ... }。
+    适合自选股刷新；不要依赖全市场东财快照（易失败且缓存可能无价）。
+    """
+    uniq = []
+    seen = set()
+    for c in codes or []:
+        code = _normalize_stock_code(c)
+        if code and code not in seen:
+            seen.add(code)
+            uniq.append(code)
+    if not uniq:
+        return {}
+
+    price_map = {}
+    # 腾讯单次建议别太长，按 60 只一批
+    for i in range(0, len(uniq), 60):
+        batch = uniq[i:i + 60]
+        symbols = ','.join(_market_symbol(c) for c in batch)
+        url = f'https://qt.gtimg.cn/q={symbols}'
+        req = Request(url, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Referer': 'https://gu.qq.com/',
+        })
+        try:
+            with urlopen(req, timeout=12) as resp:
+                # 腾讯行情默认 GBK
+                body = resp.read().decode('gbk', 'ignore')
+        except Exception as e:
+            print(f'[market_data] tencent quote failed: {e}')
+            continue
+
+        for line in body.replace('\n', '').split(';'):
+            line = line.strip()
+            if '="' not in line:
+                continue
+            payload = line.split('="', 1)[1].rstrip('";')
+            if not payload:
+                continue
+            parts = payload.split('~')
+            if len(parts) < 4:
+                continue
+            code = _normalize_stock_code(parts[2])
+            try:
+                price = float(parts[3])
+            except (TypeError, ValueError):
+                continue
+            if code and price > 0:
+                price_map[code] = price
+
+    # 个别失败时用最近日K收盘兜底
+    missing = [c for c in uniq if c not in price_map]
+    for code in missing:
+        try:
+            bars = get_daily_bars(code, days=5, force_refresh=False)
+            if bars is not None and not bars.empty:
+                close = float(bars.iloc[-1]['close'])
+                if close > 0:
+                    price_map[code] = close
+        except Exception as e:
+            print(f'[market_data] daily close fallback failed for {code}: {e}')
+
+    return price_map
 
 
 def _normalize_bars(df: pd.DataFrame) -> pd.DataFrame:
@@ -240,7 +330,9 @@ def get_daily_bars(code: str, days: int = 120, force_refresh=False) -> pd.DataFr
     日 K：columns = date, open, high, low, close, volume, amount
     优先读当日缓存；未缓存时腾讯前复权 → 腾讯不复权 → 新浪逐级兜底。
     """
-    code = str(code).zfill(6)
+    code = _normalize_stock_code(code)
+    if not code:
+        return pd.DataFrame()
     cache_file = _cache_dir() / f'hist_{code}.csv'
     if cache_file.exists() and not force_refresh:
         mtime = datetime.fromtimestamp(cache_file.stat().st_mtime)

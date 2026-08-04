@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons'
 import { Link } from 'react-router-dom'
 import { publishApi, videosApi, platformsApi } from '../../api'
+import { formatDateTime } from '../../utils/date'
 
 const statusOptions = [
   { value: 'pending', label: '待发布' },
@@ -140,8 +141,8 @@ export default function Publish() {
       title: '状态', dataIndex: 'status', width: 90,
       render: v => <Tag color={statusColors[v]}>{statusLabels[v] || v}</Tag>
     },
-    { title: '定时', dataIndex: 'scheduled_time', width: 160 },
-    { title: '创建时间', dataIndex: 'created_at', width: 160 },
+    { title: '定时', dataIndex: 'scheduled_time', width: 160, render: v => formatDateTime(v) },
+    { title: '创建时间', dataIndex: 'created_at', width: 160, render: v => formatDateTime(v) },
     {
       title: '操作', key: 'action', width: 200, fixed: 'right',
       render: (_, r) => (
@@ -199,6 +200,9 @@ export default function Publish() {
   return (
     <div>
       <div className="page-title">发布中心</div>
+      <div className="page-desc">
+        选择成品视频，半自动打开抖音 / 小红书 / 视频号创作者后台并填充内容，确认后在平台内点击发表。
+      </div>
 
       {pubStatus.playwright_installed === false && (
         <Alert type="warning" showIcon style={{ marginBottom: 16 }}

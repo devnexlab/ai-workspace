@@ -12,6 +12,7 @@ import {
   LoadingOutlined, MessageOutlined, ApartmentOutlined, ThunderboltOutlined,
 } from '@ant-design/icons'
 import { videosApi, scriptsApi, settingsApi, materialsApi } from '../../api'
+import { formatDateTime } from '../../utils/date'
 
 const { TextArea } = Input
 
@@ -323,7 +324,7 @@ export default function Videos() {
     },
     { title: '时长', dataIndex: 'duration', width: 70,
       render: v => v ? `${v.toFixed(1)}s` : '-' },
-    { title: '创建时间', dataIndex: 'created_at', width: 160 },
+    { title: '创建时间', dataIndex: 'created_at', width: 160, render: v => formatDateTime(v) },
     {
       title: '操作', key: 'action', width: 330, fixed: 'right',
       render: (_, r) => {
@@ -383,6 +384,9 @@ export default function Videos() {
   return (
     <div>
       <div className="page-title">视频中心</div>
+      <div className="page-desc">
+        从文案创建视频任务，完成配音、字幕、剪辑与导出。完成后可到发布中心发往各平台。
+      </div>
 
       {ffmpegOk === false && (
         <Alert type="info" showIcon style={{ marginBottom: 16 }}

@@ -104,7 +104,7 @@ def generate():
     default_tone = ai_config.get('default_tone', 'casual')
 
     style = data.get('style', '干货分享')
-    duration = data.get('duration', '40-60秒')
+    duration = data.get('duration', '60秒')
     audience = data.get('audience', '') or default_audience
     tone = data.get('tone', '') or default_tone
     extra_req = data.get('extra_req', '')

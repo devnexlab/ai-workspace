@@ -42,6 +42,17 @@ def add_to_watchlist():
     return jsonify({'id': new_id, 'message': '已添加到自选股'})
 
 
+@bp.route('/api/stocks/watchlist/refresh-prices', methods=['POST'])
+def refresh_watchlist_prices_api():
+    """手动/定时刷新自选股现价（盈亏由买入价与现价计算）。"""
+    try:
+        from modules.stock_watchlist_scheduler import refresh_watchlist_prices
+        result = refresh_watchlist_prices(force_spot=True)
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e), 'message': '刷新现价失败'}), 500
+
+
 @bp.route('/api/stocks/watchlist/<int:id>', methods=['PUT'])
 def update_watchlist(id):
     data = request.get_json(silent=True) or {}

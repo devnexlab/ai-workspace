@@ -10,6 +10,7 @@ import {
   ThunderboltOutlined, RobotOutlined, AimOutlined, SettingOutlined,
 } from '@ant-design/icons'
 import { stocksApi } from '../../api'
+import { formatDateTime } from '../../utils/date'
 
 const listTypeOptions = [
   { value: 'watch', label: '关注' },
@@ -228,6 +229,7 @@ export default function Stocks() {
   // === Tab 1: 自选股管理 ===
   const [watchlist, setWatchlist] = useState([])
   const [watchlistLoading, setWatchlistLoading] = useState(true)
+  const [priceRefreshing, setPriceRefreshing] = useState(false)
   const [stockModal, setStockModal] = useState(false)
   const [stockEditing, setStockEditing] = useState(null)
   const [stockForm] = Form.useForm()
@@ -247,6 +249,17 @@ export default function Stocks() {
   }
 
   useEffect(() => { loadWatchlist() }, [])
+
+  const handleRefreshPrices = () => {
+    setPriceRefreshing(true)
+    stocksApi.refreshPrices()
+      .then((res) => {
+        message.success(res?.message || '现价已刷新')
+        loadWatchlist()
+      })
+      .catch((err) => message.error(err?.error || err?.message || '刷新现价失败'))
+      .finally(() => setPriceRefreshing(false))
+  }
 
   const handleStockSave = () => {
     stockForm.validateFields().then(values => {
@@ -314,19 +327,29 @@ export default function Stocks() {
     { title: '买入价', dataIndex: 'buy_price', width: 100, render: v => v ?? '-' },
     {
       title: '现价', dataIndex: 'current_price', width: 100,
-      render: (v, r) => {
-        if (v == null) return '-'
-        const change = r.buy_price ? ((v - r.buy_price) / r.buy_price * 100) : 0
+      render: (v) => (v == null || v === '' ? '-' : Number(v).toFixed(2)),
+    },
+    {
+      title: '盈亏', key: 'pnl', width: 140,
+      render: (_, r) => {
+        const buy = Number(r.buy_price)
+        const cur = Number(r.current_price)
+        if (!buy || !cur) return <span style={{ color: '#999' }}>-</span>
+        const pct = (cur - buy) / buy * 100
+        const qty = Number(r.quantity) || 0
+        const amt = qty ? (cur - buy) * qty : null
+        const color = pct > 0 ? '#cf1322' : pct < 0 ? '#3f8600' : '#666'
         return (
-          <span style={{ color: change > 0 ? '#cf1322' : change < 0 ? '#3f8600' : '#666' }}>
-            {v} {r.buy_price ? `(${change > 0 ? '+' : ''}${change.toFixed(2)}%)` : ''}
+          <span style={{ color }}>
+            {pct > 0 ? '+' : ''}{pct.toFixed(2)}%
+            {amt != null ? ` / ${amt > 0 ? '+' : ''}${amt.toFixed(0)}` : ''}
           </span>
         )
       },
     },
     { title: '数量', dataIndex: 'quantity', width: 80, render: v => v ?? '-' },
     { title: '备注', dataIndex: 'notes', width: 160, ellipsis: true, render: v => v || '-' },
-    { title: '添加时间', dataIndex: 'added_at', width: 160 },
+    { title: '添加时间', dataIndex: 'added_at', width: 160, render: v => formatDateTime(v) },
     {
       title: '操作', key: 'action', width: 120, fixed: 'right',
       render: (_, r) => (
@@ -553,7 +576,7 @@ export default function Stocks() {
         </Tag>
       ),
     },
-    { title: '时间', dataIndex: 'created_at', width: 160 },
+    { title: '时间', dataIndex: 'created_at', width: 160, render: v => formatDateTime(v) },
     {
       title: '操作', width: 90,
       render: (_, r) => (
@@ -758,7 +781,20 @@ export default function Stocks() {
         <div>
           <div className="table-toolbar" style={{ marginBottom: 16 }}>
             <div className="table-toolbar-left">
-              <Button icon={<ReloadOutlined />} onClick={() => loadWatchlist()}>刷新</Button>
+              <Space>
+                <Button icon={<ReloadOutlined />} onClick={() => loadWatchlist()}>刷新列表</Button>
+                <Tooltip title="拉取最新行情，更新现价与盈亏（交易日 15:00 也会自动刷新）">
+                  <Button
+                    type="primary"
+                    ghost
+                    icon={<ReloadOutlined />}
+                    loading={priceRefreshing}
+                    onClick={handleRefreshPrices}
+                  >
+                    刷新现价
+                  </Button>
+                </Tooltip>
+              </Space>
             </div>
             <Button type="primary" icon={<PlusOutlined />} onClick={() => {
               setStockEditing(null); stockForm.resetFields(); setStockModal(true)
@@ -1247,6 +1283,9 @@ export default function Stocks() {
   return (
     <div>
       <div className="page-title">股票研究系统</div>
+      <div className="page-desc">
+        自选、筛选与技术分析，辅助研究判断（不构成投资建议）。
+      </div>
       <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} size="large" />
 
       <Modal

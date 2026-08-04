@@ -6,6 +6,7 @@ export const stocksApi = {
   addStock: (data) => api.post('/stocks/watchlist', data),
   updateStock: (id, data) => api.put(`/stocks/watchlist/${id}`, data),
   deleteStock: (id) => api.delete(`/stocks/watchlist/${id}`),
+  refreshPrices: () => api.post('/stocks/watchlist/refresh-prices', {}, { timeout: API_LONG_TIMEOUT }),
   indicators: (code) => api.get('/stocks/indicators', { params: { code } }),
   patternRules: () => api.get('/stocks/pattern-rules'),
   savePatternRules: (data) => api.put('/stocks/pattern-rules', data),

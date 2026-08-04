@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Tag, Button, Space, message, Empty, Spin, Typography, Tabs, Steps, Modal,
+  Tag, Button, Space, message, Empty, Spin, Typography, Modal, Card, Row, Col, Collapse,
 } from 'antd'
 import {
   ReloadOutlined, TeamOutlined, RobotOutlined,
@@ -12,9 +12,24 @@ import { agentsApi } from '../../api'
 const { Text, Paragraph } = Typography
 
 const TYPE_META = {
-  customer: { color: 'green', icon: <TeamOutlined />, verb: '让助手跟进' },
-  operations: { color: 'blue', icon: <FundProjectionScreenOutlined />, verb: '执行' },
-  publish: { color: 'orange', icon: <RocketOutlined />, verb: '执行' },
+  customer: {
+    color: 'green',
+    icon: <TeamOutlined />,
+    verb: '让助手跟进',
+    hint: '点卡片按钮，助手会给出跟进话术和下一步建议。',
+  },
+  operations: {
+    color: 'blue',
+    icon: <FundProjectionScreenOutlined />,
+    verb: '一键执行',
+    hint: '刷新热点、写文案、做视频等，点一下即可交给助手。',
+  },
+  publish: {
+    color: 'orange',
+    icon: <RocketOutlined />,
+    verb: '一键执行',
+    hint: '处理待发布任务，助手帮你推进发布。',
+  },
 }
 
 export default function Workflows() {
@@ -102,12 +117,9 @@ export default function Workflows() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <Space>
-            <RobotOutlined style={{ fontSize: 20, color: '#5b6eff' }} />
-            <Text strong style={{ fontSize: 16 }}>AI 助手</Text>
-          </Space>
-          <div style={{ color: '#888', fontSize: 13, marginTop: 4 }}>
-            像工作流一样，把客户跟进、写文案、做视频、发布等重复操作交给助手执行。
+          <div className="page-title">AI 助手</div>
+          <div className="page-desc" style={{ marginBottom: 0 }}>
+            选一个助手，点任务卡片即可执行。适合客户跟进、内容运营和发布这类重复操作。
           </div>
         </div>
         <Space>
@@ -125,37 +137,81 @@ export default function Workflows() {
           </Empty>
         ) : (
           <>
-            <Tabs
-              activeKey={String(active?.id || '')}
-              onChange={(key) => setActiveId(Number(key))}
-              items={assistants.map(a => ({
-                key: String(a.id),
-                label: (
-                  <Space>
-                    {(TYPE_META[a.agent_type] || {}).icon || <RobotOutlined />}
-                    {a.name || a.label}
-                  </Space>
-                ),
-              }))}
-            />
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
+              gap: 12,
+              marginBottom: 20,
+            }}
+            >
+              {assistants.map((a) => {
+                const m = TYPE_META[a.agent_type] || TYPE_META.customer
+                const selected = String(a.id) === String(active?.id)
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => setActiveId(a.id)}
+                    style={{
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      border: selected ? '1.5px solid #3b82f6' : '1px solid #e2e8f0',
+                      background: selected ? 'rgba(59,130,246,0.06)' : '#fff',
+                      borderRadius: 14,
+                      padding: '14px 16px',
+                      boxShadow: selected ? '0 8px 20px rgba(59,130,246,0.08)' : 'none',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <span style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 10,
+                        display: 'grid',
+                        placeItems: 'center',
+                        background: selected ? '#3b82f6' : '#f1f5f9',
+                        color: selected ? '#fff' : '#64748b',
+                      }}
+                      >
+                        {m.icon || <RobotOutlined />}
+                      </span>
+                      <Text strong style={{ fontSize: 14 }}>{a.name || a.label}</Text>
+                    </div>
+                    <Tag color={m.color}>{a.label || a.agent_type}</Tag>
+                  </button>
+                )
+              })}
+            </div>
 
             {active && (
-              <div style={{ marginBottom: 20 }}>
-                <Space wrap style={{ marginBottom: 8 }}>
-                  <Text strong style={{ fontSize: 15 }}>{active.name}</Text>
-                  <Tag color={meta.color}>{active.label || agentType}</Tag>
-                </Space>
+              <div style={{ marginBottom: 16 }}>
                 <Paragraph type="secondary" style={{ marginBottom: 8 }}>
-                  {tasksData?.intro || active.description || '按步骤执行下方任务'}
+                  {tasksData?.intro || meta.hint}
                 </Paragraph>
                 {active.system_prompt ? (
-                  <Paragraph
-                    type="secondary"
-                    ellipsis={{ rows: 2, expandable: true, symbol: '展开提示词' }}
-                    style={{ fontSize: 12, background: '#fafafa', padding: '8px 12px', borderRadius: 6 }}
-                  >
-                    系统提示词：{active.system_prompt}
-                  </Paragraph>
+                  <Collapse
+                    ghost
+                    size="small"
+                    items={[{
+                      key: 'prompt',
+                      label: <span style={{ color: '#64748b', fontSize: 13 }}>查看系统提示词</span>,
+                      children: (
+                        <div style={{
+                          background: '#f8fafc',
+                          border: '1px solid #e2e8f0',
+                          borderRadius: 10,
+                          padding: 12,
+                          fontSize: 13,
+                          color: '#475569',
+                          whiteSpace: 'pre-wrap',
+                          lineHeight: 1.7,
+                        }}
+                        >
+                          {active.system_prompt}
+                        </div>
+                      ),
+                    }]}
+                  />
                 ) : null}
               </div>
             )}
@@ -164,23 +220,38 @@ export default function Workflows() {
               {tasks.length === 0 ? (
                 <Empty description={agentType === 'customer' ? '暂无待跟进客户。新增客户或写跟进后会出现在这里。' : '暂无待办任务'} />
               ) : (
-                <Steps
-                  direction="vertical"
-                  current={-1}
-                  items={tasks.map((t) => ({
-                    title: (
-                      <Space wrap>
-                        <span>{t.title}</span>
-                        {t.runnable === false ? <Tag>暂不可执行</Tag> : null}
-                      </Space>
-                    ),
-                    description: (
-                      <div style={{ paddingBottom: 16 }}>
-                        <div style={{ color: '#666', marginBottom: 10 }}>{t.desc}</div>
+                <Row gutter={[14, 14]}>
+                  {tasks.map((t) => (
+                    <Col xs={24} md={12} xl={8} key={t.id}>
+                      <Card
+                        size="small"
+                        hoverable
+                        styles={{ body: { padding: 16 } }}
+                        style={{
+                          height: '100%',
+                          borderRadius: 14,
+                          borderColor: runningKey === t.id ? '#93c5fd' : '#e2e8f0',
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 8, color: '#0f172a' }}>
+                          {t.title}
+                          {t.runnable === false ? (
+                            <Tag style={{ marginLeft: 8 }}>暂不可执行</Tag>
+                          ) : null}
+                        </div>
+                        <div style={{
+                          color: '#64748b',
+                          fontSize: 13,
+                          lineHeight: 1.6,
+                          marginBottom: 14,
+                          minHeight: 40,
+                        }}
+                        >
+                          {t.desc}
+                        </div>
                         <Space wrap>
                           <Button
                             type="primary"
-                            size="small"
                             icon={<ThunderboltOutlined />}
                             disabled={t.runnable === false}
                             loading={runningKey === t.id}
@@ -189,29 +260,39 @@ export default function Workflows() {
                             {meta.verb}
                           </Button>
                           {t.secondary?.path ? (
-                            <Button size="small" onClick={() => navigate(t.secondary.path)}>
+                            <Button onClick={() => navigate(t.secondary.path)}>
                               {t.secondary.label || '打开'}
                             </Button>
                           ) : null}
                         </Space>
-                      </div>
-                    ),
-                    status: runningKey === t.id ? 'process' : 'wait',
-                  }))}
-                />
+                      </Card>
+                    </Col>
+                  ))}
+                </Row>
               )}
             </Spin>
 
             {lastOutput ? (
-              <div style={{ marginTop: 24 }}>
-                <Text type="secondary" style={{ fontSize: 12 }}>最近一次执行</Text>
+              <Card
+                size="small"
+                title="最近一次结果"
+                style={{ marginTop: 20, borderRadius: 14 }}
+                styles={{ body: { padding: 14 } }}
+              >
                 <pre style={{
-                  marginTop: 6, background: '#f7f7f7', padding: 12, borderRadius: 8,
-                  whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: 13, maxHeight: 180, overflow: 'auto',
-                }}>
+                  margin: 0,
+                  whiteSpace: 'pre-wrap',
+                  fontFamily: 'inherit',
+                  fontSize: 13,
+                  color: '#334155',
+                  lineHeight: 1.7,
+                  maxHeight: 160,
+                  overflow: 'auto',
+                }}
+                >
                   {lastOutput}
                 </pre>
-              </div>
+              </Card>
             ) : null}
           </>
         )}

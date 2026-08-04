@@ -25,7 +25,7 @@ WORKFLOW_TEMPLATES = {
             {'step': 1, 'name': '热点采集', 'desc': '全网采集爆款内容'},
             {'step': 2, 'name': '热点分析', 'desc': 'AI分析热点改编价值'},
             {'step': 3, 'name': '爆款筛选', 'desc': '筛选适合的热点'},
-            {'step': 4, 'name': '生成文案', 'desc': 'AI生成40-60秒口播文案'},
+            {'step': 4, 'name': '生成文案', 'desc': 'AI生成约60秒口播文案'},
             {'step': 5, 'name': 'AI评分', 'desc': '预测播放/点赞/评论/转发'},
             {'step': 6, 'name': '人工确认', 'desc': '人工审核文案'},
             {'step': 7, 'name': '自动发布', 'desc': '多平台发布'},
