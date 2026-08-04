@@ -1,46 +1,74 @@
-version: '3.8'
+# 统一网络：容器间用服务名互访
+#   postgres  ← backend（PG_HOST=postgres）
+#   backend   ← frontend（nginx: http://backend:3456）
+networks:
+  ai-ops-net:
+    name: ai-ops-net
+    driver: bridge
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ai-ops-postgres
+    networks:
+      - ai-ops-net
+    environment:
+      POSTGRES_DB: ${PG_DBNAME:-ai_ops}
+      POSTGRES_USER: ${PG_USER:-postgres}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-postgres}
+    ports:
+      # 仅本机调试用；容器内请用服务名 postgres:5432
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ai_ops"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    container_name: ai-ops-backend
+    networks:
+      - ai-ops-net
     ports:
       - "3456:3456"
     volumes:
       - ./backend/data:/app/data
+      - ./backend/outputs:/app/outputs
+      - ./backend/uploads:/app/uploads
     env_file:
       - ./backend/.env
     environment:
-      - PYTHONUNBUFFERED=1
+      PYTHONUNBUFFERED: "1"
+      # 同网络内用服务名连接数据库（勿用 127.0.0.1）
+      PG_HOST: postgres
+      PG_PORT: "5432"
+      PG_DBNAME: ${PG_DBNAME:-ai_ops}
+      PG_USER: ${PG_USER:-postgres}
+      PG_PASSWORD: ${PG_PASSWORD:-postgres}
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    container_name: ai-ops-frontend
+    networks:
+      - ai-ops-net
     ports:
       - "5180:80"
     depends_on:
       - backend
     restart: unless-stopped
 
-  # PRD 中指定的 PostgreSQL 和 Redis（按需启用）
-  # postgres:
-  #   image: postgres:16-alpine
-  #   environment:
-  #     POSTGRES_DB: ai_video_ops
-  #     POSTGRES_USER: admin
-  #     POSTGRES_PASSWORD: changeme
-  #   ports:
-  #     - "5432:5432"
-  #   volumes:
-  #     - pgdata:/var/lib/postgresql/data
-  #
-  # redis:
-  #   image: redis:7-alpine
-  #   ports:
-  #     - "6379:6379"
-
-# volumes:
-#   pgdata:
+volumes:
+  pgdata:
