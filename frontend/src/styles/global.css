@@ -333,6 +333,12 @@ body {
   min-width: 32px;
 }
 
+/* 视频中心等宽表：横向滚动，避免小屏把列压成一字 */
+.videos-table .ant-table-thead > tr > th,
+.videos-table .ant-table-tbody > tr > td {
+  white-space: nowrap;
+}
+
 /* 移动端内容区收紧 */
 @media (max-width: 768px) {
   .app-content {

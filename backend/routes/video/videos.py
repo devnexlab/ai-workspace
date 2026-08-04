@@ -236,13 +236,49 @@ def list_videos():
             {where_clause} ORDER BY v.created_at DESC LIMIT ? OFFSET ?''',
         params + [pageSize, offset]
     ).fetchall()
+
+    # 顶部 KPI：全库统计（不受分页影响；也不受当前筛选影响，避免筛「已完成」时其它卡片变 0）
+    stats_row = conn.execute(
+        '''SELECT
+             COUNT(*) AS total,
+             COUNT(*) FILTER (WHERE COALESCE(export_status, '') = 'done') AS done,
+             COUNT(*) FILTER (
+               WHERE COALESCE(export_status, '') = 'failed'
+                  OR COALESCE(voice_status, '') = 'failed'
+                  OR COALESCE(video_status, '') = 'failed'
+             ) AS failed,
+             COUNT(*) FILTER (
+               WHERE COALESCE(export_status, '') NOT IN ('done', 'failed')
+                 AND (
+                   COALESCE(voice_status, '') = 'processing'
+                   OR COALESCE(subtitle_status, '') = 'processing'
+                   OR COALESCE(video_status, '') = 'processing'
+                   OR COALESCE(export_status, '') = 'processing'
+                   OR (
+                     COALESCE(export_status, 'pending') = 'pending'
+                     AND COALESCE(voice_status, 'pending') != 'pending'
+                   )
+                 )
+             ) AS processing,
+             COUNT(*) FILTER (
+               WHERE COALESCE(export_status, 'pending') = 'pending'
+                 AND COALESCE(voice_status, 'pending') = 'pending'
+                 AND COALESCE(video_status, 'pending') = 'pending'
+             ) AS pending
+           FROM video_task'''
+    ).fetchone()
     conn.close()
+
+    stats = dict(stats_row) if stats_row else {
+        'total': 0, 'done': 0, 'failed': 0, 'processing': 0, 'pending': 0,
+    }
 
     return jsonify({
         'list': [dict(r) for r in rows],
         'page': page,
         'pageSize': pageSize,
         'total': total,
+        'stats': stats,
     })
 
 

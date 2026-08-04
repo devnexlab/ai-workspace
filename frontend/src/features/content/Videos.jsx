@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import {
   Table, Tag, Button, Input, Select, Space, Modal, message,
   Popconfirm, Tooltip, Row, Col, Card, Statistic, Form, Steps, Alert,
-  Upload, Image as AntImage, Empty, Checkbox, Badge, InputNumber, Tabs,
+  Upload, Image as AntImage, Empty, Checkbox, Badge, InputNumber, Tabs, Dropdown,
 } from 'antd'
 import {
   PlusOutlined, DeleteOutlined, SearchOutlined, ReloadOutlined,
@@ -11,7 +11,7 @@ import {
   CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined,
   DownloadOutlined, UploadOutlined, PictureOutlined, FileOutlined,
   LoadingOutlined, MessageOutlined, ApartmentOutlined, ThunderboltOutlined,
-  RedoOutlined,
+  RedoOutlined, MoreOutlined,
 } from '@ant-design/icons'
 import { videosApi, scriptsApi, settingsApi, materialsApi } from '../../api'
 import { formatDateTime } from '../../utils/date'
@@ -35,7 +35,7 @@ const STYLE_COLORS = {
 
 export default function Videos() {
   const [searchParams] = useSearchParams()
-  const [data, setData] = useState({ list: [], total: 0 })
+  const [data, setData] = useState({ list: [], total: 0, stats: null })
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
   const [filters, setFilters] = useState({})
@@ -402,48 +402,66 @@ export default function Videos() {
   }
 
   const columns = [
-    { title: 'ID', dataIndex: 'id', width: 60 },
-    { title: '标题', dataIndex: 'title', ellipsis: true },
+    { title: 'ID', dataIndex: 'id', width: 56, fixed: 'left' },
     {
-      title: '风格', dataIndex: 'video_style', width: 90,
+      title: '标题', dataIndex: 'title', width: 200, ellipsis: true, fixed: 'left',
+      render: (v, r) => (
+        <Tooltip
+          title={(
+            <div>
+              <div>{v || '-'}</div>
+              <div style={{ opacity: 0.85, marginTop: 4 }}>文案：{r.script_title || '-'}</div>
+              <div style={{ opacity: 0.85 }}>{r.resolution || '-'} · {r.video_engine === 'moviepy' ? 'MoviePy' : (r.video_engine || 'FFmpeg')}</div>
+            </div>
+          )}
+        >
+          <span>{v || '-'}</span>
+        </Tooltip>
+      ),
+    },
+    {
+      title: '风格', dataIndex: 'video_style', width: 88,
       render: v => {
         const style = styles.find(s => s.key === v)
         return style ? <Tag color={STYLE_COLORS[v] || 'blue'}>{style.name}</Tag> : <Tag>默认</Tag>
-      }
+      },
     },
     {
-      title: '分辨率', dataIndex: 'resolution', width: 100,
-      render: v => v ? <Tag>{v}</Tag> : '-'
+      title: '进度', key: 'progress', width: 180,
+      render: (_, r) => (
+        <Space size={2} wrap={false}>
+          {[
+            ['配音', r.voice_status],
+            ['字幕', r.subtitle_status],
+            ['合成', r.video_status],
+          ].map(([label, st]) => (
+            <Tooltip key={label} title={`${label}：${statusLabels[st] || st}`}>
+              <Tag
+                color={statusColors[st]}
+                style={{ marginInlineEnd: 0, paddingInline: 6, fontSize: 12, lineHeight: '20px' }}
+              >
+                {label}
+              </Tag>
+            </Tooltip>
+          ))}
+        </Space>
+      ),
     },
     {
-      title: '引擎', dataIndex: 'video_engine', width: 80,
-      render: v => <Tag color={v === 'moviepy' ? 'geekblue' : 'default'}>{v === 'moviepy' ? 'MoviePy' : 'FFmpeg'}</Tag>
-    },
-    { title: '关联文案', dataIndex: 'script_title', width: 120, ellipsis: true,
-      render: v => v || '-' },
-    {
-      title: '配音', dataIndex: 'voice_status', width: 70,
-      render: v => <Tag color={statusColors[v]} icon={statusIcons[v]}>{statusLabels[v] || v}</Tag>
+      title: '时长', dataIndex: 'duration', width: 64,
+      render: v => (v ? `${Number(v).toFixed(0)}s` : '-'),
     },
     {
-      title: '字幕', dataIndex: 'subtitle_status', width: 70,
-      render: v => <Tag color={statusColors[v]} icon={statusIcons[v]}>{statusLabels[v] || v}</Tag>
-    },
-    {
-      title: '合成', dataIndex: 'video_status', width: 70,
-      render: v => <Tag color={statusColors[v]} icon={statusIcons[v]}>{statusLabels[v] || v}</Tag>
-    },
-    {
-      title: '导出', dataIndex: 'export_status', width: 70,
-      render: v => <Tag color={statusColors[v]} icon={statusIcons[v]}>{statusLabels[v] || v}</Tag>
-    },
-    { title: '时长', dataIndex: 'duration', width: 70,
-      render: v => v ? `${v.toFixed(1)}s` : '-' },
-    {
-      title: '失败原因', dataIndex: 'error_msg', width: 160, ellipsis: true,
+      title: '说明', dataIndex: 'error_msg', width: 140, ellipsis: true,
       render: (v, r) => {
         const failed = failedStepOf(r)
-        if (!failed) return '-'
+        if (!failed) {
+          if (r.export_status === 'done') return <span style={{ color: '#94a3b8' }}>已完成</span>
+          if (r.voice_status === 'processing' || r.video_status === 'processing' || r.export_status === 'processing') {
+            return <span style={{ color: '#1677ff' }}>制作中…</span>
+          }
+          return <span style={{ color: '#94a3b8' }}>-</span>
+        }
         return (
           <Tooltip title={v || '步骤失败，可点重试'}>
             <span style={{ color: '#cf1322', fontSize: 12 }}>{v || `${failed.name}失败`}</span>
@@ -451,96 +469,144 @@ export default function Videos() {
         )
       },
     },
-    { title: '创建时间', dataIndex: 'created_at', width: 160, render: v => formatDateTime(v) },
     {
-      title: '操作', key: 'action', width: 360, fixed: 'right',
+      title: '创建', dataIndex: 'created_at', width: 136,
+      render: v => formatDateTime(v),
+    },
+    {
+      title: '操作', key: 'action', width: 168, fixed: 'right',
       render: (_, r) => {
         const isProcessing = r.voice_status === 'processing' || r.video_status === 'processing' || r.export_status === 'processing'
         const failed = failedStepOf(r)
+        const moreItems = [
+          {
+            key: 'material',
+            icon: <PictureOutlined />,
+            label: '绑定场景素材',
+            disabled: isProcessing,
+            onClick: () => {
+              setSceneTaskId(r.id)
+              const ids = String(r.material_ids || '')
+                .split(',')
+                .map(x => Number(x.trim()))
+                .filter(Boolean)
+              setSelectedMaterialIds(ids)
+              openSceneMaterialPicker({ for: 'scene' })
+            },
+          },
+          {
+            key: 'voice',
+            icon: <SoundOutlined />,
+            label: '配音',
+            disabled: r.voice_status === 'done' || isProcessing,
+            onClick: () => handleExecute(r.id, 'voice', '配音'),
+          },
+          {
+            key: 'subtitle',
+            icon: <FileTextOutlined />,
+            label: '字幕',
+            disabled: r.subtitle_status === 'done' || isProcessing,
+            onClick: () => handleExecute(r.id, 'subtitle', '字幕'),
+          },
+          {
+            key: 'compose',
+            icon: <VideoCameraOutlined />,
+            label: '合成视频',
+            disabled: r.video_status === 'done' || r.voice_status !== 'done' || r.subtitle_status !== 'done' || isProcessing,
+            onClick: () => handleExecute(r.id, 'compose', '合成'),
+          },
+          {
+            key: 'scenes',
+            icon: <ApartmentOutlined />,
+            label: r.scenes_json ? '编辑场景编排' : '场景编排',
+            disabled: isProcessing,
+            onClick: () => openSceneEditor(r.id),
+          },
+          r.output_path ? {
+            key: 'download',
+            icon: <DownloadOutlined />,
+            label: '下载视频',
+            onClick: () => { window.location.href = `/api/videos/${r.id}/download` },
+          } : null,
+          { type: 'divider' },
+          {
+            key: 'delete',
+            icon: <DeleteOutlined />,
+            label: '删除',
+            danger: true,
+            disabled: isProcessing,
+            onClick: () => {
+              Modal.confirm({
+                title: '确认删除该视频任务？',
+                onOk: () => {
+                  stopPolling(r.id)
+                  return videosApi.delete(r.id).then(() => {
+                    message.success('已删除')
+                    loadData()
+                  })
+                },
+              })
+            },
+          },
+        ].filter(Boolean)
+
         return (
-        <Space size="small" wrap>
-          {failed ? (
-            <Tooltip title={`从失败步骤重试：${failed.name}${r.error_msg ? `（${r.error_msg}）` : ''}`}>
-              <Button
-                size="small"
-                type="primary"
-                danger
-                ghost
-                icon={<RedoOutlined />}
-                loading={executing === `${r.id}-${failed.step}`}
-                disabled={isProcessing}
-                onClick={() => handleRetryFailed(r)}
-              >
-                重试
-              </Button>
-            </Tooltip>
-          ) : null}
-          <Tooltip title="绑定场景素材（文案出片后可在此补选）">
-            <Button
-              size="small"
-              icon={<PictureOutlined />}
-              type={r.material_ids ? 'default' : 'dashed'}
-              disabled={isProcessing}
-              onClick={() => {
-                setSceneTaskId(r.id)
-                const ids = String(r.material_ids || '')
-                  .split(',')
-                  .map(x => Number(x.trim()))
-                  .filter(Boolean)
-                setSelectedMaterialIds(ids)
-                openSceneMaterialPicker({ for: 'scene' })
-              }}
-            />
-          </Tooltip>
-          <Tooltip title="配音">
-            <Button size="small" icon={<SoundOutlined />}
-              loading={executing === `${r.id}-voice`}
-              disabled={r.voice_status === 'done' || isProcessing}
-              onClick={() => handleExecute(r.id, 'voice', '配音')} />
-          </Tooltip>
-          <Tooltip title="字幕">
-            <Button size="small" icon={<FileTextOutlined />}
-              loading={executing === `${r.id}-subtitle`}
-              disabled={r.subtitle_status === 'done' || isProcessing}
-              onClick={() => handleExecute(r.id, 'subtitle', '字幕')} />
-          </Tooltip>
-          <Tooltip title="合成视频">
-            <Button size="small" icon={<VideoCameraOutlined />}
-              loading={pollingTasks.has(r.id) && executing === `${r.id}-compose`}
-              disabled={r.video_status === 'done' || r.voice_status !== 'done' || r.subtitle_status !== 'done' || isProcessing}
-              onClick={() => handleExecute(r.id, 'compose', '合成')} />
-          </Tooltip>
-          <Tooltip title={r.scenes_json ? '编辑场景编排' : '场景编排（AI分割+素材匹配）'}>
-            <Button size="small" icon={<ApartmentOutlined />}
-              type={r.scenes_json ? 'primary' : 'default'}
-              ghost={!!r.scenes_json}
-              disabled={isProcessing}
-              onClick={() => openSceneEditor(r.id)} />
-          </Tooltip>
-          <Tooltip title="一键全流程">
-            <Button size="small" type="primary" icon={
-              pollingTasks.has(r.id) ? <LoadingOutlined /> : <PlayCircleOutlined />
-            }
-              disabled={r.export_status === 'done' || isProcessing}
-              onClick={() => handleExecute(r.id, 'all', '全流程')} />
-          </Tooltip>
-          {r.output_path && (
-            <Tooltip title="下载视频">
-              <Button size="small" icon={<DownloadOutlined />}
-                href={`/api/videos/${r.id}/download`} />
-            </Tooltip>
-          )}
-          <Popconfirm title="确认删除？" onConfirm={() => {
-            stopPolling(r.id)
-            videosApi.delete(r.id).then(() => { message.success('已删除'); loadData() })
-          }}>
-            <Button size="small" danger icon={<DeleteOutlined />} disabled={isProcessing} />
-          </Popconfirm>
-        </Space>
+          <Space size={4} wrap={false}>
+            {failed ? (
+              <Tooltip title={`从失败步骤重试：${failed.name}${r.error_msg ? `（${r.error_msg}）` : ''}`}>
+                <Button
+                  size="small"
+                  type="primary"
+                  danger
+                  ghost
+                  icon={<RedoOutlined />}
+                  loading={executing === `${r.id}-${failed.step}`}
+                  disabled={isProcessing}
+                  onClick={() => handleRetryFailed(r)}
+                >
+                  重试
+                </Button>
+              </Tooltip>
+            ) : (
+              <Tooltip title="一键全流程">
+                <Button
+                  size="small"
+                  type="primary"
+                  icon={pollingTasks.has(r.id) ? <LoadingOutlined /> : <PlayCircleOutlined />}
+                  disabled={r.export_status === 'done' || isProcessing}
+                  onClick={() => handleExecute(r.id, 'all', '全流程')}
+                >
+                  出片
+                </Button>
+              </Tooltip>
+            )}
+            <Dropdown menu={{ items: moreItems }} trigger={['click']} placement="bottomRight">
+              <Button size="small" icon={<MoreOutlined />} />
+            </Dropdown>
+          </Space>
         )
-      }
+      },
     },
   ]
+
+  const pageStats = {
+    total: data.total || 0,
+    done: (data.list || []).filter(d => d.export_status === 'done').length,
+    processing: (data.list || []).filter(d =>
+      d.export_status === 'processing'
+      || d.voice_status === 'processing'
+      || d.video_status === 'processing'
+      || (d.export_status === 'pending' && d.voice_status !== 'pending')
+    ).length,
+    pending: (data.list || []).filter(d =>
+      d.export_status === 'pending' && d.voice_status === 'pending'
+    ).length,
+    failed: (data.list || []).filter(d =>
+      d.export_status === 'failed' || d.voice_status === 'failed' || d.video_status === 'failed'
+    ).length,
+  }
+  const stats = data.stats || pageStats
+  const waiting = (stats.pending || 0) + (stats.failed || 0)
 
   return (
     <div>
@@ -556,10 +622,35 @@ export default function Videos() {
       )}
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}><Card size="small"><Statistic title="视频任务" value={data.total} prefix={<VideoCameraOutlined />} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="已完成" value={data.list.filter(d => d.export_status === 'done').length} valueStyle={{ color: '#52c41a' }} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="进行中" value={data.list.filter(d => d.export_status === 'pending' && d.voice_status !== 'pending').length} /></Card></Col>
-        <Col span={6}><Card size="small"><Statistic title="待处理" value={data.list.filter(d => d.voice_status === 'pending').length} /></Card></Col>
+        <Col span={6}>
+          <Card size="small">
+            <Statistic title="视频任务" value={stats.total ?? 0} prefix={<VideoCameraOutlined />} />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card size="small">
+            <Statistic title="已完成" value={stats.done ?? 0} valueStyle={{ color: '#52c41a' }} />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card size="small">
+            <Statistic title="进行中" value={stats.processing ?? 0} valueStyle={{ color: '#1677ff' }} />
+          </Card>
+        </Col>
+        <Col span={6}>
+          <Card size="small">
+            <Statistic
+              title={stats.failed ? `待处理 / 失败` : '待处理'}
+              value={waiting}
+              valueStyle={stats.failed ? { color: '#cf1322' } : undefined}
+              suffix={stats.failed ? (
+                <span style={{ fontSize: 12, color: '#94a3b8', marginLeft: 4 }}>
+                  （失败 {stats.failed}）
+                </span>
+              ) : null}
+            />
+          </Card>
+        </Col>
       </Row>
 
       <div className="table-toolbar">
@@ -587,15 +678,22 @@ export default function Videos() {
         </Space>
       </div>
 
-      <Table columns={columns} dataSource={data.list} rowKey="id" loading={loading}
-        scroll={{ x: 1500 }}
+      <Table
+        className="videos-table"
+        columns={columns}
+        dataSource={data.list}
+        rowKey="id"
+        loading={loading}
+        scroll={{ x: 1050 }}
         rowClassName={(r) => (String(r.id) === String(focusId) ? 'row-focus' : '')}
         pagination={{
           current: page, total: data.total, pageSize: 15,
           onChange: (p) => loadData(p),
           showTotal: (t) => `共 ${t} 条`,
+          size: 'small',
         }}
-        size="middle" />
+        size="small"
+      />
 
       {/* Create Modal */}
       <Modal title="创建视频任务" open={createModal} onOk={handleCreate}
