@@ -156,6 +156,7 @@ CREATE TABLE IF NOT EXISTS publish_task (
     status TEXT DEFAULT 'pending',
     publish_url TEXT DEFAULT '',
     error_msg TEXT DEFAULT '',
+    published_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (video_task_id) REFERENCES video_task(id) ON DELETE SET NULL
 );
@@ -471,6 +472,7 @@ def init_db():
     _add_column_if_not_exists(cur, 'hot_topic', 'engagement_score', 'REAL DEFAULT 0')
     _add_column_if_not_exists(cur, 'stock_screening', 'message', "TEXT DEFAULT ''")
     _add_column_if_not_exists(cur, 'knowledge_item', 'stock_code', "TEXT DEFAULT ''")
+    _add_column_if_not_exists(cur, 'publish_task', 'published_at', 'TIMESTAMP')
 
     # 强制校正品牌内容运营关键设置（修正旧默认值）
     _upsert_setting(cur, 'system', 'fixed_ending',

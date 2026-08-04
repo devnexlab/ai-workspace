@@ -107,9 +107,7 @@ export default function TodoBell() {
             }}
           >
             <CheckSquareOutlined style={{ fontSize: 18 }} />
-            <span style={{ fontSize: 13, color: '#475569', fontWeight: 600 }}>
-              {badgeCount > 0 ? `待办 ${badgeCount}` : '待办'}
-            </span>
+            <span style={{ fontSize: 13, color: '#475569', fontWeight: 600 }}>待办</span>
           </Button>
         </Badge>
       </Tooltip>
@@ -129,7 +127,7 @@ export default function TodoBell() {
                 title="待出片文案"
                 icon={<FileTextOutlined />}
                 count={pendingScripts.length}
-                extra={<Button type="link" size="small" onClick={() => go('/scripts')}>全部</Button>}
+                extra={<Button type="link" size="small" onClick={() => go('/scripts?status=draft')}>全部</Button>}
               >
                 <List
                   size="small"
@@ -137,7 +135,7 @@ export default function TodoBell() {
                   renderItem={(s) => (
                     <List.Item
                       actions={[
-                        <Button key="go" type="link" size="small" onClick={() => go('/scripts')}>
+                        <Button key="go" type="link" size="small" onClick={() => go(`/scripts?status=draft&focus=${s.id}`)}>
                           去出片
                         </Button>,
                       ]}
@@ -160,7 +158,7 @@ export default function TodoBell() {
                 title="待生成视频"
                 icon={<VideoCameraOutlined />}
                 count={pendingVideos.length}
-                extra={<Button type="link" size="small" onClick={() => go('/videos')}>全部</Button>}
+                extra={<Button type="link" size="small" onClick={() => go('/videos?pending=1')}>全部</Button>}
               >
                 <List
                   size="small"
@@ -168,7 +166,7 @@ export default function TodoBell() {
                   renderItem={(v) => (
                     <List.Item
                       actions={[
-                        <Button key="go" type="link" size="small" onClick={() => go('/videos')}>
+                        <Button key="go" type="link" size="small" onClick={() => go(`/videos?focus=${v.id}`)}>
                           去处理
                         </Button>,
                       ]}
@@ -183,7 +181,7 @@ export default function TodoBell() {
                               ['剪辑', v.video_status],
                               ['导出', v.export_status],
                             ].map(([label, status]) => (
-                              <Tag key={label} color={status === 'done' ? 'success' : 'default'}>
+                              <Tag key={label} color={status === 'done' ? 'success' : status === 'failed' ? 'error' : 'default'}>
                                 {label}
                               </Tag>
                             ))}
@@ -199,7 +197,7 @@ export default function TodoBell() {
                 title="待发布"
                 icon={<RocketOutlined />}
                 count={pendingPublish.length}
-                extra={<Button type="link" size="small" onClick={() => go('/publish')}>全部</Button>}
+                extra={<Button type="link" size="small" onClick={() => go('/publish?status=pending')}>全部</Button>}
               >
                 <List
                   size="small"
@@ -207,7 +205,7 @@ export default function TodoBell() {
                   renderItem={(p) => (
                     <List.Item
                       actions={[
-                        <Button key="go" type="link" size="small" onClick={() => go('/publish')}>
+                        <Button key="go" type="link" size="small" onClick={() => go(`/publish?focus=${p.id}`)}>
                           去发布
                         </Button>,
                       ]}
@@ -217,7 +215,7 @@ export default function TodoBell() {
                         description={(
                           <Space size={6}>
                             <span style={{ fontSize: 12, color: '#64748b' }}>{p.platform || '未指定平台'}</span>
-                            <Tag color="orange">待发布</Tag>
+                            <Tag color="orange">{p.status === 'reviewing' ? '待确认' : '待发布'}</Tag>
                           </Space>
                         )}
                       />
@@ -238,7 +236,7 @@ export default function TodoBell() {
                   renderItem={(c) => (
                     <List.Item
                       actions={[
-                        <Button key="go" type="link" size="small" onClick={() => go('/customers')}>
+                        <Button key="go" type="link" size="small" onClick={() => go(`/customers?focus=${c.id}`)}>
                           去跟进
                         </Button>,
                       ]}

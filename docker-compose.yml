@@ -31,17 +31,17 @@ services:
 
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: ai-ops-backend
     networks:
       - ai-ops-net
     ports:
       - "3456:3456"
     volumes:
-      - ./backend/data:/app/data
-      - ./backend/outputs:/app/outputs
-      - ./backend/uploads:/app/uploads
+      - ./backend/data:/app/backend/data
+      - ./backend/outputs:/app/backend/outputs
+      - ./backend/uploads:/app/backend/uploads
     env_file:
       - ./backend/.env
     environment:

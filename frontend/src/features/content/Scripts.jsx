@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Table, Tag, Button, Input, Select, Space, Modal, message,
   Popconfirm, Tooltip, Row, Col, Card, Form, Drawer, Alert,
@@ -35,10 +35,12 @@ const ageLabels = {
 
 export default function Scripts() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [data, setData] = useState({ list: [], total: 0 })
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
   const [filters, setFilters] = useState({})
+  const [focusId, setFocusId] = useState(null)
   const [editModal, setEditModal] = useState(false)
   const [viewDrawer, setViewDrawer] = useState(false)
   const [genModal, setGenModal] = useState(false)
@@ -62,7 +64,13 @@ export default function Scripts() {
   }
 
   useEffect(() => {
-    loadData(1)
+    const status = searchParams.get('status') || ''
+    const focus = searchParams.get('focus')
+    const next = {}
+    if (status) next.status = status
+    setFilters(next)
+    if (focus) setFocusId(Number(focus) || focus)
+    loadData(1, next)
     settingsApi.check().then(setReadiness).catch(() => {})
     settingsApi.get().then(res => {
       const list = res?.system || []
@@ -72,7 +80,7 @@ export default function Scripts() {
       setBrandEnding('祁实说实话，替你的保单说话，给你最放心的选择。关注我，来找我。')
     })
     scriptsApi.dailyRunStatus().then(setDailyStatus).catch(() => {})
-  }, [])
+  }, [searchParams])
 
   const handleDailyPlan = () => {
     setPlanning(true)
@@ -345,9 +353,18 @@ export default function Scripts() {
           <Button icon={<ReloadOutlined />} onClick={() => { setFilters({}); loadData(1, {}) }}>重置</Button>
         </div>
         <Space wrap>
-          <Button type="primary" icon={<ThunderboltOutlined />} loading={runningDaily} onClick={handleDailyRun}>
-            今日计划并出片
-          </Button>
+          <Tooltip
+            title={(
+              <div style={{ maxWidth: 280 }}>
+                <div>会做：采全网热点 → 生成约 2 条流量 + 1 条干货文案 → 创建视频任务。</div>
+                <div style={{ marginTop: 6 }}>不会：各平台口播专项采集、自动在平台点「发表」。发布请到发布中心确认。</div>
+              </div>
+            )}
+          >
+            <Button type="primary" icon={<ThunderboltOutlined />} loading={runningDaily} onClick={handleDailyRun}>
+              今日计划并出片
+            </Button>
+          </Tooltip>
           <Button icon={<ThunderboltOutlined />} loading={planning} onClick={handleDailyPlan}>
             仅生成文案（2+1）
           </Button>
@@ -363,10 +380,19 @@ export default function Scripts() {
         </Space>
       </div>
 
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 12 }}
+        message="日更说明"
+        description="「今日计划并出片」只到创建视频任务为止；真正发出去要在发布中心半自动填表后，你在平台点发表并确认。"
+      />
+
       <Table
         columns={columns}
         dataSource={data.list}
         rowKey="id"
+        rowClassName={(r) => (String(r.id) === String(focusId) ? 'row-focus' : '')}
         loading={loading}
         scroll={{ x: 1280 }}
         pagination={{

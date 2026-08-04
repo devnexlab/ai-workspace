@@ -2,14 +2,17 @@
 
 内容运营、客户管理、视频发布与股票研究一体化的全栈系统。
 
+> 功能说明与变更辑录：[`docs/FEATURES.md`](docs/FEATURES.md) · [`docs/CHANGELOG.md`](docs/CHANGELOG.md)
+
 ## 技术栈
 
 | 层级 | 技术 |
 |------|------|
 | 前端 | React 18 + Ant Design 5 + Vite |
-| 后端 | Python + Flask |
+| 后端 | Python + Flask（依赖见根目录 `pyproject.toml`） |
 | 数据库 | PostgreSQL（生产）/ 可按配置切换 |
 | 自动化 | Playwright（采集 / 发布） |
+| 视频合成 | MoviePy + FFmpeg + edge-tts（配音） |
 | AI | OpenAI 兼容接口 |
 | 部署 | Docker Compose / 本地直接运行 |
 
@@ -38,9 +41,10 @@
 |------|------|------|
 | Git | 拉取代码 | https://git-scm.com/download/win |
 | **方式 A 必装** PostgreSQL 16+ | 本机跑库 | https://www.postgresql.org/download/windows/ |
-| **方式 A 必装** Python 3.11+ | 跑后端 | https://www.python.org/downloads/ （安装时勾选 *Add python.exe to PATH*） |
+| **方式 A 必装** Python 3.12+ | 跑后端（与 `pyproject.toml` 一致） | https://www.python.org/downloads/ （安装时勾选 *Add python.exe to PATH*） |
 | **方式 A 必装** Node.js 20 LTS | 跑前端 | https://nodejs.org/ |
-| **方式 B 必装** Docker Desktop | 容器部署（含 Postgres） | https://www.docker.com/products/docker-desktop/ |
+| **方式 A 推荐** FFmpeg | 视频时长探测 / FFmpeg 合成引擎 | 见下方「视频剪辑相关软件」 |
+| **方式 B 必装** Docker Desktop | 容器部署（含 Postgres、镜像内已带 FFmpeg） | https://www.docker.com/products/docker-desktop/ |
 
 > Windows 可选两种部署：**方式 A 本机直接跑**，或 **方式 B Docker**。只需装对应方式需要的软件。  
 > 方式 A 需要本机 **PostgreSQL**；方式 B 由 Compose 自带数据库，一般不用再装。
@@ -62,6 +66,68 @@ macOS 推荐用 **Docker** 部署（见下文）；Compose 已包含 PostgreSQL�
 | Docker Engine + Compose 插件 | 容器部署（含 Postgres） | 见 https://docs.docker.com/engine/install/ |
 
 Linux 推荐用 **Docker** 部署（见下文）；Compose 已包含 PostgreSQL。本机开发再单独装库即可。
+
+---
+
+## 视频剪辑相关软件（重要）
+
+本系统的视频能力是 **自动配音 + 字幕 + 合成导出**，**不需要安装剪映 / Premiere**。
+
+| 能力 | 依赖 | 是否要单独下载 |
+|------|------|----------------|
+| 配音（TTS） | Python 包 `edge-tts`（默认免费） | 否，写入 `pyproject.toml` 后 `pip install -e .`；需能访问外网 |
+| 字幕 | 后端根据 TTS 时间戳生成 SRT | 否 |
+| 合成（默认 MoviePy） | Python 包 `moviepy`（自带 `imageio-ffmpeg`） | 否，装 Python 依赖即可 |
+| 合成（FFmpeg 引擎）/ 音频时长探测 | 系统 **FFmpeg**（含 `ffprobe`） | **是，本机方式 A 建议安装** |
+| 采集 / 自动发布 | **Playwright** + Chromium | `pip` 后还需执行浏览器安装命令 |
+| 中文字幕显示 | 系统中文字体 | Windows 一般自带；Linux / Docker 镜像已装字体 |
+
+### 安装 FFmpeg（本机部署推荐）
+
+**Windows**
+
+1. 下载：https://www.gyan.dev/ffmpeg/builds/ （选 `ffmpeg-release-essentials.zip`）  
+   或用 winget：`winget install Gyan.FFmpeg`
+2. 解压后把 `bin` 目录加入系统 **PATH**（保证命令行能执行 `ffmpeg`、`ffprobe`）
+3. 验证：
+
+```bat
+ffmpeg -version
+ffprobe -version
+```
+
+4. 若未加入 PATH，在系统设置 →「配音与视频」→ **FFmpeg 路径** 填完整路径，例如：  
+   `C:\ffmpeg\bin\ffmpeg.exe`
+
+**macOS**
+
+```bash
+brew install ffmpeg
+```
+
+**Linux（Debian / Ubuntu）**
+
+```bash
+sudo apt update
+sudo apt install -y ffmpeg
+```
+
+> **Docker 部署**：后端镜像已内置 `ffmpeg` 与中文字体，一般不用再装。
+
+### 安装 Playwright 浏览器（采集 / 发布）
+
+本机方式 A，在项目根目录装完依赖后执行：
+
+```bat
+backend\venv\Scripts\playwright install chromium
+```
+
+Docker 镜像构建时会自动安装 Chromium。
+
+### 可选：素材图片
+
+- 在「系统设置」配置本地素材目录，或填写 Pexels API Key  
+- 无素材时合成仍可走纯色 / 渐变背景
 
 ---
 
@@ -236,11 +302,11 @@ docker compose up -d --build   # 改代码后重新构建
 
 ### 方式 A：下载软件后本机直接运行
 
-适合本地开发、调试自动化（Playwright / 剪映等需本机环境时更方便）。
+适合本地开发、调试自动化（Playwright 采集/发布、本机 FFmpeg 视频合成更方便）。
 
 #### 1. 安装软件
 
-安装 **Git、Python 3.11+、Node.js 20 LTS、PostgreSQL**（见上文下载表与「安装 PostgreSQL」）。安装 Python 时务必勾选 **Add to PATH**。
+安装 **Git、Python 3.12+、Node.js 20 LTS、PostgreSQL**，并建议安装 **FFmpeg**（见上文「视频剪辑相关软件」）。安装 Python 时务必勾选 **Add to PATH**。
 
 #### 2. 配置 `.env`
 
@@ -248,21 +314,19 @@ docker compose up -d --build   # 改代码后重新构建
 
 #### 3. 安装依赖（首次）
 
-在 **PowerShell** 或 **CMD** 中：
+Python 依赖统一写在仓库根目录 **`pyproject.toml`**（不再使用 `requirements.txt`）。
+
+在 **PowerShell** 或 **CMD** 中，于**项目根目录**执行：
 
 ```bat
-cd backend
-python -m venv venv
-venv\Scripts\pip install -r requirements.txt
+cd /d d:\idea\ai-workspace
+python -m venv backend\venv
+backend\venv\Scripts\pip install -U pip
+backend\venv\Scripts\pip install -e .
+backend\venv\Scripts\playwright install chromium
 
-cd ..\frontend
+cd frontend
 npm install
-```
-
-如需浏览器自动化，在 `backend` 虚拟环境中再执行：
-
-```bat
-venv\Scripts\playwright install
 ```
 
 #### 4. 启动
@@ -390,3 +454,11 @@ docker compose down
 
 **5. 自选股刷新现价失败**  
 需本机或容器能访问外网行情接口；重启后端后再点「刷新现价」。
+
+**6. 视频合成失败 / 提示找不到 FFmpeg**  
+- 本机：安装 FFmpeg 并加入 PATH，或在系统设置填写完整路径  
+- Docker：重新 `docker compose build backend`（镜像已含 ffmpeg）  
+- 默认可用 MoviePy 引擎；FFmpeg 引擎与 `ffprobe` 测时长更依赖系统 FFmpeg  
+
+**7. 自动发布 / 采集打不开浏览器**  
+确认已执行 `playwright install chromium`（Docker 构建时已包含）。

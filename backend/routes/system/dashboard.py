@@ -127,6 +127,39 @@ def get_dashboard():
         "WHERE r.status = 'pending' ORDER BY r.remind_date ASC LIMIT 5"
     ).fetchall()
 
+    # --- 今日工作台（当前待办切片）---
+    wb_scripts = conn.execute(
+        "SELECT id, title, content_type, status FROM script "
+        "WHERE COALESCE(status, 'draft') NOT IN ('used') "
+        "ORDER BY created_at DESC LIMIT 5"
+    ).fetchall()
+    wb_videos = conn.execute(
+        "SELECT id, title, voice_status, subtitle_status, video_status, export_status, error_msg "
+        "FROM video_task WHERE export_status != 'done' "
+        "ORDER BY CASE WHEN voice_status='failed' OR subtitle_status='failed' "
+        "OR video_status='failed' OR export_status='failed' THEN 0 ELSE 1 END, "
+        "created_at DESC LIMIT 5"
+    ).fetchall()
+    wb_publish = conn.execute(
+        "SELECT p.id, p.platform, p.status, v.title as video_title, p.error_msg "
+        "FROM publish_task p LEFT JOIN video_task v ON p.video_task_id = v.id "
+        "WHERE p.status IN ('pending','reviewing') ORDER BY p.created_at DESC LIMIT 5"
+    ).fetchall()
+    wb_reminders = conn.execute(
+        "SELECT r.id, r.title, r.type, r.remind_date, c.nickname as customer_name "
+        "FROM reminder r LEFT JOIN customer c ON r.customer_id = c.id "
+        "WHERE r.status = 'pending' AND r.remind_date <= CURRENT_DATE "
+        "ORDER BY r.remind_date ASC LIMIT 5"
+    ).fetchall()
+
+    overdue_reminders = conn.execute(
+        "SELECT COUNT(*) as c FROM reminder WHERE status='pending' AND remind_date < CURRENT_DATE"
+    ).fetchone()['c']
+    failed_videos = conn.execute(
+        "SELECT COUNT(*) as c FROM video_task WHERE "
+        "voice_status='failed' OR subtitle_status='failed' OR video_status='failed' OR export_status='failed'"
+    ).fetchone()['c']
+
     conn.close()
 
     return jsonify({
@@ -152,6 +185,8 @@ def get_dashboard():
             'workflows': workflow_count,
             'workflowsActive': workflow_active,
             'pendingReminders': pending_reminders,
+            'overdueReminders': overdue_reminders,
+            'failedVideos': failed_videos,
         },
         'recentTopics': [dict(r) for r in recent_topics],
         'recentScripts': [dict(r) for r in recent_scripts],
@@ -164,4 +199,20 @@ def get_dashboard():
         # V1.2
         'recentKnowledge': [dict(r) for r in recent_knowledge],
         'upcomingReminders': [dict(r) for r in upcoming_reminders],
+        'todayWorkbench': {
+            'scripts': [dict(r) for r in wb_scripts],
+            'videos': [dict(r) for r in wb_videos],
+            'publish': [dict(r) for r in wb_publish],
+            'reminders': [dict(r) for r in wb_reminders],
+            'followCustomers': [dict(r) for r in follow_customers][:5],
+            'counts': {
+                'scripts': script_draft,
+                'videos': video_pending,
+                'failedVideos': failed_videos,
+                'publish': publish_pending,
+                'reminders': pending_reminders,
+                'overdueReminders': overdue_reminders,
+                'follow': len(follow_customers),
+            },
+        },
     })

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   Table, Tag, Button, Input, Select, Space, Modal, message,
   Popconfirm, Tooltip, Row, Col, Card, Statistic, Form, Steps, Alert,
@@ -10,6 +11,7 @@ import {
   CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined,
   DownloadOutlined, UploadOutlined, PictureOutlined, FileOutlined,
   LoadingOutlined, MessageOutlined, ApartmentOutlined, ThunderboltOutlined,
+  RedoOutlined,
 } from '@ant-design/icons'
 import { videosApi, scriptsApi, settingsApi, materialsApi } from '../../api'
 import { formatDateTime } from '../../utils/date'
@@ -32,10 +34,12 @@ const STYLE_COLORS = {
 }
 
 export default function Videos() {
+  const [searchParams] = useSearchParams()
   const [data, setData] = useState({ list: [], total: 0 })
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(1)
   const [filters, setFilters] = useState({})
+  const [focusId, setFocusId] = useState(null)
   const [createModal, setCreateModal] = useState(false)
   const [executing, setExecuting] = useState(null)
   const [scripts, setScripts] = useState([])
@@ -131,20 +135,50 @@ export default function Videos() {
   }, [])
 
   useEffect(() => {
-    loadData(1)
+    const focus = searchParams.get('focus')
+    const pending = searchParams.get('pending')
+    if (focus) setFocusId(Number(focus) || focus)
+    const next = {}
+    setFilters(next)
+    if (pending === '1') {
+      setLoading(true)
+      videosApi.list({ page: 1, pageSize: 50 })
+        .then((res) => {
+          const list = (res.list || []).filter((v) => v.export_status !== 'done')
+          setData({ ...res, list, total: list.length })
+          setPage(1)
+        })
+        .finally(() => setLoading(false))
+    } else {
+      loadData(1, next)
+    }
     videosApi.checkFfmpeg().then(res => setFfmpegOk(res.available)).catch(() => {})
     materialsApi.styles().then(res => setStyles(res.styles || [])).catch(() => {})
-    // Load default video params from system settings
     settingsApi.get().then(res => {
       const v = (res.video || []).reduce((acc, s) => { acc[s.key] = s.value; return acc }, {})
       setVideoDefaults(v)
     }).catch(() => {})
-    // Load voice options and narration presets
     videosApi.voiceOptions().then(res => {
       setVoiceOptions(res.voices || [])
       setNarrationPresets(res.narration_presets || [])
     }).catch(() => {})
-  }, [])
+  }, [searchParams])
+
+  const failedStepOf = (r) => {
+    if (r.voice_status === 'failed') return { step: 'voice', name: '配音' }
+    if (r.subtitle_status === 'failed') return { step: 'subtitle', name: '字幕' }
+    if (r.video_status === 'failed' || r.export_status === 'failed') return { step: 'compose', name: '合成' }
+    return null
+  }
+
+  const handleRetryFailed = (r) => {
+    const failed = failedStepOf(r)
+    if (!failed) {
+      message.info('当前没有失败步骤')
+      return
+    }
+    handleExecute(r.id, failed.step, `重试${failed.name}`)
+  }
 
   // Check for tasks that are in 'processing' state on page load (e.g. after refresh)
   // and resume polling for them
@@ -324,13 +358,42 @@ export default function Videos() {
     },
     { title: '时长', dataIndex: 'duration', width: 70,
       render: v => v ? `${v.toFixed(1)}s` : '-' },
+    {
+      title: '失败原因', dataIndex: 'error_msg', width: 160, ellipsis: true,
+      render: (v, r) => {
+        const failed = failedStepOf(r)
+        if (!failed) return '-'
+        return (
+          <Tooltip title={v || '步骤失败，可点重试'}>
+            <span style={{ color: '#cf1322', fontSize: 12 }}>{v || `${failed.name}失败`}</span>
+          </Tooltip>
+        )
+      },
+    },
     { title: '创建时间', dataIndex: 'created_at', width: 160, render: v => formatDateTime(v) },
     {
-      title: '操作', key: 'action', width: 330, fixed: 'right',
+      title: '操作', key: 'action', width: 360, fixed: 'right',
       render: (_, r) => {
         const isProcessing = r.voice_status === 'processing' || r.video_status === 'processing' || r.export_status === 'processing'
+        const failed = failedStepOf(r)
         return (
         <Space size="small" wrap>
+          {failed ? (
+            <Tooltip title={`从失败步骤重试：${failed.name}${r.error_msg ? `（${r.error_msg}）` : ''}`}>
+              <Button
+                size="small"
+                type="primary"
+                danger
+                ghost
+                icon={<RedoOutlined />}
+                loading={executing === `${r.id}-${failed.step}`}
+                disabled={isProcessing}
+                onClick={() => handleRetryFailed(r)}
+              >
+                重试
+              </Button>
+            </Tooltip>
+          ) : null}
           <Tooltip title="配音">
             <Button size="small" icon={<SoundOutlined />}
               loading={executing === `${r.id}-voice`}
@@ -429,7 +492,8 @@ export default function Videos() {
       </div>
 
       <Table columns={columns} dataSource={data.list} rowKey="id" loading={loading}
-        scroll={{ x: 1400 }}
+        scroll={{ x: 1500 }}
+        rowClassName={(r) => (String(r.id) === String(focusId) ? 'row-focus' : '')}
         pagination={{
           current: page, total: data.total, pageSize: 15,
           onChange: (p) => loadData(p),

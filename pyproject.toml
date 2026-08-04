@@ -1,5 +1,32 @@
 [project]
 name = "ai-workspace"
 version = "0.1.0"
+description = "AI 智能运营系统（内容 / 客户 / 视频 / 股票）"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "flask>=3.0",
+    "flask-cors>=4.0",
+    "psycopg2-binary>=2.9",
+    "requests>=2.31",
+    "edge-tts>=6.1",
+    "Pillow>=10.0",
+    "moviepy>=2.0",
+    "imageio-ffmpeg>=0.5",
+    "playwright>=1.40",
+    "pandas>=2.0",
+    "akshare>=1.14",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# 后端代码在 backend/，安装后可 import modules / routes / config
+[tool.setuptools]
+package-dir = { "" = "backend" }
+py-modules = ["app", "config", "database"]
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+include = ["modules*", "routes*"]
+namespaces = false

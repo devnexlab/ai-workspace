@@ -88,9 +88,7 @@ export default function NotificationBell() {
             }}
           >
             <BellOutlined style={{ fontSize: 18 }} />
-            <span style={{ fontSize: 13, color: '#475569', fontWeight: 600 }}>
-              {badgeCount > 0 ? `提醒 ${badgeCount}` : '提醒'}
-            </span>
+            <span style={{ fontSize: 13, color: '#475569', fontWeight: 600 }}>提醒</span>
           </Button>
         </Badge>
       </Tooltip>

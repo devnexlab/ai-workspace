@@ -245,9 +245,9 @@ export default function Customers() {
     })
   }
 
-  // 工作流看板「客户详情」深链：/customers?id=123
+  // 工作流看板「客户详情」深链：/customers?id=123 或 ?focus=123
   useEffect(() => {
-    const id = searchParams.get('id')
+    const id = searchParams.get('id') || searchParams.get('focus')
     if (!id) return
     handleView({ id: Number(id) })
     setSearchParams({}, { replace: true })

@@ -119,16 +119,44 @@ def check_readiness():
             settings[cat] = {}
         settings[cat][row['key']] = row['value']
 
+    # Playwright / FFmpeg（运行环境）
+    try:
+        from modules.publisher import check_playwright
+        pw_ok = bool(check_playwright())
+    except Exception:
+        pw_ok = False
+    try:
+        from modules.video_maker import check_ffmpeg
+        ff_ok = bool(check_ffmpeg())
+    except Exception:
+        ff_ok = False
+
     readiness = {
         'ai': {
             'ready': bool(settings.get('ai', {}).get('api_key')),
             'message': 'AI API Key 已配置' if settings.get('ai', {}).get('api_key') else '未配置 AI API Key',
+            'path': '/settings/ai',
         },
-        'tts': {'ready': True, 'message': 'TTS 就绪 (Edge TTS 免费)'},
-        'video': {'ready': True, 'message': '视频合成模块就绪'},
-        'system': {'ready': True, 'message': '内容运营参数可改'},
-        'media': {'ready': True, 'message': '配音与视频可用'},
-        'content': {'ready': True, 'message': '内容运营参数可用'},
+        'tts': {'ready': True, 'message': 'TTS 就绪 (Edge TTS 免费)', 'path': '/settings/media'},
+        'video': {
+            'ready': True,
+            'message': '视频合成模块就绪（MoviePy 可用）',
+            'path': '/settings/media',
+        },
+        'ffmpeg': {
+            'ready': ff_ok,
+            'message': '已检测到系统 FFmpeg' if ff_ok else '未检测到系统 FFmpeg（MoviePy 仍可用；测时长/FFmpeg 引擎建议安装）',
+            'path': '/settings/media',
+            'optional': True,
+        },
+        'playwright': {
+            'ready': pw_ok,
+            'message': 'Playwright 已安装' if pw_ok else '未安装 Playwright（自动发布需要）',
+            'path': '/settings/publish',
+        },
+        'system': {'ready': True, 'message': '内容运营参数可改', 'path': '/settings/content'},
+        'media': {'ready': True, 'message': '配音与视频可用', 'path': '/settings/media'},
+        'content': {'ready': True, 'message': '内容运营参数可用', 'path': '/settings/content'},
     }
 
     for p in list_platforms():
@@ -139,6 +167,7 @@ def check_readiness():
                 'enabled': str(settings.get(ckey, {}).get('enabled', 'true')).lower() == 'true',
                 'message': f"{p['label']}采集 Cookies 已配置" if settings.get(ckey, {}).get('cookies') else f"未配置{p['label']}采集 Cookies",
                 'label': p['label'],
+                'path': '/settings/collectors',
             }
         if p.get('enable_publish', True):
             pkey = f"publish_{p['key']}"
@@ -147,6 +176,7 @@ def check_readiness():
                 'enabled': str(settings.get(pkey, {}).get('enabled', 'false')).lower() == 'true',
                 'message': f"{p['label']}发布已配置" if settings.get(pkey, {}).get('cookies') else f"未配置{p['label']}发布",
                 'label': p['label'],
+                'path': '/settings/publish',
             }
 
     collector_ready = any(
@@ -156,6 +186,7 @@ def check_readiness():
     readiness['collectors'] = {
         'ready': collector_ready,
         'message': '至少有一个采集平台已配置 Cookies' if collector_ready else '尚未配置任何采集平台 Cookies',
+        'path': '/settings/collectors',
     }
     publish_ready = any(
         readiness.get(f"publish_{p['key']}", {}).get('ready')
@@ -164,7 +195,17 @@ def check_readiness():
     readiness['publish'] = {
         'ready': publish_ready,
         'message': '至少有一个发布平台已配置' if publish_ready else '尚未配置发布平台',
+        'path': '/settings/publish',
     }
+
+    # 总览用的精简清单
+    readiness['summary'] = [
+        {'key': 'ai', **readiness['ai'], 'label': 'AI 模型'},
+        {'key': 'collectors', **readiness['collectors'], 'label': '内容采集'},
+        {'key': 'publish', **readiness['publish'], 'label': '发布平台'},
+        {'key': 'playwright', **readiness['playwright'], 'label': 'Playwright'},
+        {'key': 'ffmpeg', **readiness['ffmpeg'], 'label': 'FFmpeg'},
+    ]
 
     return jsonify(readiness)
 

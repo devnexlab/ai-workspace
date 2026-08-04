@@ -354,3 +354,7 @@ body {
     padding: 0 12px 0 16px !important;
   }
 }
+
+.ant-table-tbody > tr.row-focus > td {
+  background: rgba(59, 130, 246, 0.08) !important;
+}
