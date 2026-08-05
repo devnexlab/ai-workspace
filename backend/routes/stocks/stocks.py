@@ -397,6 +397,15 @@ def _run_screening_job(sid, payload):
                 'no_data': result.get('no_data'),
             }, ensure_ascii=False),
         )
+        try:
+            from modules.wechat_notify import notify_screening_done
+            notify_screening_done(
+                payload.get('name') or '技术面筛选',
+                int(result.get('matched') or 0),
+                result.get('message') or '',
+            )
+        except Exception as e:
+            print(f'[Screening] notify failed: {e}')
     except Exception as e:
         if 'cancelled' in str(e).lower():
             _update_screening(sid, status='cancelled', message='用户取消')

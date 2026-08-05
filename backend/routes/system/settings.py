@@ -5,6 +5,7 @@ from flask import Blueprint, request, jsonify
 from config import update_settings_batch, get_db as _db
 from modules.content_ops.platforms import list_platforms
 from modules.content_ops.commercial_data import list_commercial_providers
+from modules.wechat_notify import list_notify_channels, channel_status as notify_channel_status
 
 bp = Blueprint('settings', __name__)
 
@@ -51,6 +52,15 @@ SETTINGS_MODULES = [
         'desc': 'TTS 配音、视频合成参数',
         'icon': 'video-camera',
         'categories': ['tts', 'video'],
+    },
+    {
+        'key': 'notify',
+        'path': 'notify',
+        'label': '消息推送',
+        'desc': '股价预警推到企业微信（免费）；也可选 PushPlus / Server酱',
+        'icon': 'bell',
+        'type': 'notify_channels',
+        'categories': [],
     },
     {
         'key': 'content',
@@ -108,6 +118,18 @@ def list_modules():
             providers = list_commercial_providers()
             mod['platforms'] = providers
             mod['categories'] = [p['category'] for p in providers]
+        elif m.get('type') == 'notify_channels':
+            channels = list_notify_channels()
+            rules = {
+                'key': 'rules',
+                'label': '推送规则',
+                'desc': '哪些事件要推送',
+                'category': 'notify',
+                'color': 'purple',
+                'builtin': True,
+            }
+            mod['platforms'] = channels + [rules]
+            mod['categories'] = [c['category'] for c in channels] + ['notify']
         modules.append(mod)
     return jsonify({'modules': modules})
 
@@ -165,6 +187,45 @@ def check_readiness():
         'media': {'ready': True, 'message': '配音与视频可用', 'path': '/settings/media'},
         'content': {'ready': True, 'message': '内容运营参数可用', 'path': '/settings/content'},
     }
+
+    try:
+        from modules.wechat_notify import is_ready as notify_ready, _cfg as notify_cfg
+        ncfg = notify_cfg()
+        n_ok, n_msg = notify_ready(ncfg)
+        if not ncfg['enabled']:
+            readiness['notify'] = {
+                'ready': True,
+                'optional': True,
+                'message': '消息推送未开启（可选）；推荐启用企业微信',
+                'path': '/settings/notify',
+            }
+        else:
+            readiness['notify'] = {
+                'ready': n_ok,
+                'optional': True,
+                'message': n_msg if n_ok else f'已开启但未配齐：{n_msg}',
+                'path': '/settings/notify',
+            }
+        for ch in list_notify_channels():
+            st = notify_channel_status(ch['key'])
+            readiness[ch['category']] = {
+                'ready': st['ready'],
+                'enabled': st['enabled'],
+                'message': st['message'],
+                'label': ch['label'],
+                'path': '/settings/notify',
+            }
+        readiness['notify'] = {
+            **readiness['notify'],
+            'ready': readiness['notify']['ready'],
+        }
+    except Exception:
+        readiness['notify'] = {
+            'ready': True,
+            'optional': True,
+            'message': '消息推送可选',
+            'path': '/settings/notify',
+        }
 
     for p in list_platforms():
         if p.get('enable_collector', True):
@@ -254,11 +315,29 @@ def check_readiness():
         {'key': 'collectors', **readiness['collectors'], 'label': '内容选题'},
         {'key': 'commercial', **readiness['commercial'], 'label': '官方数据台'},
         {'key': 'publish', **readiness['publish'], 'label': '发布平台'},
+        {'key': 'notify', **readiness['notify'], 'label': '微信推送'},
         {'key': 'playwright', **readiness['playwright'], 'label': 'Playwright（可选）'},
         {'key': 'ffmpeg', **readiness['ffmpeg'], 'label': 'FFmpeg'},
     ]
 
     return jsonify(readiness)
+
+
+@bp.route('/api/settings/notify/test', methods=['POST'])
+def test_notify():
+    """发送一条测试推送。可指定 channel=wecom|pushplus|serverchan。"""
+    data = request.get_json(silent=True) or {}
+    title = (data.get('title') or '推送测试').strip()
+    content = (data.get('content') or '这是一条来自运营平台的测试消息，配置正常即可收到股价预警。').strip()
+    channel = (data.get('channel') or data.get('provider') or '').strip().lower() or None
+    try:
+        from modules.wechat_notify import send_wechat
+        result = send_wechat(title, content, force=True, provider=channel)
+        if result.get('ok'):
+            return jsonify({'message': result.get('message') or '已发送', **result})
+        return jsonify({'error': result.get('message') or '发送失败', **result}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @bp.route('/api/settings')

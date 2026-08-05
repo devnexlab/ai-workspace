@@ -25,6 +25,7 @@ const CATEGORY_TITLES = {
   tts: '配音 (TTS)',
   video: '视频制作',
   system: '内容与采集策略',
+  notify: '微信推送',
 }
 
 /**
@@ -65,6 +66,10 @@ export default function SettingsModulePage() {
     || mod.type === 'commercial_providers'
   ) {
     return <PlatformsPage mod={mod} />
+  }
+
+  if (mod.type === 'notify_channels') {
+    return <NotifyChannelsPage mod={mod} />
   }
 
   const handleSave = () => {
@@ -125,6 +130,201 @@ export default function SettingsModulePage() {
           </Card>
         )
       })}
+    </div>
+  )
+}
+
+function NotifyChannelsPage({ mod }) {
+  const [settings, setSettings] = useState({})
+  const [readiness, setReadiness] = useState({})
+  const [values, setValues] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [savingKey, setSavingKey] = useState(null)
+  const [testingKey, setTestingKey] = useState(null)
+  const [activeKey, setActiveKey] = useState(null)
+
+  const channels = mod.platforms || []
+
+  const load = () => {
+    setLoading(true)
+    Promise.all([settingsApi.get(), settingsApi.check()])
+      .then(([s, r]) => {
+        setSettings(s)
+        setReadiness(r)
+        setValues(flattenValues(s))
+        setActiveKey(prev => {
+          if (prev && channels.some(p => p.key === prev)) return prev
+          return channels[0]?.key || null
+        })
+      })
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => { load() }, [mod.key, channels.map(p => p.key).join(',')])
+
+  const saveChannel = (channel) => {
+    const cat = channel.category
+    setSavingKey(channel.key)
+    const all = groupValues(values)
+    const payload = { [cat]: all[cat] || {} }
+
+    // 启用某一渠道时，关闭其他渠道（规则卡片除外）
+    if (channel.key !== 'rules') {
+      const enabling = String(payload[cat]?.enabled || '').toLowerCase() === 'true'
+      if (enabling) {
+        channels.forEach(c => {
+          if (c.key === 'rules' || c.key === channel.key) return
+          payload[c.category] = {
+            ...(all[c.category] || {}),
+            enabled: 'false',
+          }
+        })
+      }
+    }
+
+    settingsApi.update(payload)
+      .then(() => {
+        message.success(`${channel.label} 已保存`)
+        load()
+      })
+      .catch(() => message.error('保存失败'))
+      .finally(() => setSavingKey(null))
+  }
+
+  const handleTest = (channel) => {
+    if (channel.key === 'rules') return
+    setTestingKey(channel.key)
+    const cat = channel.category
+    const all = groupValues(values)
+    const payload = { [cat]: all[cat] || {} }
+    settingsApi.update(payload)
+      .then(() => settingsApi.testNotify({ channel: channel.key }))
+      .then((res) => {
+        message.success(res?.message || '测试消息已发送')
+        load()
+      })
+      .catch((err) => message.error(err?.error || err?.message || '测试失败'))
+      .finally(() => setTestingKey(null))
+  }
+
+  if (loading) {
+    return <div style={{ textAlign: 'center', padding: 60 }}><Spin /></div>
+  }
+
+  const moduleReady = readiness[mod.key]
+  const current = channels.find(p => p.key === activeKey) || channels[0]
+  const isRules = current?.key === 'rules'
+
+  const statusTag = (channel) => {
+    if (channel.key === 'rules') {
+      return <Tag color="purple">事件开关</Tag>
+    }
+    const ready = readiness[channel.category]
+    if (ready?.enabled && ready?.ready) return <Tag color="success">已启用</Tag>
+    if (ready?.enabled) return <Tag color="warning">待配凭证</Tag>
+    return <Tag color="default">未启用</Tag>
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom: 16 }}>
+        <div className="page-title">{mod.label}</div>
+        <div className="page-desc" style={{ marginBottom: 0 }}>{mod.desc}</div>
+        <Alert
+          style={{ marginTop: 12 }}
+          type="info"
+          showIcon
+          message={moduleReady?.message || '推荐启用企业微信群机器人（免费）'}
+          description="左侧选渠道卡片；启用一个渠道即可。企微：建群 → 添加群机器人 → 粘贴 Webhook → 保存并发送测试。"
+        />
+      </div>
+
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+        <div style={{ width: 200, flexShrink: 0 }}>
+          {channels.map(p => {
+            const selected = current?.key === p.key
+            return (
+              <Card
+                key={p.key}
+                size="small"
+                hoverable
+                onClick={() => setActiveKey(p.key)}
+                style={{
+                  marginBottom: 8,
+                  borderColor: selected ? '#1677ff' : undefined,
+                  background: selected ? '#f0f5ff' : undefined,
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{ fontWeight: 600 }}>
+                  {p.label}
+                  {p.recommended && <Tag style={{ marginLeft: 6 }} color="green">推荐</Tag>}
+                </div>
+                <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>{p.desc}</div>
+                <div style={{ marginTop: 8 }}>{statusTag(p)}</div>
+              </Card>
+            )
+          })}
+        </div>
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {current && (
+            <Card
+              title={
+                <Space>
+                  {current.label}
+                  <Tag>推送</Tag>
+                  {current.recommended && <Tag color="green">推荐</Tag>}
+                </Space>
+              }
+              extra={
+                <Space>
+                  {!isRules && (
+                    <Button
+                      icon={<ExperimentOutlined />}
+                      loading={testingKey === current.key}
+                      onClick={() => handleTest(current)}
+                    >
+                      发送测试
+                    </Button>
+                  )}
+                  <Button
+                    type="primary"
+                    icon={<SaveOutlined />}
+                    loading={savingKey === current.key}
+                    onClick={() => saveChannel(current)}
+                  >
+                    保存
+                  </Button>
+                </Space>
+              }
+            >
+              <p style={{ color: '#888', marginBottom: 16 }}>{current.desc}</p>
+              {!isRules && current.key === 'wecom' && (
+                <Alert
+                  style={{ marginBottom: 16 }}
+                  type="success"
+                  showIcon
+                  message="企业微信免费，不用 PushPlus 实名付费"
+                  description="手机企微建一个只有自己的群 → 群机器人 → 复制 Webhook 填到下方并启用。"
+                />
+              )}
+              <Form layout="vertical">
+                {(settings[current.category] || [])
+                  .filter(item => !isRules || ['on_stock_alert', 'on_screening_done'].includes(item.key))
+                  .map(item => (
+                  <Form.Item key={item.key} label={item.label} extra={item.description}>
+                    {renderSettingField(item, values, setValues)}
+                  </Form.Item>
+                ))}
+                {!(settings[current.category] || []).length && (
+                  <Alert type="warning" message="该渠道尚未初始化配置项，请刷新页面或重启后端。" />
+                )}
+              </Form>
+            </Card>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

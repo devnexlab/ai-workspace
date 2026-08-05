@@ -452,6 +452,27 @@ DEFAULT_SETTINGS = [
     ('stock', 'universe_last_refresh_date', '', '全市场上次同步日期', '系统自动写入', 'text', None, 8),
     ('stock', 'universe_last_refresh_at', '', '全市场上次同步时间', '系统自动写入', 'text', None, 9),
 
+    # ---- 消息推送（按渠道分卡片，对齐采集平台）----
+    ('notify_wecom', 'enabled', 'false', '启用企业微信推送',
+     '开启后作为推送渠道；建议只开一个渠道', 'select', '["true","false"]', 1),
+    ('notify_wecom', 'webhook', '', '群机器人 Webhook',
+     '企微建群 → 添加群机器人 → 复制 Webhook 完整地址', 'textarea', None, 2),
+
+    ('notify_pushplus', 'enabled', 'false', '启用 PushPlus',
+     '开启后作为推送渠道；实名可能收费，作备用即可', 'select', '["true","false"]', 1),
+    ('notify_pushplus', 'token', '', 'PushPlus Token',
+     'pushplus.plus 登录后复制', 'password', None, 2),
+
+    ('notify_serverchan', 'enabled', 'false', '启用 Server酱',
+     '开启后作为推送渠道', 'select', '["true","false"]', 1),
+    ('notify_serverchan', 'sendkey', '', 'Server酱 SendKey',
+     'sct.ftqq.com 登录后复制（SCT 开头）', 'password', None, 2),
+
+    ('notify', 'on_stock_alert', 'true', '股价预警时推送',
+     '跌破成本 / 触及目标价时推送', 'select', '["true","false"]', 1),
+    ('notify', 'on_screening_done', 'false', '筛选完成时推送',
+     '技术面筛选任务完成时推送（可选）', 'select', '["true","false"]', 2),
+
     # ---- 官方/商业数据台（API 配置，不爬登录页）----
     # 巨量算数
     ('commercial_julang', 'enabled', 'false', '启用巨量算数',
@@ -658,6 +679,61 @@ def init_db():
             _upsert_setting(cur, cat, 'enabled', 'true')
     _upsert_setting(cur, 'publish', 'mode', 'manual')
     _upsert_setting(cur, 'system', 'auto_publish', 'false')
+
+    # 消息推送：旧版单表 notify → 分渠道卡片；同步文案
+    for item in DEFAULT_SETTINGS:
+        if not str(item[0]).startswith('notify'):
+            continue
+        cat, key, _val, label, desc, field_type, options, sort_order = item
+        cur.execute(
+            '''UPDATE system_setting
+               SET label=%s, description=%s, field_type=%s, options=%s, sort_order=%s
+               WHERE category=%s AND key=%s''',
+            (label, desc, field_type, options, sort_order, cat, key),
+        )
+
+    def _get_setting_val(category, key):
+        cur.execute(
+            'SELECT value FROM system_setting WHERE category=%s AND key=%s',
+            (category, key),
+        )
+        row = cur.fetchone()
+        return (row[0] if row else '') or ''
+
+    # 迁移旧字段到分渠道（仅当新字段仍为空时）
+    old_hook = _get_setting_val('notify', 'wecom_webhook')
+    old_token = _get_setting_val('notify', 'pushplus_token')
+    old_sct = _get_setting_val('notify', 'serverchan_sendkey')
+    old_enabled = str(_get_setting_val('notify', 'enabled')).lower() == 'true'
+    old_provider = (_get_setting_val('notify', 'provider') or 'wecom').strip().lower()
+
+    if old_hook and not _get_setting_val('notify_wecom', 'webhook'):
+        _upsert_setting(cur, 'notify_wecom', 'webhook', old_hook)
+    if old_token and not _get_setting_val('notify_pushplus', 'token'):
+        _upsert_setting(cur, 'notify_pushplus', 'token', old_token)
+    if old_sct and not _get_setting_val('notify_serverchan', 'sendkey'):
+        _upsert_setting(cur, 'notify_serverchan', 'sendkey', old_sct)
+
+    any_channel_on = any(
+        str(_get_setting_val(c, 'enabled')).lower() == 'true'
+        for c in ('notify_wecom', 'notify_pushplus', 'notify_serverchan')
+    )
+    if old_enabled and not any_channel_on:
+        target = {
+            'wecom': 'notify_wecom',
+            'pushplus': 'notify_pushplus',
+            'serverchan': 'notify_serverchan',
+        }.get(old_provider, 'notify_wecom')
+        _upsert_setting(cur, target, 'enabled', 'true')
+
+    # 推送规则卡片只保留事件开关，删掉已迁走的旧字段
+    for obsolete_key in (
+        'enabled', 'provider', 'wecom_webhook', 'pushplus_token', 'serverchan_sendkey',
+    ):
+        cur.execute(
+            'DELETE FROM system_setting WHERE category=%s AND key=%s',
+            ('notify', obsolete_key),
+        )
 
     # Edge TTS 大量中文音色已下线：更新下拉选项，并把已失效音色映射到仍可用的
     _alive_voices = [

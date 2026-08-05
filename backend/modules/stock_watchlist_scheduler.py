@@ -38,10 +38,11 @@ def _upsert_stock_alert(conn, *, code, name, title, content):
 
 
 def _check_price_alerts(conn, rows, price_map):
-    """根据最新价写入股票预警提醒。"""
+    """根据最新价写入股票预警提醒。返回 (创建数, 新建预警列表)。"""
     from modules.market_data import _normalize_stock_code
 
     created = 0
+    new_alerts = []
     for r in rows:
         code = _normalize_stock_code(r['stock_code'])
         price = price_map.get(code)
@@ -63,13 +64,15 @@ def _check_price_alerts(conn, rows, price_map):
             content = f'现价 {price:.3f}，成本 {buy:.3f}，已跌破买入价。'
             if _upsert_stock_alert(conn, code=code, name=name, title=title, content=content):
                 created += 1
+                new_alerts.append({'title': title, 'content': content, 'code': code})
 
         if alert_target and target > 0 and price <= target:
             title = f'{name}({code}) 触及目标价'
             content = f'现价 {price:.3f}，目标价 {target:.3f}。'
             if _upsert_stock_alert(conn, code=code, name=name, title=title, content=content):
                 created += 1
-    return created
+                new_alerts.append({'title': title, 'content': content, 'code': code})
+    return created, new_alerts
 
 
 def refresh_watchlist_prices(force_spot=True):
@@ -114,13 +117,25 @@ def refresh_watchlist_prices(force_spot=True):
         })
 
     alerts_created = 0
+    new_alerts = []
     try:
-        alerts_created = _check_price_alerts(conn, rows, price_map)
+        alerts_created, new_alerts = _check_price_alerts(conn, rows, price_map)
     except Exception as e:
         print(f'[WatchlistScheduler] alert check failed: {e}')
 
     conn.commit()
     conn.close()
+
+    if new_alerts:
+        try:
+            from modules.wechat_notify import notify_stock_alerts
+            push_res = notify_stock_alerts(new_alerts)
+            if push_res.get('ok'):
+                print(f'[WatchlistScheduler] 微信推送成功: {push_res.get("message")}')
+            elif not push_res.get('skipped'):
+                print(f'[WatchlistScheduler] 微信推送失败: {push_res.get("message")}')
+        except Exception as e:
+            print(f'[WatchlistScheduler] 微信推送异常: {e}')
 
     now = datetime.now()
     try:

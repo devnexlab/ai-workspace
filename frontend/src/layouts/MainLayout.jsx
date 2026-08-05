@@ -36,6 +36,7 @@ const pathGroupMap = {
   '/settings/commercial': 'settings',
   '/settings/publish': 'settings',
   '/settings/media': 'settings',
+  '/settings/notify': 'settings',
   '/settings/content': 'settings',
 }
 
@@ -55,6 +56,7 @@ const pageTitleMap = {
   '/settings/commercial': '官方数据台',
   '/settings/publish': '发布平台',
   '/settings/media': '配音与视频',
+  '/settings/notify': '消息推送',
   '/settings/content': '内容运营',
 }
 
@@ -100,6 +102,7 @@ const menuItems = [
       { key: '/settings/commercial', label: '官方数据台' },
       { key: '/settings/publish', label: '发布平台' },
       { key: '/settings/media', label: '配音与视频' },
+      { key: '/settings/notify', label: '消息推送' },
       { key: '/settings/content', label: '内容运营' },
     ],
   },

@@ -7,6 +7,7 @@ export const settingsApi = {
   modules: () => api.get('/settings/modules'),
   category: (cat) => api.get(`/settings/${cat}`),
   testCommercial: (providerKey) => api.post(`/commercial-data/test/${providerKey}`, {}),
+  testNotify: (data = {}) => api.post('/settings/notify/test', data),
 }
 
 export const platformsApi = {
