@@ -112,7 +112,7 @@ export default function Videos() {
           )
         }))
 
-        if (res.is_running || res.video_status === 'processing' || res.export_status === 'processing') {
+        if (res.is_running || res.video_status === 'processing' || res.subtitle_status === 'processing' || res.export_status === 'processing' || res.voice_status === 'processing') {
           // Keep polling
           pollingRef.current[taskId] = setTimeout(poll, 3000)
         } else {
@@ -187,6 +187,20 @@ export default function Videos() {
   const failedStepOf = (r) => {
     if (r.voice_status === 'failed') return { step: 'voice', name: '配音' }
     if (r.subtitle_status === 'failed') return { step: 'subtitle', name: '字幕' }
+    // 仅「单独卡住」才算失败：配音已完成，字幕仍 processing，且不是一键全流程多人并行
+    const processingCount = [
+      r.voice_status, r.subtitle_status, r.video_status, r.export_status,
+    ].filter((s) => s === 'processing').length
+    if (
+      r.subtitle_status === 'processing'
+      && r.voice_status === 'done'
+      && processingCount === 1
+    ) {
+      return { step: 'subtitle', name: '字幕' }
+    }
+    if ((r.video_status === 'failed' || r.export_status === 'failed') && r.subtitle_status !== 'done') {
+      return { step: 'subtitle', name: '字幕' }
+    }
     if (r.video_status === 'failed' || r.export_status === 'failed') return { step: 'compose', name: '合成' }
     return null
   }
@@ -204,7 +218,12 @@ export default function Videos() {
   // and resume polling for them
   useEffect(() => {
     data.list.forEach(item => {
-      if (item.voice_status === 'processing' || item.video_status === 'processing' || item.export_status === 'processing') {
+      if (
+        item.voice_status === 'processing'
+        || item.subtitle_status === 'processing'
+        || item.video_status === 'processing'
+        || item.export_status === 'processing'
+      ) {
         if (!pollingTasks.has(item.id)) {
           startPolling(item.id)
         }
@@ -509,7 +528,7 @@ export default function Videos() {
         const failed = failedStepOf(r)
         if (!failed) {
           if (r.export_status === 'done') return <span style={{ color: '#94a3b8' }}>已完成</span>
-          if (r.voice_status === 'processing' || r.video_status === 'processing' || r.export_status === 'processing') {
+          if (r.voice_status === 'processing' || r.subtitle_status === 'processing' || r.video_status === 'processing' || r.export_status === 'processing') {
             return <span style={{ color: '#1677ff' }}>制作中…</span>
           }
           return <span style={{ color: '#94a3b8' }}>-</span>
@@ -528,7 +547,7 @@ export default function Videos() {
     {
       title: '操作', key: 'action', width: 168, fixed: 'right',
       render: (_, r) => {
-        const isProcessing = r.voice_status === 'processing' || r.video_status === 'processing' || r.export_status === 'processing'
+        const isProcessing = r.voice_status === 'processing' || r.subtitle_status === 'processing' || r.video_status === 'processing' || r.export_status === 'processing'
         const failed = failedStepOf(r)
         const moreItems = [
           {
@@ -613,7 +632,7 @@ export default function Videos() {
                   ghost
                   icon={<RedoOutlined />}
                   loading={executing === `${r.id}-${failed.step}`}
-                  disabled={isProcessing}
+                  disabled={!failed && isProcessing}
                   onClick={() => handleRetryFailed(r)}
                 >
                   重试
@@ -647,6 +666,7 @@ export default function Videos() {
     processing: (data.list || []).filter(d =>
       d.export_status === 'processing'
       || d.voice_status === 'processing'
+      || d.subtitle_status === 'processing'
       || d.video_status === 'processing'
       || (d.export_status === 'pending' && d.voice_status !== 'pending')
     ).length,
@@ -654,7 +674,7 @@ export default function Videos() {
       d.export_status === 'pending' && d.voice_status === 'pending'
     ).length,
     failed: (data.list || []).filter(d =>
-      d.export_status === 'failed' || d.voice_status === 'failed' || d.video_status === 'failed'
+      d.export_status === 'failed' || d.voice_status === 'failed' || d.subtitle_status === 'failed' || d.video_status === 'failed'
     ).length,
   }
   const stats = data.stats || pageStats
@@ -952,141 +972,6 @@ export default function Videos() {
         <Alert type="info" message="视频制作流程：配音 → 字幕 → 合成。可逐步执行或一键全流程。填写旁白提示词可让AI改写文案为自然口播，语音更人性化。" />
       </Modal>
 
-      {/* Material Library Modal */}
-      <Modal
-        title={
-          materialPickFor === 'person' ? '选择人物照片（单选）'
-            : materialPickFor === 'bg' ? '选择背景图/视频（单选）'
-              : materialPickFor === 'scene' ? '选择场景素材（用于分镜）'
-                : materialPickFor === 'create' ? '选择场景素材' : '素材库'
-        }
-        open={materialModal}
-        onCancel={() => setMaterialModal(false)}
-        onOk={finishMaterialPick}
-        okText={materialPickFor === 'person' || materialPickFor === 'bg' ? '选用' : '完成'}
-        width={800}
-      >
-        <Tabs
-          activeKey={materialKindTab}
-          onChange={(k) => {
-            if ((materialPickFor === 'create' || materialPickFor === 'scene' || materialPickFor === 'person' || materialPickFor === 'bg') && k !== 'scene') {
-              message.info('请使用「场景」素材')
-              return
-            }
-            setMaterialKindTab(k)
-            const next = { ...materialFilter, asset_kind: k, type: '' }
-            setMaterialFilter(next)
-            loadMaterials(next)
-          }}
-          items={
-            (materialPickFor === 'create' || materialPickFor === 'scene' || materialPickFor === 'person' || materialPickFor === 'bg')
-              ? [{ key: 'scene', label: '场景（图片/视频）' }]
-              : [
-                { key: 'scene', label: '场景' },
-                { key: 'bgm', label: 'BGM' },
-                { key: 'cover', label: '封面' },
-              ]
-          }
-        />
-        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Space>
-            {materialKindTab === 'scene' && (
-            <Select placeholder="类型" allowClear style={{ width: 100 }}
-              value={materialFilter.type}
-              onChange={v => { const next = { ...materialFilter, type: v, asset_kind: materialKindTab }; setMaterialFilter(next); loadMaterials(next) }}
-              options={[{ label: '图片', value: 'image' }, { label: '视频', value: 'video' }]} />
-            )}
-            <Input placeholder="搜索名称" allowClear style={{ width: 180 }}
-              value={materialFilter.q}
-              onChange={e => setMaterialFilter({ ...materialFilter, q: e.target.value })}
-              onPressEnter={() => loadMaterials({ ...materialFilter, asset_kind: materialKindTab })} />
-            <Button icon={<ReloadOutlined />} onClick={() => {
-              const next = { type: '', q: '', asset_kind: materialKindTab }
-              setMaterialFilter(next)
-              loadMaterials(next)
-            }}>刷新</Button>
-          </Space>
-          <Upload beforeUpload={handleUpload} showUploadList={false}
-            accept={materialKindTab === 'bgm' ? 'audio/*' : materialKindTab === 'cover' ? 'image/*' : 'image/*,video/*'}>
-            <Button type="primary" icon={<UploadOutlined />} loading={uploading}>
-              {materialKindTab === 'bgm' ? '上传 BGM' : materialKindTab === 'cover' ? '上传封面' : '上传素材'}
-            </Button>
-          </Upload>
-        </div>
-
-        {materials.length === 0 ? (
-          <Empty description="暂无素材，点击右上角上传" />
-        ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, maxHeight: 500, overflow: 'auto' }}>
-            {materials.map(m => {
-              const mid = toMaterialId(m.id)
-              const selected = selectedMaterialIds.map(toMaterialId).includes(mid)
-              const kind = m.asset_kind || 'scene'
-              return (
-                <div key={m.id}
-                  style={{
-                    position: 'relative', border: selected ? '2px solid #1890ff' : '1px solid #d9d9d9',
-                    borderRadius: 8, cursor: 'pointer', overflow: 'hidden',
-                  }}
-                  onClick={() => toggleMaterialSelect(m.id, kind)}>
-                  <div style={{ width: '100%', height: 120, background: '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {m.type === 'image' ? (
-                      <img src={`/api/materials/${m.id}/preview`} alt={m.name}
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    ) : m.type === 'audio' ? (
-                      <div style={{ textAlign: 'center' }}>
-                        <FileOutlined style={{ fontSize: 40, color: '#999' }} />
-                        <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>音频</div>
-                      </div>
-                    ) : (
-                      <div style={{ textAlign: 'center' }}>
-                        <FileOutlined style={{ fontSize: 40, color: '#999' }} />
-                        <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>视频文件</div>
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ padding: '4px 8px', fontSize: 12 }}>
-                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {m.name}
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Tag color={m.type === 'image' ? 'blue' : m.type === 'audio' ? 'orange' : 'purple'}>
-                        {kind === 'bgm' ? 'BGM' : kind === 'cover' ? '封面' : (m.type === 'image' ? '图片' : m.type === 'audio' ? '音频' : '视频')}
-                      </Tag>
-                      <Popconfirm title="确认删除？" onConfirm={(e) => {
-                        e.stopPropagation(); handleDeleteMaterial(m.id)
-                      }}>
-                        <Button size="small" danger icon={<DeleteOutlined />} type="text" />
-                      </Popconfirm>
-                    </div>
-                  </div>
-                  {selected && (
-                    <div style={{
-                      position: 'absolute', top: 4, right: 4,
-                      background: '#1890ff', borderRadius: '50%', width: 20, height: 20,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    }}>
-                      <CheckCircleOutlined style={{ color: 'white', fontSize: 14 }} />
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </div>
-        )}
-
-        {selectedMaterialIds.length > 0 && (
-          <div style={{ marginTop: 16, textAlign: 'right' }}>
-            <span style={{ marginRight: 12, color: '#666' }}>
-              已选 {selectedMaterialIds.length} 个素材
-            </span>
-            <Button onClick={() => setSelectedMaterialIds([])}>清空选择</Button>
-            <Button type="primary" style={{ marginLeft: 8 }}
-              onClick={finishMaterialPick}>完成</Button>
-          </div>
-        )}
-      </Modal>
-
       {/* Scene Editor Modal */}
       <Modal title="场景编排 — 素材与旁白智能匹配" open={sceneModal}
         onCancel={() => setSceneModal(false)}
@@ -1218,6 +1103,150 @@ export default function Videos() {
           </>
         )}
       </Modal>
+
+      {/* Material Library Modal — 放在场景编排之后并由 zIndex 抬高，避免叠在下方点不到 */}
+      <Modal
+        title={
+          materialPickFor === 'person' ? '选择人物照片（单选）'
+            : materialPickFor === 'bg' ? '选择背景图/视频（单选）'
+              : materialPickFor === 'scene' ? '选择场景素材（用于分镜）'
+                : materialPickFor === 'create' ? '选择场景素材' : '素材库'
+        }
+        open={materialModal}
+        onCancel={() => setMaterialModal(false)}
+        width={800}
+        zIndex={1200}
+        destroyOnClose
+        footer={
+          materialPickFor === 'library' ? (
+            <Button onClick={() => setMaterialModal(false)}>关闭</Button>
+          ) : (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+              <span style={{ color: '#666' }}>已选 {selectedMaterialIds.length} 个素材</span>
+              <Space>
+                {selectedMaterialIds.length > 0 && (
+                  <Button onClick={() => setSelectedMaterialIds([])}>清空选择</Button>
+                )}
+                <Button onClick={() => setMaterialModal(false)}>取消</Button>
+                <Button type="primary" onClick={finishMaterialPick}>
+                  {materialPickFor === 'person' || materialPickFor === 'bg' ? '选用' : '完成'}
+                </Button>
+              </Space>
+            </div>
+          )
+        }
+      >
+        <Tabs
+          activeKey={materialKindTab}
+          onChange={(k) => {
+            if ((materialPickFor === 'create' || materialPickFor === 'scene' || materialPickFor === 'person' || materialPickFor === 'bg') && k !== 'scene') {
+              message.info('请使用「场景」素材')
+              return
+            }
+            setMaterialKindTab(k)
+            const next = { ...materialFilter, asset_kind: k, type: '' }
+            setMaterialFilter(next)
+            loadMaterials(next)
+          }}
+          items={
+            (materialPickFor === 'create' || materialPickFor === 'scene' || materialPickFor === 'person' || materialPickFor === 'bg')
+              ? [{ key: 'scene', label: '场景（图片/视频）' }]
+              : [
+                { key: 'scene', label: '场景' },
+                { key: 'bgm', label: 'BGM' },
+                { key: 'cover', label: '封面' },
+              ]
+          }
+        />
+        <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Space>
+            {materialKindTab === 'scene' && (
+            <Select placeholder="类型" allowClear style={{ width: 100 }}
+              value={materialFilter.type}
+              onChange={v => { const next = { ...materialFilter, type: v, asset_kind: materialKindTab }; setMaterialFilter(next); loadMaterials(next) }}
+              options={[{ label: '图片', value: 'image' }, { label: '视频', value: 'video' }]} />
+            )}
+            <Input placeholder="搜索名称" allowClear style={{ width: 180 }}
+              value={materialFilter.q}
+              onChange={e => setMaterialFilter({ ...materialFilter, q: e.target.value })}
+              onPressEnter={() => loadMaterials({ ...materialFilter, asset_kind: materialKindTab })} />
+            <Button icon={<ReloadOutlined />} onClick={() => {
+              const next = { type: '', q: '', asset_kind: materialKindTab }
+              setMaterialFilter(next)
+              loadMaterials(next)
+            }}>刷新</Button>
+          </Space>
+          <Upload beforeUpload={handleUpload} showUploadList={false}
+            accept={materialKindTab === 'bgm' ? 'audio/*' : materialKindTab === 'cover' ? 'image/*' : 'image/*,video/*'}>
+            <Button type="primary" icon={<UploadOutlined />} loading={uploading}>
+              {materialKindTab === 'bgm' ? '上传 BGM' : materialKindTab === 'cover' ? '上传封面' : '上传素材'}
+            </Button>
+          </Upload>
+        </div>
+
+        {materials.length === 0 ? (
+          <Empty description="暂无素材，点击右上角上传" />
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, maxHeight: 500, overflow: 'auto' }}>
+            {materials.map(m => {
+              const mid = toMaterialId(m.id)
+              const selected = selectedMaterialIds.map(toMaterialId).includes(mid)
+              const kind = m.asset_kind || 'scene'
+              return (
+                <div key={m.id}
+                  style={{
+                    position: 'relative', border: selected ? '2px solid #1890ff' : '1px solid #d9d9d9',
+                    borderRadius: 8, cursor: 'pointer', overflow: 'hidden',
+                  }}
+                  onClick={() => toggleMaterialSelect(m.id, kind)}>
+                  <div style={{ width: '100%', height: 120, background: '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {m.type === 'image' ? (
+                      <img src={`/api/materials/${m.id}/preview`} alt={m.name}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : m.type === 'audio' ? (
+                      <div style={{ textAlign: 'center' }}>
+                        <FileOutlined style={{ fontSize: 40, color: '#999' }} />
+                        <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>音频</div>
+                      </div>
+                    ) : (
+                      <div style={{ textAlign: 'center' }}>
+                        <FileOutlined style={{ fontSize: 40, color: '#999' }} />
+                        <div style={{ fontSize: 12, color: '#999', marginTop: 4 }}>视频文件</div>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ padding: '4px 8px', fontSize: 12 }}>
+                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {m.name}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Tag color={m.type === 'image' ? 'blue' : m.type === 'audio' ? 'orange' : 'purple'}>
+                        {kind === 'bgm' ? 'BGM' : kind === 'cover' ? '封面' : (m.type === 'image' ? '图片' : m.type === 'audio' ? '音频' : '视频')}
+                      </Tag>
+                      <Popconfirm title="确认删除？" onConfirm={(e) => {
+                        e.stopPropagation(); handleDeleteMaterial(m.id)
+                      }}>
+                        <Button size="small" danger icon={<DeleteOutlined />} type="text" />
+                      </Popconfirm>
+                    </div>
+                  </div>
+                  {selected && (
+                    <div style={{
+                      position: 'absolute', top: 4, right: 4,
+                      background: '#1890ff', borderRadius: '50%', width: 20, height: 20,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <CheckCircleOutlined style={{ color: 'white', fontSize: 14 }} />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </Modal>
+
+
     </div>
   )
 }

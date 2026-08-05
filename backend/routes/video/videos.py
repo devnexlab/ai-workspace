@@ -275,6 +275,7 @@ def list_videos():
              COUNT(*) FILTER (
                WHERE COALESCE(export_status, '') = 'failed'
                   OR COALESCE(voice_status, '') = 'failed'
+                  OR COALESCE(subtitle_status, '') = 'failed'
                   OR COALESCE(video_status, '') = 'failed'
              ) AS failed,
              COUNT(*) FILTER (
@@ -478,24 +479,50 @@ def execute_step(id, step):
                 _json.dump(result.get('word_boundaries', []), f, ensure_ascii=False)
 
             conn = _db()
+            # 配音更新后作废下游：字幕/合成需按新音频重做
             conn.execute(
-                'UPDATE video_task SET voice_status=?, voice_url=?, duration=? WHERE id=?',
-                ('done', audio_path, result['duration'], id)
+                '''UPDATE video_task SET voice_status=?, voice_url=?, duration=?,
+                   subtitle_status=?, subtitle_url=?,
+                   video_status=?, export_status=?, video_path=?, output_path=?, error_msg=?
+                   WHERE id=?''',
+                (
+                    'done', audio_path, result['duration'],
+                    'pending', '',
+                    'pending', 'pending', '', '', '',
+                    id,
+                )
             )
             conn.commit()
             conn.close()
             return jsonify({'message': '配音完成', 'result': result})
 
         elif step == 'subtitle':
+            if (task_dict.get('voice_status') or '') != 'done' or not (task_dict.get('voice_url') or '').strip():
+                return jsonify({'error': '请先完成配音步骤'}), 400
+
+            conn = _db()
+            conn.execute(
+                'UPDATE video_task SET subtitle_status=?, error_msg=? WHERE id=?',
+                ('processing', '', id),
+            )
+            conn.commit()
+            conn.close()
+
             # Try to load narration text saved from the voice step (may be AI-rewritten)
             narration = ''
-            narration_path = os.path.join(task_output_dir, 'narration.txt')
-            if os.path.exists(narration_path):
-                try:
-                    with open(narration_path, 'r', encoding='utf-8') as f:
-                        narration = f.read()
-                except Exception:
-                    pass
+            narration_candidates = [
+                os.path.join(task_output_dir, 'narration.txt'),
+                os.path.join(task_output_dir, f'task_{id}_narration.txt'),
+            ]
+            for narration_path in narration_candidates:
+                if os.path.exists(narration_path):
+                    try:
+                        with open(narration_path, 'r', encoding='utf-8') as f:
+                            narration = f.read()
+                        if narration.strip():
+                            break
+                    except Exception:
+                        pass
 
             # Fallback: build narration from original script
             if not narration.strip():
@@ -505,26 +532,48 @@ def execute_step(id, step):
                 if script_dict.get('ending'):
                     narration += '\n' + script_dict['ending']
 
+            if not narration.strip():
+                conn = _db()
+                conn.execute(
+                    'UPDATE video_task SET subtitle_status=?, error_msg=? WHERE id=?',
+                    ('failed', '文案内容为空，无法生成字幕', id),
+                )
+                conn.commit()
+                conn.close()
+                return jsonify({'error': '文案内容为空，无法生成字幕'}), 400
+
             duration = task_dict.get('duration', 0) or 30
 
             # Try to load word boundaries saved from the voice step
             import json as _json
             word_boundaries = None
-            boundaries_path = os.path.join(task_output_dir, f'word_boundaries.json')
-            if os.path.exists(boundaries_path):
-                try:
-                    with open(boundaries_path, 'r', encoding='utf-8') as f:
-                        word_boundaries = _json.load(f)
-                except Exception:
-                    pass
+            for boundaries_path in (
+                os.path.join(task_output_dir, 'word_boundaries.json'),
+                os.path.join(task_output_dir, f'task_{id}_boundaries.json'),
+            ):
+                if os.path.exists(boundaries_path):
+                    try:
+                        with open(boundaries_path, 'r', encoding='utf-8') as f:
+                            word_boundaries = _json.load(f)
+                        break
+                    except Exception:
+                        pass
 
             sub_path = os.path.join(task_output_dir, f'subtitle.srt')
             result = video_maker.generate_subtitle(narration, duration, sub_path, word_boundaries)
+            if not result.get('subtitle_path') or not os.path.exists(result.get('subtitle_path') or ''):
+                raise Exception('字幕文件未生成')
 
             conn = _db()
             conn.execute(
-                'UPDATE video_task SET subtitle_status=?, subtitle_url=? WHERE id=?',
-                ('done', result['subtitle_path'], id)
+                '''UPDATE video_task SET subtitle_status=?, subtitle_url=?,
+                   video_status=?, export_status=?, video_path=?, output_path=?, error_msg=?
+                   WHERE id=?''',
+                (
+                    'done', result['subtitle_path'],
+                    'pending', 'pending', '', '', '',
+                    id,
+                )
             )
             conn.commit()
             conn.close()
@@ -536,7 +585,14 @@ def execute_step(id, step):
 
     except Exception as e:
         conn = _db()
-        conn.execute('UPDATE video_task SET error_msg=? WHERE id=?', (str(e), id))
+        status_col = 'voice_status' if step == 'voice' else ('subtitle_status' if step == 'subtitle' else None)
+        if status_col:
+            conn.execute(
+                f'UPDATE video_task SET {status_col}=?, error_msg=? WHERE id=?',
+                ('failed', str(e), id),
+            )
+        else:
+            conn.execute('UPDATE video_task SET error_msg=? WHERE id=?', (str(e), id))
         conn.commit()
         conn.close()
         return jsonify({'error': str(e)}), 500
@@ -552,14 +608,35 @@ def _run_video_step_background(task_id, step, script_dict, task_dict):
 
     try:
         if step == 'compose':
-            # Compose video with styled subtitles and visual effects
-            audio_path = task_dict.get('voice_url', '')
-            sub_path = task_dict.get('subtitle_url', '')
+            # 后台启动时 task_dict 可能是旧快照；合成前再读一次最新配音/字幕路径
+            conn = _db()
+            fresh = conn.execute(
+                'SELECT voice_url, subtitle_url, voice_status, subtitle_status FROM video_task WHERE id=?',
+                (task_id,),
+            ).fetchone()
+            conn.close()
+            if fresh:
+                task_dict = {**task_dict, **dict(fresh)}
 
-            if not audio_path or not sub_path:
+            audio_path = (task_dict.get('voice_url') or '').strip()
+            sub_path = (task_dict.get('subtitle_url') or '').strip()
+
+            if (task_dict.get('voice_status') or '') != 'done' or not audio_path or not os.path.exists(audio_path):
                 conn = _db()
-                conn.execute('UPDATE video_task SET video_status=?, error_msg=? WHERE id=?',
-                             ('failed', '请先完成配音和字幕步骤', task_id))
+                conn.execute(
+                    'UPDATE video_task SET video_status=?, export_status=?, error_msg=? WHERE id=?',
+                    ('failed', 'failed', '请先完成配音步骤', task_id),
+                )
+                conn.commit()
+                conn.close()
+                return
+
+            if (task_dict.get('subtitle_status') or '') != 'done' or not sub_path or not os.path.exists(sub_path):
+                conn = _db()
+                conn.execute(
+                    'UPDATE video_task SET video_status=?, export_status=?, error_msg=? WHERE id=?',
+                    ('failed', 'failed', '请先完成字幕步骤', task_id),
+                )
                 conn.commit()
                 conn.close()
                 return
@@ -596,12 +673,22 @@ def _run_video_step_background(task_id, step, script_dict, task_dict):
                 task_params['person_path'] = person_path
                 task_params['bg_path'] = bg_path
 
+            # 单独点「合成」时也要带上已保存的分镜，否则会走顺序铺素材且裁切易丢主体
+            pre_scenes = None
+            scenes_json_str = task_dict.get('scenes_json') or ''
+            if scenes_json_str and (task_dict.get('compose_layout') or '') != 'talking':
+                try:
+                    pre_scenes = json.loads(scenes_json_str)
+                except json.JSONDecodeError:
+                    pre_scenes = None
+
             result = video_maker.compose_video(
                 audio_path, sub_path, image_paths, video_path,
                 title_text=title_text,
                 video_style=video_style,
                 video_paths=None if task_params.get('compose_layout') == 'talking' else (video_paths if video_paths else None),
                 task_params=task_params,
+                scenes=pre_scenes,
             )
 
             conn = _db()

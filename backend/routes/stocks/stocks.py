@@ -87,6 +87,106 @@ def delete_from_watchlist(id):
     return jsonify({'message': '已删除'})
 
 
+# ---- 全市场股票列表 ----
+
+@bp.route('/api/stocks/universe')
+def list_universe():
+    """分页查询全部 A 股（stock_universe）。"""
+    from config import get_setting
+    page = max(1, int(request.args.get('page', 1) or 1))
+    page_size = min(100, max(1, int(request.args.get('pageSize', 20) or 20)))
+    q = (request.args.get('q') or '').strip()
+    board = (request.args.get('board') or '').strip()
+    active = request.args.get('active', '1')
+    sort = (request.args.get('sort') or 'code').strip()
+
+    where = []
+    params = []
+    if str(active).lower() in ('1', 'true', 'yes'):
+        where.append('is_active=TRUE')
+    elif str(active).lower() in ('0', 'false', 'no'):
+        where.append('is_active=FALSE')
+    if board:
+        where.append('board=?')
+        params.append(board)
+    if q:
+        where.append('(code LIKE ? OR name LIKE ?)')
+        params.extend([f'%{q}%', f'%{q}%'])
+
+    where_sql = ('WHERE ' + ' AND '.join(where)) if where else ''
+    order_map = {
+        'code': 'code ASC',
+        'price': 'price DESC NULLS LAST',
+        'pct': 'pct_chg DESC NULLS LAST',
+        'amount': 'amount DESC NULLS LAST',
+        'name': 'name ASC',
+        'time': 'refreshed_at DESC NULLS LAST',
+    }
+    order = order_map.get(sort, 'code ASC')
+
+    conn = _db()
+    total = conn.execute(
+        f'SELECT COUNT(*) AS c FROM stock_universe {where_sql}', params
+    ).fetchone()['c']
+    offset = (page - 1) * page_size
+    rows = conn.execute(
+        f'''SELECT * FROM stock_universe {where_sql}
+            ORDER BY {order} LIMIT ? OFFSET ?''',
+        params + [page_size, offset],
+    ).fetchall()
+    active_total = conn.execute(
+        'SELECT COUNT(*) AS c FROM stock_universe WHERE is_active=TRUE'
+    ).fetchone()['c']
+    conn.close()
+
+    return jsonify({
+        'list': [dict(r) for r in rows],
+        'total': total,
+        'page': page,
+        'pageSize': page_size,
+        'active_total': active_total,
+        'last_refresh_at': get_setting('stock', 'universe_last_refresh_at', '') or '',
+        'last_refresh_date': get_setting('stock', 'universe_last_refresh_date', '') or '',
+        'auto_refresh': str(get_setting('stock', 'universe_auto_refresh', 'true')).lower() == 'true',
+        'refresh_hour': get_setting('stock', 'universe_refresh_hour', '18') or '18',
+    })
+
+
+@bp.route('/api/stocks/universe/refresh', methods=['POST'])
+def refresh_universe_api():
+    """手动触发全市场同步（可能较慢）。"""
+    from modules.stock_universe import refresh_stock_universe
+    try:
+        result = refresh_stock_universe(force_refresh=True)
+        return jsonify(result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e), 'message': f'同步失败: {e}'}), 500
+
+
+@bp.route('/api/stocks/universe/meta')
+def universe_meta():
+    from config import get_setting
+    conn = _db()
+    boards = conn.execute(
+        '''SELECT board, COUNT(*) AS c FROM stock_universe
+           WHERE is_active=TRUE AND COALESCE(board,'')!=''
+           GROUP BY board ORDER BY c DESC'''
+    ).fetchall()
+    active_total = conn.execute(
+        'SELECT COUNT(*) AS c FROM stock_universe WHERE is_active=TRUE'
+    ).fetchone()['c']
+    conn.close()
+    return jsonify({
+        'active_total': active_total,
+        'boards': [{'board': r['board'], 'count': r['c']} for r in boards],
+        'last_refresh_at': get_setting('stock', 'universe_last_refresh_at', '') or '',
+        'auto_refresh': str(get_setting('stock', 'universe_auto_refresh', 'true')).lower() == 'true',
+        'refresh_hour': get_setting('stock', 'universe_refresh_hour', '18') or '18',
+    })
+
+
 # ---- Pattern rules (configurable) ----
 
 @bp.route('/api/stocks/pattern-rules')

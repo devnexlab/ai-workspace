@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react'
 import {
   Table, Tag, Button, Input, Select, Space, Modal, message,
   Form, Popconfirm, Tooltip, Row, Col, Card, Tabs, Checkbox,
-  InputNumber, Spin, Empty, Divider, Switch,
+  InputNumber, Spin, Empty, Divider, Switch, Alert,
 } from 'antd'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined,
   SearchOutlined, LineChartOutlined, FundOutlined,
   ThunderboltOutlined, RobotOutlined, AimOutlined, SettingOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons'
 import { stocksApi } from '../../api'
 import { formatDateTime } from '../../utils/date'
@@ -249,6 +250,104 @@ export default function Stocks() {
   }
 
   useEffect(() => { loadWatchlist() }, [])
+
+  // === 全部股票 ===
+  const [universe, setUniverse] = useState({ list: [], total: 0, active_total: 0, last_refresh_at: '' })
+  const [universeLoading, setUniverseLoading] = useState(false)
+  const [universeRefreshing, setUniverseRefreshing] = useState(false)
+  const [universePage, setUniversePage] = useState(1)
+  const [universeFilters, setUniverseFilters] = useState({ q: '', board: undefined, sort: 'code' })
+
+  const loadUniverse = (page = universePage, filters = universeFilters) => {
+    setUniverseLoading(true)
+    stocksApi.universe({
+      page,
+      pageSize: 20,
+      q: filters.q || undefined,
+      board: filters.board || undefined,
+      sort: filters.sort || 'code',
+      active: 1,
+    })
+      .then(res => {
+        setUniverse(res || { list: [], total: 0 })
+        setUniversePage(page)
+      })
+      .catch(() => message.error('加载全部股票失败'))
+      .finally(() => setUniverseLoading(false))
+  }
+
+  useEffect(() => {
+    if (activeTab === 'universe') loadUniverse(1, universeFilters)
+  }, [activeTab])
+
+  const handleRefreshUniverse = () => {
+    setUniverseRefreshing(true)
+    stocksApi.refreshUniverse()
+      .then(res => {
+        message.success(res?.message || '全市场已同步')
+        loadUniverse(1, universeFilters)
+      })
+      .catch(err => message.error(err?.error || err?.message || '同步失败'))
+      .finally(() => setUniverseRefreshing(false))
+  }
+
+  const handleAddUniverseToWatchlist = (row) => {
+    stocksApi.addStock({
+      stock_code: row.code,
+      stock_name: row.name,
+      list_type: 'watch',
+      buy_price: row.price || 0,
+      notes: '来自全部股票',
+    }).then(() => {
+      message.success(`已加入自选：${row.name || row.code}`)
+      loadWatchlist()
+    }).catch(err => message.error(err?.error || '加入自选失败'))
+  }
+
+  const universeColumns = [
+    { title: '代码', dataIndex: 'code', width: 100 },
+    { title: '名称', dataIndex: 'name', width: 120 },
+    { title: '市场', dataIndex: 'market', width: 70 },
+    { title: '板块', dataIndex: 'board', width: 100 },
+    {
+      title: '现价', dataIndex: 'price', width: 90,
+      render: v => (v == null ? '-' : Number(v).toFixed(2)),
+    },
+    {
+      title: '涨跌幅', dataIndex: 'pct_chg', width: 90,
+      render: v => {
+        if (v == null || v === '') return '-'
+        const n = Number(v)
+        const color = n > 0 ? '#cf1322' : n < 0 ? '#3f8600' : '#666'
+        return <span style={{ color }}>{n > 0 ? '+' : ''}{n.toFixed(2)}%</span>
+      },
+    },
+    {
+      title: '成交额', dataIndex: 'amount', width: 110,
+      render: v => {
+        if (v == null) return '-'
+        const n = Number(v)
+        if (n >= 1e8) return `${(n / 1e8).toFixed(2)}亿`
+        if (n >= 1e4) return `${(n / 1e4).toFixed(1)}万`
+        return String(n)
+      },
+    },
+    {
+      title: '更新时间', dataIndex: 'refreshed_at', width: 160,
+      render: v => formatDateTime(v),
+    },
+    {
+      title: '操作', key: 'action', width: 180, fixed: 'right',
+      render: (_, r) => (
+        <Space size="small">
+          <Button size="small" onClick={() => handleViewIndicators(r)}>K线</Button>
+          <Button size="small" type="primary" ghost onClick={() => handleAddUniverseToWatchlist(r)}>
+            加自选
+          </Button>
+        </Space>
+      ),
+    },
+  ]
 
   const handleRefreshPrices = () => {
     setPriceRefreshing(true)
@@ -884,6 +983,107 @@ export default function Stocks() {
       ),
     },
 
+    // Tab: 全部股票
+    {
+      key: 'universe',
+      label: <span><UnorderedListOutlined /> 全部股票</span>,
+      children: (
+        <div>
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={`全市场 A 股库（活跃 ${universe.active_total || universe.total || 0} 只）`}
+            description={
+              <span>
+                交易日默认 18:00 自动全量同步：更新行情、新股自动入库。
+                {universe.last_refresh_at ? ` 上次同步：${universe.last_refresh_at}` : ' 尚未同步，请点「立即同步」。'}
+              </span>
+            }
+          />
+          <div className="table-toolbar" style={{ marginBottom: 16 }}>
+            <div className="table-toolbar-left">
+              <Space wrap>
+                <Input.Search
+                  placeholder="代码/名称"
+                  allowClear
+                  style={{ width: 200 }}
+                  value={universeFilters.q}
+                  onChange={e => setUniverseFilters({ ...universeFilters, q: e.target.value })}
+                  onSearch={v => {
+                    const next = { ...universeFilters, q: v }
+                    setUniverseFilters(next)
+                    loadUniverse(1, next)
+                  }}
+                />
+                <Select
+                  allowClear
+                  placeholder="板块"
+                  style={{ width: 130 }}
+                  value={universeFilters.board}
+                  onChange={v => {
+                    const next = { ...universeFilters, board: v }
+                    setUniverseFilters(next)
+                    loadUniverse(1, next)
+                  }}
+                  options={[
+                    { value: '沪市主板', label: '沪市主板' },
+                    { value: '深市主板', label: '深市主板' },
+                    { value: '创业板', label: '创业板' },
+                    { value: '科创板', label: '科创板' },
+                  ]}
+                />
+                <Select
+                  style={{ width: 130 }}
+                  value={universeFilters.sort || 'code'}
+                  onChange={v => {
+                    const next = { ...universeFilters, sort: v }
+                    setUniverseFilters(next)
+                    loadUniverse(1, next)
+                  }}
+                  options={[
+                    { value: 'code', label: '按代码' },
+                    { value: 'pct', label: '按涨跌幅' },
+                    { value: 'amount', label: '按成交额' },
+                    { value: 'price', label: '按现价' },
+                    { value: 'time', label: '按更新时间' },
+                  ]}
+                />
+                <Button icon={<ReloadOutlined />} onClick={() => loadUniverse(universePage, universeFilters)}>
+                  刷新列表
+                </Button>
+              </Space>
+            </div>
+            <Tooltip title="从东财拉取全部 A 股并入库（新股会自动添加，可能需要 1～2 分钟）">
+              <Button
+                type="primary"
+                icon={<ReloadOutlined />}
+                loading={universeRefreshing}
+                onClick={handleRefreshUniverse}
+              >
+                立即同步全市场
+              </Button>
+            </Tooltip>
+          </div>
+          <Table
+            columns={universeColumns}
+            dataSource={universe.list || []}
+            rowKey="code"
+            loading={universeLoading || universeRefreshing}
+            scroll={{ x: 1000 }}
+            size="middle"
+            pagination={{
+              current: universePage,
+              total: universe.total || 0,
+              pageSize: 20,
+              showTotal: t => `共 ${t} 条`,
+              onChange: p => loadUniverse(p, universeFilters),
+            }}
+          />
+        </div>
+      ),
+    },
+
     // Tab 2: 条件筛选
     {
       key: 'screening',
@@ -1303,7 +1503,7 @@ export default function Stocks() {
     <div>
       <div className="page-title">股票研究系统</div>
       <div className="page-desc">
-        自选、筛选与技术分析，辅助研究判断（不构成投资建议）。
+        自选、全部股票、筛选与技术分析，辅助研究判断（不构成投资建议）。
       </div>
       <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} size="large" />
 

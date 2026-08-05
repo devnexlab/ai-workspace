@@ -10,10 +10,11 @@ import json
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
+from datetime import datetime
 
 import pandas as pd
 
-from modules.market_data import list_a_shares, get_daily_bars
+from modules.market_data import list_a_shares, get_daily_bars, is_tradable_a_share
 from modules.stock_ta import add_indicators
 
 # ---- 默认可配置规则（用户不传 conditions 时启用 enabled=true 的项）----
@@ -486,11 +487,23 @@ RULE_FUNCS = {
 }
 
 
-def evaluate_stock(code, name, rules, days=300):
-    """评估单只股票，返回命中信息（含未命中时的空 hits）或 None。"""
+def evaluate_stock(code, name, rules, days=300, max_bar_age_days=20):
+    """评估单只股票，返回命中信息（含未命中时的空 hits）或 None。
+
+    久无日 K（疑似退市/停牌过久）直接跳过，避免筛出证券账户搜不到的票。
+    """
+    if not is_tradable_a_share(code, name):
+        return None
     df = get_daily_bars(code, days=days)
     if df is None or len(df) < 35:
         return None
+    try:
+        last_dt = pd.Timestamp(df['date'].iloc[-1]).to_pydatetime()
+        age = (datetime.now() - last_dt).days
+        if age > int(max_bar_age_days or 20):
+            return None
+    except Exception:
+        pass
     df = add_indicators(df)
     hits = []
     hit_keys = []
@@ -547,7 +560,10 @@ def run_screen(
     if not active_rules:
         return {'results': [], 'rules': [], 'scanned': 0, 'message': '无启用规则'}
 
-    universe = list_a_shares()
+    universe = [
+        it for it in (list_a_shares() or [])
+        if is_tradable_a_share(it.get('code'), it.get('name'), it.get('price'))
+    ]
     total_universe = len(universe)
     limit = int(max_stocks or 0)
     if 0 < limit < total_universe:

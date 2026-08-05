@@ -31,8 +31,43 @@ def _cache_dir() -> Path:
     return path
 
 
-# 排除 ST / 北交所 / 退市等时可在筛选层再滤
-_EXCLUDE_NAME_KEYWORDS = ('退',)
+# 证券账户通常搜不到/不可正常买入：退市、ST、暂停上市等
+_EXCLUDE_NAME_KEYWORDS = (
+    '退市', '退', '暂停上市', '整理期',
+    'ST', '*ST', '＊ST', 'S*ST', 'SST', 'PT',
+)
+
+
+def is_tradable_a_share(code: str = '', name: str = '', price=None) -> bool:
+    """
+    是否更可能在普通证券账户搜到并可交易。
+    排除：名称含 ST/*ST/退市/暂停上市；代码非主板/创业/科创常见前缀；
+    若传入 price 且无效（空/NaN/≤0），也视为不可交易（退市/长期停牌常见）。
+    """
+    code = _normalize_stock_code(code)
+    if not code or not code.startswith(('00', '30', '60', '68')):
+        return False
+    raw = str(name or '')
+    # 统一全角星号，便于匹配 ＊ST
+    n = raw.upper().replace('＊', '*').replace(' ', '')
+    if 'ST' in n:  # ST / *ST / S*ST / SST
+        return False
+    if 'PT' in n:
+        return False
+    for kw in ('退市', '暂停上市', '整理期'):
+        if kw in raw:
+            return False
+    # 「退」单独判断：避免误伤含「退」但非退市的极少数名字；常见为「退市XX」已覆盖
+    if raw.startswith('退') or '退市' in raw:
+        return False
+    if price is not None and price != '':
+        try:
+            p = float(price)
+            if pd.isna(p) or p <= 0:
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
 
 
 def _ak():
@@ -63,12 +98,17 @@ def list_a_shares(force_refresh=False):
     返回 [{'code','name',...}, ...]
     优先读当日缓存；东财现货失败时回退到代码表。
     注意：代码表回退没有价格，不会覆盖已有「带价格」的现货缓存。
+    默认已剔除 ST / 退市等普通账户难交易标的。
     """
     cache_file = _cache_dir() / f"spot_{datetime.now().strftime('%Y%m%d')}.csv"
     if cache_file.exists() and not force_refresh:
         try:
             df = pd.read_csv(cache_file, dtype={'code': str})
-            return df.to_dict('records')
+            rows = df.to_dict('records')
+            return [
+                r for r in rows
+                if is_tradable_a_share(r.get('code'), r.get('name'), r.get('price'))
+            ]
         except Exception:
             pass
 
@@ -116,7 +156,15 @@ def list_a_shares(force_refresh=False):
     df['code'] = df['code'].map(_normalize_stock_code)
     df = df[df['code'].str.match(r'^\d{6}$', na=False)]
     if 'name' in df.columns:
-        mask = ~df['name'].astype(str).apply(lambda n: any(k in n for k in _EXCLUDE_NAME_KEYWORDS))
+        has_price = 'price' in df.columns
+        mask = df.apply(
+            lambda r: is_tradable_a_share(
+                r.get('code'),
+                r.get('name'),
+                r.get('price') if has_price else None,
+            ),
+            axis=1,
+        )
         df = df[mask]
     # 过滤北交所/基金等常见前缀：只保留主板/创业板/科创常见
     df = df[df['code'].str.startswith(('00', '30', '60', '68'))]

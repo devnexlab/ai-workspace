@@ -590,8 +590,8 @@ def _create_subtitle_clips(srt_path, style, target_w, target_h, fps):
     stroke_width = style.get('sub_stroke_width', 3)
 
     text_max_w = target_w - 80
-    # 靠下，但留出安全区
-    sub_y = int(target_h * 0.78)
+    # 贴屏幕下方：按字幕块高度 + 底部安全边距定位（避免误放顶部）
+    bottom_margin = max(48, int(target_h * 0.06))
 
     clips = []
     ok = 0
@@ -606,6 +606,8 @@ def _create_subtitle_clips(srt_path, style, target_w, target_h, fps):
             )
             if arr is None:
                 continue
+            sub_h = int(arr.shape[0])
+            sub_y = max(0, target_h - sub_h - bottom_margin)
             clip = ImageClip(arr, duration=dur).with_position(('center', sub_y))
             clip = clip.with_start(seg['start']).with_fps(fps)
             fade_dur = min(0.2, dur / 4)
@@ -636,6 +638,27 @@ def _cover_resize_image(img_path, target_w, target_h):
     top = max(0, (nh - target_h) // 2)
     img = img.crop((left, top, left + target_w, top + target_h))
     return np.array(img)
+
+
+def _cover_fit_clip(clip, target_w, target_h):
+    """
+    视频/画面 cover 铺满目标尺寸并居中裁切。
+
+    注意：MoviePy 的 Resize(width=…, height=…) 实际只认 height（忽略 width），
+    若再配合 Crop(x_center=target_w/2) 会裁到画面左侧，横屏人像会变成只有模糊背景。
+    """
+    from moviepy.video.fx import Resize, Crop
+    vw, vh = clip.size
+    if not vw or not vh:
+        return clip
+    scale = max(target_w / vw, target_h / vh)
+    fitted = clip.with_effects([Resize(scale)])
+    return fitted.with_effects([Crop(
+        width=target_w,
+        height=target_h,
+        x_center=fitted.w / 2,
+        y_center=fitted.h / 2,
+    )])
 
 
 def _contain_resize_rgba(img_path, max_w, max_h):
@@ -848,15 +871,21 @@ def compose_video_moviepy(audio_path, subtitle_path, image_paths, output_path,
         )
         bg_video_refs.extend(refs)
     # Scene-based material switching (priority over sequential playback)
-    elif scenes and any(s.get('material_path') for s in scenes):
+    elif scenes and any(s.get('material_path') for s in scenes) and any(
+        s.get('start') is not None and s.get('end') is not None for s in scenes
+    ):
         print(f'[VideoComposer] Scene-based mode: {len(scenes)} scenes')
         pan_options = ['center', 'left', 'right', 'up', 'down']
         zoom_options = ['in', 'out']
 
         for i, scene in enumerate(scenes):
-            s_start = scene.get('start', 0)
-            s_end = scene.get('end', duration)
-            s_dur = max(0.5, s_end - s_start)
+            s_start = scene.get('start')
+            s_end = scene.get('end')
+            if s_start is None:
+                s_start = 0.0
+            if s_end is None:
+                s_end = duration
+            s_dur = max(0.5, float(s_end) - float(s_start))
             mat_path = scene.get('material_path', '')
             mat_type = scene.get('material_type', 'image')
 
@@ -864,14 +893,11 @@ def compose_video_moviepy(audio_path, subtitle_path, image_paths, output_path,
                 if mat_type == 'video':
                     # Video material: take subclip for scene duration
                     try:
-                        from moviepy.video.fx import Resize, Crop
                         vclip = VideoFileClip(mat_path)
                         bg_video_refs.append(vclip)
                         v_dur = min(vclip.duration, s_dur)
                         vclip = vclip.subclipped(0, v_dur)
-                        vclip = vclip.with_effects([Resize(width=width, height=height)])
-                        vclip = vclip.with_effects([Crop(width=width, height=height,
-                                                          x_center=width/2, y_center=height/2)])
+                        vclip = _cover_fit_clip(vclip, width, height)
                         vclip = vclip.with_fps(fps)
                         vclip = vclip.with_start(s_start)
 
@@ -879,10 +905,9 @@ def compose_video_moviepy(audio_path, subtitle_path, image_paths, output_path,
                         if v_dur < s_dur:
                             remaining = s_dur - v_dur
                             try:
-                                last_frame = vclip.get_frame(v_dur - 0.01)
+                                last_frame = vclip.get_frame(max(0, v_dur - 0.04))
                                 from moviepy import ImageClip
                                 freeze = ImageClip(last_frame, duration=remaining)
-                                freeze = freeze.with_effects([Resize(width=width, height=height)])
                                 freeze = freeze.with_fps(fps)
                                 freeze = freeze.with_start(s_start + v_dur)
                                 bg_clips.append(vclip)
@@ -923,14 +948,12 @@ def compose_video_moviepy(audio_path, subtitle_path, image_paths, output_path,
 
     elif video_paths:
         # Sequential mode: video + images (no scenes)
-        from moviepy.video.fx import Resize, Crop
         elapsed = 0.0
         bg_video_ref = VideoFileClip(video_paths[0])
         bg_video_refs.append(bg_video_ref)
         video_dur = min(bg_video_ref.duration, duration)
         video_clip = bg_video_ref.subclipped(0, video_dur)
-        video_clip = video_clip.with_effects([Resize(width=width, height=height)])
-        video_clip = video_clip.with_effects([Crop(width=width, height=height, x_center=width/2, y_center=height/2)])
+        video_clip = _cover_fit_clip(video_clip, width, height)
         video_clip = video_clip.with_fps(fps)
         video_clip = video_clip.with_start(0)
         bg_clips.append(video_clip)
@@ -956,10 +979,9 @@ def compose_video_moviepy(audio_path, subtitle_path, image_paths, output_path,
         if elapsed < duration and not image_paths:
             remaining = duration - elapsed
             try:
-                last_frame = bg_video_ref.get_frame(bg_video_ref.duration - 0.01)
+                last_frame = video_clip.get_frame(max(0, video_dur - 0.04))
                 from moviepy import ImageClip
                 freeze_clip = ImageClip(last_frame, duration=remaining)
-                freeze_clip = freeze_clip.with_effects([Resize(width=width, height=height)])
                 freeze_clip = freeze_clip.with_fps(fps)
                 freeze_clip = freeze_clip.with_start(elapsed)
                 bg_clips.append(freeze_clip)

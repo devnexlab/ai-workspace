@@ -1773,6 +1773,21 @@ def produce_video(script_data, video_task_id, output_dir, video_style='default',
     results['video_material_count'] = len(video_paths)
     results['video_style'] = video_style
 
+    def _checkpoint(**fields):
+        """一键全流程中途落库，避免重启后字幕永远卡在 processing。"""
+        if not video_task_id or not fields:
+            return
+        try:
+            from config import get_db
+            cols = ', '.join(f'{k}=?' for k in fields)
+            vals = list(fields.values()) + [video_task_id]
+            conn = get_db()
+            conn.execute(f'UPDATE video_task SET {cols} WHERE id=?', vals)
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f'[VideoMaker] checkpoint failed: {e}')
+
     # Step 1: AI scene segmentation (if materials available)
     scenes = None
     if pre_scenes:
@@ -1803,6 +1818,13 @@ def produce_video(script_data, video_task_id, output_dir, video_style='default',
     tts_result = generate_tts(narration, audio_path, voice=voice, rate=voice_rate)
     results['voice'] = tts_result
     results['voice_status'] = 'done'
+    _checkpoint(
+        voice_status='done',
+        voice_url=tts_result.get('audio_path', ''),
+        duration=tts_result.get('duration') or 0,
+        subtitle_status='processing',
+        error_msg='',
+    )
 
     # Save word boundaries for potential separate subtitle regeneration
     boundaries_path = os.path.join(output_dir, f'task_{video_task_id}_boundaries.json')
@@ -1824,6 +1846,12 @@ def produce_video(script_data, video_task_id, output_dir, video_style='default',
     )
     results['subtitle'] = sub_result
     results['subtitle_status'] = 'done'
+    _checkpoint(
+        subtitle_status='done',
+        subtitle_url=sub_result.get('subtitle_path', ''),
+        video_status='processing',
+        error_msg='',
+    )
 
     # Step 4: Map scenes to TTS sentence timings + resolve material paths
     if scenes and sentence_timings:

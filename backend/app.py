@@ -49,6 +49,11 @@ def create_app():
         start_watchlist_scheduler()
     except Exception as e:
         print(f'[Server] Watchlist scheduler not started: {e}')
+    try:
+        from modules.stock_universe import start_universe_scheduler
+        start_universe_scheduler()
+    except Exception as e:
+        print(f'[Server] Universe scheduler not started: {e}')
 
     return app
 
@@ -57,10 +62,16 @@ def _reset_stuck_tasks():
     """服务器重启后，把仍标记为 processing/running 的任务重置为 failed。"""
     try:
         conn = get_db()
+        # 注意：必须包含 subtitle_status，否则一键全流程中断后字幕会永久卡在 processing
         conn.execute(
-            "UPDATE video_task SET voice_status='failed', video_status='failed', export_status='failed', "
+            "UPDATE video_task SET "
+            "voice_status=CASE WHEN voice_status='processing' THEN 'failed' ELSE voice_status END, "
+            "subtitle_status=CASE WHEN subtitle_status='processing' THEN 'failed' ELSE subtitle_status END, "
+            "video_status=CASE WHEN video_status='processing' THEN 'failed' ELSE video_status END, "
+            "export_status=CASE WHEN export_status='processing' THEN 'failed' ELSE export_status END, "
             "error_msg='服务器重启导致任务中断，请重新执行' "
-            "WHERE voice_status='processing' OR video_status='processing' OR export_status='processing'"
+            "WHERE voice_status='processing' OR subtitle_status='processing' "
+            "OR video_status='processing' OR export_status='processing'"
         )
         changes = conn.total_changes
         # 股票筛选后台线程会随重启一起死掉，DB 里不能继续挂 running

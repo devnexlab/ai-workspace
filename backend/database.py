@@ -280,6 +280,24 @@ CREATE TABLE IF NOT EXISTS stock_screening (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 全市场 A 股（夜间同步，新股自动加入）
+CREATE TABLE IF NOT EXISTS stock_universe (
+    id SERIAL PRIMARY KEY,
+    code TEXT NOT NULL UNIQUE,
+    name TEXT DEFAULT '',
+    market TEXT DEFAULT '',
+    board TEXT DEFAULT '',
+    price REAL,
+    pct_chg REAL,
+    volume REAL,
+    amount REAL,
+    turnover REAL,
+    is_active BOOLEAN DEFAULT TRUE,
+    source TEXT DEFAULT 'akshare',
+    refreshed_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- AI Agent center
 CREATE TABLE IF NOT EXISTS ai_agent (
     id SERIAL PRIMARY KEY,
@@ -427,6 +445,12 @@ DEFAULT_SETTINGS = [
     ('stock', 'min_hits', '1', '最少命中规则数', '配合 match_mode=min 或 or 使用', 'text', None, 3),
     ('stock', 'pattern_rules_json', '', '自定义形态规则JSON', '留空则用系统默认启用规则', 'textarea', None, 4),
     ('stock', 'cache_dir', '', '行情缓存目录', '留空=backend/data/stock_cache', 'text', None, 5),
+    ('stock', 'universe_auto_refresh', 'true', '全市场夜间同步',
+     '交易日晚上自动拉取全部 A 股并入库，新股会自动加入', 'select', '["true","false"]', 6),
+    ('stock', 'universe_refresh_hour', '18', '全市场同步整点',
+     '0-23，默认 18（收盘后）；窗口为该小时前 25 分钟', 'text', None, 7),
+    ('stock', 'universe_last_refresh_date', '', '全市场上次同步日期', '系统自动写入', 'text', None, 8),
+    ('stock', 'universe_last_refresh_at', '', '全市场上次同步时间', '系统自动写入', 'text', None, 9),
 
     # ---- 官方/商业数据台（API 配置，不爬登录页）----
     # 巨量算数
