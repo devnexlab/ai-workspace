@@ -28,7 +28,7 @@ MOVIEPY_STYLES = {
         'sub_color': 'white',
         'sub_stroke_color': 'black',
         'sub_stroke_width': 2,
-        'sub_font_size': 36,
+        'sub_font_size': 44,
         'sub_font': 'msyh.ttc',
         'title_color': 'white',
         'title_font_size': 42,
@@ -193,22 +193,140 @@ def _get_style(video_style='default'):
 
 
 def _get_font_path(font_name):
-    """Map font name to Windows font file path."""
+    """Map font name to Windows font file path. Prefer TTF over TTC for Pillow."""
     font_map = {
         'msyh.ttc': 'C:/Windows/Fonts/msyh.ttc',
+        'msyh.ttf': 'C:/Windows/Fonts/msyh.ttf',
+        'msyhbd.ttc': 'C:/Windows/Fonts/msyhbd.ttc',
         'simhei.ttf': 'C:/Windows/Fonts/simhei.ttf',
         'simkai.ttf': 'C:/Windows/Fonts/simkai.ttf',
         'simsun.ttc': 'C:/Windows/Fonts/simsun.ttc',
         'msjh.ttc': 'C:/Windows/Fonts/msjh.ttc',
     }
-    path = font_map.get(font_name, 'C:/Windows/Fonts/msyh.ttc')
-    if os.path.exists(path):
+    # Pillow 对部分 .ttc 支持差，优先黑体/雅黑 ttf
+    preferred = [
+        'C:/Windows/Fonts/msyh.ttc',
+        'C:/Windows/Fonts/msyhbd.ttc',
+        'C:/Windows/Fonts/simhei.ttf',
+        'C:/Windows/Fonts/msyh.ttf',
+        'C:/Windows/Fonts/simsun.ttc',
+        'C:/Windows/Fonts/arial.ttf',
+    ]
+    path = font_map.get(font_name)
+    if path and os.path.exists(path):
         return path
-    # Fallback
+    for p in preferred:
+        if os.path.exists(p):
+            return p
     for p in font_map.values():
         if os.path.exists(p):
             return p
     return 'C:/Windows/Fonts/msyh.ttc'
+
+
+def _hex_or_name_to_rgb(color, default=(255, 255, 255)):
+    if not color:
+        return default
+    if isinstance(color, (tuple, list)) and len(color) >= 3:
+        return tuple(int(c) for c in color[:3])
+    s = str(color).strip().lower()
+    named = {
+        'white': (255, 255, 255),
+        'black': (0, 0, 0),
+        'yellow': (255, 230, 0),
+        'red': (255, 60, 60),
+        'cyan': (0, 220, 255),
+    }
+    if s in named:
+        return named[s]
+    if s.startswith('#') and len(s) >= 7:
+        try:
+            return (int(s[1:3], 16), int(s[3:5], 16), int(s[5:7], 16))
+        except ValueError:
+            return default
+    return default
+
+
+def _wrap_text_lines(text, font, max_width, draw):
+    """Wrap Chinese/English text to fit max_width."""
+    text = (text or '').replace('\n', ' ').strip()
+    if not text:
+        return []
+    lines = []
+    current = ''
+    for ch in text:
+        trial = current + ch
+        bbox = draw.textbbox((0, 0), trial, font=font)
+        if bbox[2] - bbox[0] <= max_width or not current:
+            current = trial
+        else:
+            lines.append(current)
+            current = ch
+    if current:
+        lines.append(current)
+    return lines
+
+
+def _render_subtitle_pil(text, font_path, font_size, color, stroke_color, stroke_width, max_w):
+    """Render subtitle to RGBA numpy array via Pillow (reliable Chinese fallback)."""
+    from PIL import Image, ImageDraw, ImageFont
+
+    try:
+        font = ImageFont.truetype(font_path, font_size)
+    except Exception:
+        try:
+            font = ImageFont.truetype('C:/Windows/Fonts/simhei.ttf', font_size)
+        except Exception:
+            font = ImageFont.load_default()
+
+    # Measure with a temp image
+    tmp = Image.new('RGBA', (max_w, font_size * 8), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(tmp)
+    lines = _wrap_text_lines(text, font, max_w - 24, draw)
+    if not lines:
+        return None
+
+    line_heights = []
+    line_widths = []
+    for line in lines:
+        bbox = draw.textbbox((0, 0), line, font=font)
+        line_widths.append(bbox[2] - bbox[0])
+        line_heights.append(bbox[3] - bbox[1])
+    pad_x, pad_y = 18, 12
+    gap = max(4, font_size // 8)
+    text_h = sum(line_heights) + gap * (len(lines) - 1)
+    text_w = max(line_widths) if line_widths else max_w
+    img_w = min(max_w, text_w + pad_x * 2)
+    img_h = text_h + pad_y * 2
+
+    img = Image.new('RGBA', (img_w, img_h), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    # Soft dark box
+    draw.rounded_rectangle(
+        [(0, 0), (img_w - 1, img_h - 1)],
+        radius=10,
+        fill=(0, 0, 0, 150),
+    )
+
+    fill = _hex_or_name_to_rgb(color)
+    stroke = _hex_or_name_to_rgb(stroke_color, (0, 0, 0))
+    y = pad_y
+    for i, line in enumerate(lines):
+        bbox = draw.textbbox((0, 0), line, font=font)
+        lw = bbox[2] - bbox[0]
+        x = (img_w - lw) // 2
+        draw.text(
+            (x, y),
+            line,
+            font=font,
+            fill=fill + (255,),
+            stroke_width=max(0, int(stroke_width or 0)),
+            stroke_fill=stroke + (255,),
+        )
+        y += line_heights[i] + gap
+
+    return np.array(img)
+
 
 
 # ============================================================
@@ -453,79 +571,156 @@ def _create_image_clips(image_paths, total_duration, target_w, target_h, fps):
 # ============================================================
 
 def _create_subtitle_clips(srt_path, style, target_w, target_h, fps):
-    """Create TextClip overlays for each subtitle segment with background box."""
-    from moviepy import TextClip, ImageClip
+    """Create subtitle overlays. Prefer Pillow render so Chinese always shows."""
+    from moviepy import ImageClip
     from moviepy.video.fx import FadeIn, FadeOut
 
     segments = _parse_srt(srt_path)
     if not segments:
+        print(f'[VideoComposer] No subtitle segments from: {srt_path}')
         return []
 
     font_path = _get_font_path(style.get('sub_font', 'msyh.ttc'))
-    font_size = style.get('sub_font_size', 36)
+    font_size = int(style.get('sub_font_size', 42) or 42)
+    # 竖屏口播字幕略放大
+    if target_h >= target_w:
+        font_size = max(font_size, 44)
     sub_color = style.get('sub_color', 'white')
     stroke_color = style.get('sub_stroke_color', 'black')
-    stroke_width = style.get('sub_stroke_width', 2)
+    stroke_width = style.get('sub_stroke_width', 3)
 
-    # Subtitle area dimensions
-    text_max_w = target_w - 100  # Leave 50px margin each side
-    sub_y = target_h - 160  # Position from top (near bottom)
+    text_max_w = target_w - 80
+    # 靠下，但留出安全区
+    sub_y = int(target_h * 0.78)
 
     clips = []
+    ok = 0
     for seg in segments:
         dur = seg['end'] - seg['start']
         if dur <= 0:
             continue
-
         try:
-            txt_clip = TextClip(
-                text=seg['text'],
-                font=font_path,
-                font_size=font_size,
-                color=sub_color,
-                stroke_color=stroke_color,
-                stroke_width=stroke_width,
-                duration=dur,
-                text_align='center',
-                size=(text_max_w, None),
-                method='caption',
+            arr = _render_subtitle_pil(
+                seg['text'], font_path, font_size,
+                sub_color, stroke_color, stroke_width, text_max_w,
             )
-
-            # Get text dimensions
-            txt_w = txt_clip.w
-            txt_h = txt_clip.h
-
-            # Create semi-transparent background box behind text
-            bg_padding = 12
-            bg_arr = np.zeros((txt_h + bg_padding * 2, txt_w + bg_padding * 2, 4), dtype=np.uint8)
-            bg_arr[:, :, :3] = 0  # Black
-            bg_arr[:, :, 3] = 130  # Semi-transparent
-
-            bg_clip = ImageClip(bg_arr, duration=dur)
-            bg_clip = bg_clip.with_position(('center', sub_y - bg_padding))
-            bg_clip = bg_clip.with_start(seg['start'])
-
-            # Position text clip
-            txt_clip = txt_clip.with_position(('center', sub_y))
-            txt_clip = txt_clip.with_start(seg['start'])
-
-            # Subtle fade in/out
-            fade_dur = min(0.25, dur / 4)
-            txt_clip = txt_clip.with_effects([FadeIn(fade_dur), FadeOut(fade_dur)])
-            bg_clip = bg_clip.with_effects([FadeIn(fade_dur), FadeOut(fade_dur)])
-
-            clips.append(bg_clip)
-            clips.append(txt_clip)
+            if arr is None:
+                continue
+            clip = ImageClip(arr, duration=dur).with_position(('center', sub_y))
+            clip = clip.with_start(seg['start']).with_fps(fps)
+            fade_dur = min(0.2, dur / 4)
+            clip = clip.with_effects([FadeIn(fade_dur), FadeOut(fade_dur)])
+            clips.append(clip)
+            ok += 1
         except Exception as e:
-            print(f'[VideoComposer] TextClip error for segment: {e}')
+            print(f'[VideoComposer] subtitle render error: {e}')
             continue
 
+    print(f'[VideoComposer] Subtitles ready: {ok}/{len(segments)} (font={font_path})')
     return clips
 
 
 # ============================================================
-# Title overlay
+# 口播模板：背景 + 居中人像（完整显示，不狠裁）
 # ============================================================
+
+def _cover_resize_image(img_path, target_w, target_h):
+    """Load image and cover-fit to target size (center crop). Returns RGB uint8 array."""
+    from PIL import Image
+    img = Image.open(img_path).convert('RGB')
+    iw, ih = img.size
+    scale = max(target_w / iw, target_h / ih)
+    nw, nh = int(iw * scale + 0.5), int(ih * scale + 0.5)
+    img = img.resize((nw, nh), Image.Resampling.LANCZOS)
+    left = max(0, (nw - target_w) // 2)
+    top = max(0, (nh - target_h) // 2)
+    img = img.crop((left, top, left + target_w, top + target_h))
+    return np.array(img)
+
+
+def _contain_resize_rgba(img_path, max_w, max_h):
+    """Load person image contain-fit inside box, keep alpha if present."""
+    from PIL import Image
+    img = Image.open(img_path).convert('RGBA')
+    iw, ih = img.size
+    scale = min(max_w / iw, max_h / ih, 1.0)  # 不放大超过原图太多时可改为不限制 1.0
+    scale = min(max_w / iw, max_h / ih)
+    nw, nh = max(1, int(iw * scale + 0.5)), max(1, int(ih * scale + 0.5))
+    img = img.resize((nw, nh), Image.Resampling.LANCZOS)
+    return np.array(img), nw, nh
+
+
+def _create_talking_head_base(bg_path, person_path, duration, width, height, fps, style):
+    """
+    口播底板：背景铺满 + 人物居中完整显示（留出底部字幕区）。
+    """
+    from moviepy import ImageClip, ColorClip, CompositeVideoClip, VideoFileClip
+    from moviepy.video.fx import Resize, Crop
+
+    bg_color = style.get('bg_color', (26, 26, 46))
+    layers = []
+    video_refs = []
+
+    # 1) Background
+    if bg_path and os.path.exists(bg_path):
+        ext = os.path.splitext(bg_path)[1].lower()
+        if ext in ('.mp4', '.mov', '.webm', '.avi', '.mkv'):
+            try:
+                vclip = VideoFileClip(bg_path)
+                video_refs.append(vclip)
+                v_dur = min(vclip.duration, duration)
+                vclip = vclip.subclipped(0, v_dur)
+                # cover fit
+                vw, vh = vclip.w, vclip.h
+                scale = max(width / vw, height / vh)
+                vclip = vclip.with_effects([Resize(scale)])
+                vclip = vclip.with_effects([Crop(
+                    width=width, height=height,
+                    x_center=vclip.w / 2, y_center=vclip.h / 2,
+                )])
+                vclip = vclip.with_fps(fps).with_duration(duration)
+                if v_dur < duration:
+                    # freeze last frame for remainder via looping last frame as image
+                    from moviepy import concatenate_videoclips
+                    last = vclip.get_frame(max(0, v_dur - 0.04))
+                    freeze = ImageClip(last, duration=duration - v_dur)
+                    vclip = concatenate_videoclips([vclip.subclipped(0, v_dur), freeze])
+                layers.append(vclip.with_position((0, 0)))
+            except Exception as e:
+                print(f'[VideoComposer] talking bg video failed: {e}')
+                layers.append(ColorClip(size=(width, height), color=bg_color, duration=duration))
+        else:
+            try:
+                bg_arr = _cover_resize_image(bg_path, width, height)
+                # 轻微压暗，突出人像
+                bg_arr = (bg_arr.astype(np.float32) * 0.72).clip(0, 255).astype(np.uint8)
+                layers.append(ImageClip(bg_arr, duration=duration).with_position((0, 0)))
+            except Exception as e:
+                print(f'[VideoComposer] talking bg image failed: {e}')
+                layers.append(ColorClip(size=(width, height), color=bg_color, duration=duration))
+    else:
+        layers.append(ColorClip(size=(width, height), color=bg_color, duration=duration))
+
+    # 2) Person — 完整显示，放在画面中上部，底部留给字幕
+    if person_path and os.path.exists(person_path):
+        try:
+            max_w = int(width * 0.88)
+            max_h = int(height * 0.58)
+            person_arr, pw, ph = _contain_resize_rgba(person_path, max_w, max_h)
+            person = ImageClip(person_arr, duration=duration).with_fps(fps)
+            # 垂直：约从 10% 高度开始，保证脚/半身不被字幕挡住
+            y = int(height * 0.10)
+            x = (width - pw) // 2
+            person = person.with_position((x, y))
+            layers.append(person)
+            print(f'[VideoComposer] Talking person {pw}x{ph} at ({x},{y})')
+        except Exception as e:
+            print(f'[VideoComposer] talking person failed: {e}')
+    else:
+        print('[VideoComposer] Talking layout: no person image')
+
+    base = CompositeVideoClip(layers, size=(width, height)).with_duration(duration).with_fps(fps)
+    return base, video_refs
 
 def _create_title_clip(title_text, style, duration, target_w, fps):
     """Create an animated title overlay at the top."""
@@ -641,9 +836,19 @@ def compose_video_moviepy(audio_path, subtitle_path, image_paths, output_path,
     # 1. Create background clip(s)
     bg_clips = []
     bg_video_refs = []  # keep references for cleanup
+    talking_base = None
 
+    compose_layout = (tp.get('compose_layout') or 'default').strip().lower()
+    if compose_layout in ('talking', 'koubo', 'portrait'):
+        print('[VideoComposer] Talking-head layout (背景+居中人像)')
+        talking_base, refs = _create_talking_head_base(
+            tp.get('bg_path') or '',
+            tp.get('person_path') or '',
+            duration, width, height, fps, style,
+        )
+        bg_video_refs.extend(refs)
     # Scene-based material switching (priority over sequential playback)
-    if scenes and any(s.get('material_path') for s in scenes):
+    elif scenes and any(s.get('material_path') for s in scenes):
         print(f'[VideoComposer] Scene-based mode: {len(scenes)} scenes')
         pan_options = ['center', 'left', 'right', 'up', 'down']
         zoom_options = ['in', 'out']
@@ -770,22 +975,25 @@ def compose_video_moviepy(audio_path, subtitle_path, image_paths, output_path,
         img_clips = _create_image_clips(image_paths, duration, width, height, fps)
         bg_clips = img_clips
 
-    if not bg_clips:
-        # No materials at all: use colored background
-        bg_clip = ColorClip(size=(width, height), color=style['bg_color'], duration=duration)
-        bg_clip = bg_clip.with_fps(fps)
-        bg_clips = [bg_clip]
-
-    # 2. Build the base video from background clips
-    if len(bg_clips) == 1:
-        base_video = bg_clips[0].with_duration(duration)
+    if talking_base is not None:
+        base_video = talking_base
     else:
-        # For multiple image clips with crossfade overlap, use CompositeVideoClip
-        base_video = CompositeVideoClip(bg_clips, size=(width, height))
-        # Ensure exact duration matches audio
-        base_video = base_video.with_duration(duration)
+        if not bg_clips:
+            # No materials at all: use colored background
+            bg_clip = ColorClip(size=(width, height), color=style['bg_color'], duration=duration)
+            bg_clip = bg_clip.with_fps(fps)
+            bg_clips = [bg_clip]
 
-    base_video = base_video.with_fps(fps)
+        # 2. Build the base video from background clips
+        if len(bg_clips) == 1:
+            base_video = bg_clips[0].with_duration(duration)
+        else:
+            # For multiple image clips with crossfade overlap, use CompositeVideoClip
+            base_video = CompositeVideoClip(bg_clips, size=(width, height))
+            # Ensure exact duration matches audio
+            base_video = base_video.with_duration(duration)
+
+        base_video = base_video.with_fps(fps)
 
     # 3. Apply color grading
     grade_fn = _make_color_grade_fn(style)
@@ -817,53 +1025,50 @@ def compose_video_moviepy(audio_path, subtitle_path, image_paths, output_path,
             print(f'[VideoComposer] BGM mix skipped: {e}')
     base_video = base_video.with_audio(audio)
 
-    # 5. Build overlay layers (subtitles, title, vignette, letterbox)
-    overlay_clips = []
+    # 5. Build overlay layers — 字幕必须在最上层，否则会被渐变盖住
+    underlays = []
+    overlays = []
 
-    # Subtitle clips
-    sub_clips = _create_subtitle_clips(subtitle_path, style, width, height, fps)
-    overlay_clips.extend(sub_clips)
-
-    # Title clip
-    if show_title == 'true':
-        title_clip = _create_title_clip(title_text, style, duration, width, fps)
-        if title_clip:
-            overlay_clips.append(title_clip)
-
-    # Vignette overlay
+    # Vignette / gradient under text
     if style.get('vignette'):
         try:
             from moviepy import ImageClip
             vignette_arr = _make_vignette_overlay(width, height, strength=0.4)
             vignette_clip = ImageClip(vignette_arr, duration=duration).with_position((0, 0))
             vignette_clip = vignette_clip.with_fps(fps)
-            overlay_clips.append(vignette_clip)
+            underlays.append(vignette_clip)
         except Exception as e:
             print(f'[VideoComposer] Vignette error: {e}')
 
-    # Bottom gradient overlay for subtitle readability (always on)
     try:
         from moviepy import ImageClip
         gradient_arr = _make_bottom_gradient(width, height, max_alpha=140)
         gradient_h = gradient_arr.shape[0]
         gradient_clip = ImageClip(gradient_arr, duration=duration).with_position((0, height - gradient_h))
         gradient_clip = gradient_clip.with_fps(fps)
-        overlay_clips.append(gradient_clip)
+        underlays.append(gradient_clip)
     except Exception as e:
         print(f'[VideoComposer] Gradient overlay error: {e}')
 
-    # Letterbox bars (cinematic style)
     if style.get('letterbox'):
         bar_h = int(height * 0.06)
-        from moviepy import ColorClip
-        top_bar = ColorClip(size=(width, bar_h), color=(0, 0, 0), duration=duration)
-        bottom_bar = ColorClip(size=(width, bar_h), color=(0, 0, 0), duration=duration)
+        from moviepy import ColorClip as _CC
+        top_bar = _CC(size=(width, bar_h), color=(0, 0, 0), duration=duration)
+        bottom_bar = _CC(size=(width, bar_h), color=(0, 0, 0), duration=duration)
         top_bar = top_bar.with_position((0, 0)).with_fps(fps)
         bottom_bar = bottom_bar.with_position((0, height - bar_h)).with_fps(fps)
-        overlay_clips.extend([top_bar, bottom_bar])
+        underlays.extend([top_bar, bottom_bar])
 
-    # 6. Composite everything together
-    all_clips = [base_video] + overlay_clips
+    if show_title == 'true':
+        title_clip = _create_title_clip(title_text, style, duration, width, fps)
+        if title_clip:
+            overlays.append(title_clip)
+
+    sub_clips = _create_subtitle_clips(subtitle_path, style, width, height, fps)
+    overlays.extend(sub_clips)
+
+    # 6. Composite everything together（字幕最后叠，保证可见）
+    all_clips = [base_video] + underlays + overlays
     final = CompositeVideoClip(all_clips, size=(width, height))
     final = final.with_duration(duration)
 

@@ -28,12 +28,13 @@ def refresh_intelligence(include_platforms=False, max_keywords=6, count=3):
         from modules.content_ops.pipeline import enrich_and_rank
         items = enrich_and_rank(items)
 
-    inserted = _insert_items(items)
+    inserted, updated = _insert_items(items)
     removed = _dedupe_existing_topics()
     return {
         'message': message,
         'fetched': len(items),
         'inserted': inserted,
+        'updated': updated,
         'deduped': removed,
     }
 

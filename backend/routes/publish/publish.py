@@ -67,9 +67,96 @@ def create_publish():
     return jsonify({'id': cur.lastrowid, 'message': '发布任务已创建'})
 
 
+@bp.route('/api/publish/<int:id>/prepare', methods=['POST'])
+def prepare_publish(id):
+    """安全发布：返回可复制文案 + 官方创作者页，不启动自动化浏览器。"""
+    from modules.content_ops.platforms import get_platform
+    from config import get_setting
+
+    conn = _db()
+    task = conn.execute(
+        '''SELECT p.*, v.output_path, v.title as video_title
+           FROM publish_task p
+           LEFT JOIN video_task v ON p.video_task_id=v.id WHERE p.id=?''',
+        (id,)
+    ).fetchone()
+    if not task:
+        conn.close()
+        return jsonify({'error': '发布任务不存在'}), 404
+
+    task_dict = dict(task)
+    platform = (task_dict.get('platform') or '').strip()
+    meta = get_platform(platform) or {}
+    creator_url = meta.get('creator_url') or ''
+    label = meta.get('label') or platform or '平台'
+
+    title = (task_dict.get('title') or task_dict.get('video_title') or '').strip()
+    description = (task_dict.get('description') or '').strip()
+    tags = (task_dict.get('tags') or '').strip()
+    cover_text = (task_dict.get('cover_text') or '').strip()
+    video_path = task_dict.get('output_path') or ''
+
+    parts = []
+    if title:
+        parts.append(title)
+    if description:
+        parts.append(description)
+    if tags:
+        tag_line = ' '.join(
+            (t if t.startswith('#') else f'#{t}')
+            for t in [x.strip() for x in tags.replace('，', ',').split(',') if x.strip()]
+        )
+        if tag_line:
+            parts.append(tag_line)
+    if cover_text:
+        parts.append(f'封面文案：{cover_text}')
+    clipboard_text = '\n\n'.join(parts)
+
+    conn.execute(
+        "UPDATE publish_task SET status=?, error_msg=? WHERE id=?",
+        (
+            'reviewing',
+            f'已准备发布材料：请打开{label}创作者页，粘贴文案并上传成片后点发表，再回本系统「确认已发」',
+            id,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+    mode = (get_setting('publish', 'mode', 'manual') or 'manual').lower()
+    return jsonify({
+        'status': 'prepared',
+        'mode': mode,
+        'platform': platform,
+        'platform_label': label,
+        'creator_url': creator_url,
+        'title': title,
+        'description': description,
+        'tags': tags,
+        'cover_text': cover_text,
+        'video_path': video_path,
+        'clipboard_text': clipboard_text,
+        'message': (
+            f'已复制文案到剪贴板（请在前端执行复制）。请打开{label}创作者后台上传视频并粘贴文案，'
+            f'在平台点发表后回到本系统确认。'
+        ),
+    })
+
+
 @bp.route('/api/publish/<int:id>/publish', methods=['POST'])
 def do_publish(id):
-    """Execute publishing to the platform."""
+    """高级：Playwright 自动打开并填充（有封号风险，默认不推荐）。"""
+    from config import get_setting
+    data = request.get_json(silent=True) or {}
+    force = bool(data.get('force_autofill'))
+    mode = (get_setting('publish', 'mode', 'manual') or 'manual').lower()
+    if mode != 'autofill' and not force:
+        return jsonify({
+            'error': '当前为安全发布模式。请使用「准备发布」（复制文案+打开官方页）。'
+                     '若坚持浏览器自动填充，请在设置将发布模式改为 autofill，或传 force_autofill=true（有封号风险）。',
+            'hint': 'prepare',
+        }), 400
+
     conn = _db()
     task = conn.execute(
         '''SELECT p.*, v.output_path FROM publish_task p

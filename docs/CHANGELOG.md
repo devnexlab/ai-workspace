@@ -4,6 +4,35 @@
 
 ---
 
+## 2026-08-05 · 官方/商业数据台
+
+1. **设置 · 官方数据台**：巨量算数 / 蝉妈妈 / 新榜 / 自定义，只配 API（Base URL、Key、路径、字段映射）
+2. **内容情报**：新增「拉官方数据台」；全量刷新时顺带拉已启用源；来源类型 `commercial`
+3. **试拉接口**：`POST /api/commercial-data/test/<provider>` 不入库验连通
+
+### 相关文件
+
+- `backend/modules/content_ops/commercial_data.py`、`database.py`
+- `backend/routes/content/hot_topics.py`、`routes/system/settings.py`
+- `frontend/.../HotTopics.jsx`、`SettingsModulePage.jsx`、`MainLayout.jsx`
+
+---
+
+## 2026-08-05 · 采集/发布防封号
+
+1. **采集**：抖音/小红书/视频号登录态采集默认关闭；日更继续只用公开热榜  
+2. **发布**：默认「准备发布」= 复制文案 + 打开官方创作者页 + 人工点发表；Playwright 自动填充降为高风险高级选项  
+3. **就绪检查**：不再强制 Cookie/Playwright 才能算发布就绪  
+
+### 相关文件
+
+- `backend/database.py`、`modules/content_ops/platforms.py`、`pipeline.py`
+- `backend/routes/system/settings.py`、`routes/publish/publish.py`
+- `frontend/src/features/content/{Publish,HotTopics}.jsx`、`settings/SettingsModulePage.jsx`
+- `docs/FEATURES.md`
+
+---
+
 ## 2026-08-04 · 发布链接与咨询自动同步
 
 1. **作品链接**：发布浏览器会话尽量自动检测并回填；确认弹窗可预填  

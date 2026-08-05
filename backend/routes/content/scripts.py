@@ -296,7 +296,8 @@ def produce_script(id):
         # 出片时可补绑/更新素材与音色
         updates = []
         params = []
-        for key in ('material_ids', 'voice', 'voice_rate', 'video_style', 'narration_prompt'):
+        for key in ('material_ids', 'voice', 'voice_rate', 'video_style', 'narration_prompt',
+                    'compose_layout', 'person_material_id', 'bg_material_id'):
             if key in data and data.get(key) is not None and data.get(key) != '':
                 updates.append(f'{key}=?')
                 params.append(data.get(key))
@@ -319,18 +320,34 @@ def produce_script(id):
         })
 
     title = data.get('title') or row['title'] or f'文案#{id}'
+    layout = pick('compose_layout', 'talking') or 'talking'
+    person_id = pick('person_material_id', '') or None
+    bg_id = pick('bg_material_id', '') or None
+    try:
+        person_id = int(person_id) if person_id not in (None, '', 0, '0') else None
+    except (TypeError, ValueError):
+        person_id = None
+    try:
+        bg_id = int(bg_id) if bg_id not in (None, '', 0, '0') else None
+    except (TypeError, ValueError):
+        bg_id = None
+    material_ids = pick('material_ids', '')
+    if layout == 'talking' and (person_id or bg_id):
+        material_ids = ','.join(str(x) for x in (person_id, bg_id) if x)
+
     cur = conn.execute(
         '''INSERT INTO video_task (script_id,title,video_style,material_ids,
            resolution,fps,render_quality,fade_transition,title_overlay,video_engine,
-           narration_prompt,voice,voice_rate,
+           narration_prompt,voice,voice_rate,compose_layout,person_material_id,bg_material_id,
            voice_status,subtitle_status,video_status,export_status)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
         (id, title,
-         pick('video_style', 'default'), pick('material_ids', ''),
+         pick('video_style', 'default'), material_ids,
          pick('resolution', '1080x1920'), pick('fps', '30'),
          pick('render_quality', 'high'), pick('fade_transition', 'true'),
          pick('title_overlay', 'true'), pick('video_engine', 'moviepy'),
          pick('narration_prompt', ''), pick('voice', ''), pick('voice_rate', ''),
+         layout, person_id, bg_id,
          'pending', 'pending', 'pending', 'pending')
     )
     video_id = cur.lastrowid

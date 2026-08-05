@@ -985,7 +985,7 @@ export default function Stocks() {
                   max_stocks: maxStocks,
                 }).then(() => {
                   setPatternRules(next)
-                  message.success('已保存为默认形态规则（不勾选时也会用这套）')
+                  message.success('已保存为默认形态规则（下次打开筛选页会沿用）')
                 }).catch(() => message.error('保存失败'))
               }}>保存为默认</Button>
               <Button type="link" onClick={() => setSelectedConditions([])}>清空勾选</Button>

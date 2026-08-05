@@ -42,7 +42,7 @@ def get_enabled_platforms(override=None):
         if not meta.get('enable_collector', True):
             continue
         cfg = get_collector_config(key)
-        if str(cfg.get('enabled', 'true')).lower() == 'true':
+        if str(cfg.get('enabled', 'false')).lower() == 'true':
             enabled.append(key)
     return enabled
 
@@ -87,7 +87,9 @@ def collect_platform_koubo(platforms=None, age_bands=None, count_per_keyword=5,
         except Exception as e:
             messages.append(f'{label}: 失败 {e}')
 
-    return all_items, '；'.join(messages)
+    if not plats:
+        return [], '平台口播未启用（默认关闭，防封号；仅热榜仍会入库）'
+    return all_items, '；'.join(messages) if messages else '平台口播无新结果'
 
 
 def enrich_and_rank(items):
@@ -163,7 +165,7 @@ def platform_status():
         if not p.get('enable_collector', True):
             continue
         cfg = get_collector_config(p['key'])
-        enabled = str(cfg.get('enabled', 'true')).lower() == 'true'
+        enabled = str(cfg.get('enabled', 'false')).lower() == 'true'
         has_cookie = bool((cfg.get('cookies') or '').strip())
         collector = get_collector(p['key'])
         rows.append({

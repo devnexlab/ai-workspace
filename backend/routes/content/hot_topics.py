@@ -8,6 +8,9 @@ from modules.content_ops import (
     list_platforms, list_age_bands, platform_status,
     run_full_intelligence, fetch_all_hotspots, collect_platform_koubo,
 )
+from modules.content_ops.commercial_data import (
+    fetch_all_commercial, list_commercial_providers, test_provider,
+)
 
 bp = Blueprint('hot_topics', __name__)
 
@@ -67,65 +70,101 @@ def _dedupe_existing_topics(conn=None):
 
 
 def _insert_items(items):
-    """写入 hot_topic，按标题去重后返回插入数。"""
+    """
+    写入 hot_topic：同标题（规范化后前 40 字）则覆盖更新并刷新时间，否则新增。
+    返回 (inserted, updated)。
+    """
     if not items:
-        return 0
+        return 0, 0
     conn = _db()
-    existing = {
-        _title_key(r['title'])
-        for r in conn.execute('SELECT title FROM hot_topic').fetchall()
-        if _title_key(r['title'])
-    }
+    # 同标题可能有多条历史重复：取 id 最大的一条作为覆盖目标
+    existing = {}  # title_key -> id
+    for r in conn.execute('SELECT id, title FROM hot_topic').fetchall():
+        key = _title_key(r['title'])
+        if not key:
+            continue
+        prev = existing.get(key)
+        if prev is None or int(r['id']) > int(prev):
+            existing[key] = r['id']
+
     inserted = 0
+    updated = 0
     batch_seen = set()
     for item in items:
         try:
             key = _title_key(item.get('title', ''))
-            if not key or key in existing or key in batch_seen:
+            if not key or key in batch_seen:
                 continue
+            batch_seen.add(key)
 
-            # AI 轻量评分：有互动分则映射，否则 50
             ai_score = item.get('ai_score')
             if ai_score is None:
                 ai_score = min(99, (item.get('engagement_rate') or 0) * 0.9 + 10)
 
             title = _normalize_title(item.get('title', ''))
-            conn.execute(
-                '''INSERT INTO hot_topic
-                   (platform, title, author, publish_time, likes, comments, favorites, shares,
-                    url, cover, ai_score, analysis, status, keyword,
-                    age_band, source_type, content_kind, engagement_rate, engagement_score)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
-                (
-                    item.get('platform', ''),
-                    title,
-                    item.get('author', ''),
-                    item.get('publish_time', ''),
-                    int(item.get('likes') or 0),
-                    int(item.get('comments') or 0),
-                    int(item.get('favorites') or 0),
-                    int(item.get('shares') or 0),
-                    item.get('url', ''),
-                    item.get('cover', ''),
-                    float(ai_score or 0),
-                    item.get('analysis', ''),
-                    'collected',
-                    item.get('keyword', ''),
-                    item.get('age_band', 'all'),
-                    item.get('source_type', 'platform'),
-                    item.get('content_kind', 'koubo'),
-                    float(item.get('engagement_rate') or 0),
-                    float(item.get('engagement_score') or 0),
+            platform = item.get('platform', '')
+            author = item.get('author', '')
+            publish_time = item.get('publish_time', '')
+            likes = int(item.get('likes') or 0)
+            comments = int(item.get('comments') or 0)
+            favorites = int(item.get('favorites') or 0)
+            shares = int(item.get('shares') or 0)
+            url = item.get('url', '')
+            cover = item.get('cover', '')
+            analysis = item.get('analysis', '')
+            keyword = item.get('keyword', '')
+            age_band = item.get('age_band', 'all')
+            source_type = item.get('source_type', 'platform')
+            content_kind = item.get('content_kind', 'koubo')
+            engagement_rate = float(item.get('engagement_rate') or 0)
+            engagement_score = float(item.get('engagement_score') or 0)
+            score = float(ai_score or 0)
+
+            rid = existing.get(key)
+            if rid:
+                conn.execute(
+                    '''UPDATE hot_topic SET
+                       platform=?, title=?, author=?, publish_time=?,
+                       likes=?, comments=?, favorites=?, shares=?,
+                       url=?, cover=?, ai_score=?, analysis=?,
+                       status='collected', keyword=?,
+                       age_band=?, source_type=?, content_kind=?,
+                       engagement_rate=?, engagement_score=?,
+                       created_at=CURRENT_TIMESTAMP
+                       WHERE id=?''',
+                    (
+                        platform, title, author, publish_time,
+                        likes, comments, favorites, shares,
+                        url, cover, score, analysis,
+                        keyword, age_band, source_type, content_kind,
+                        engagement_rate, engagement_score, rid,
+                    ),
                 )
-            )
-            existing.add(key)
-            batch_seen.add(key)
-            inserted += 1
+                updated += 1
+            else:
+                cur = conn.execute(
+                    '''INSERT INTO hot_topic
+                       (platform, title, author, publish_time, likes, comments, favorites, shares,
+                        url, cover, ai_score, analysis, status, keyword,
+                        age_band, source_type, content_kind, engagement_rate, engagement_score)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                    (
+                        platform, title, author, publish_time,
+                        likes, comments, favorites, shares,
+                        url, cover, score, analysis, 'collected', keyword,
+                        age_band, source_type, content_kind,
+                        engagement_rate, engagement_score,
+                    ),
+                )
+                inserted += 1
+                new_id = getattr(cur, 'lastrowid', None)
+                if new_id:
+                    existing[key] = new_id
         except Exception as e:
-            print(f'[ContentOps] insert fail: {e}')
+            print(f'[ContentOps] upsert fail: {e}')
     conn.commit()
     conn.close()
-    return inserted
+    return inserted, updated
 
 
 @bp.route('/api/content-ops/meta')
@@ -134,15 +173,25 @@ def content_ops_meta():
     return jsonify({
         'platforms': platform_status(),
         'age_bands': list_age_bands(),
+        'commercial_providers': list_commercial_providers(),
         'source_types': [
             {'key': 'hotspot', 'label': '全网实时热点'},
             {'key': 'platform', 'label': '平台口播素材'},
+            {'key': 'commercial', 'label': '官方/商业数据台'},
         ],
         'content_kinds': [
             {'key': 'hotspot', 'label': '热点选题'},
             {'key': 'koubo', 'label': '口播素材'},
         ],
     })
+
+
+@bp.route('/api/commercial-data/test/<provider_key>', methods=['POST'])
+def commercial_test(provider_key):
+    """试拉单个商业数据源（不入库）。"""
+    result = test_provider(provider_key)
+    status = 200 if result.get('ok') else 400
+    return jsonify(result), status
 
 
 @bp.route('/api/hot-topics')
@@ -156,7 +205,7 @@ def list_topics():
     source_type = request.args.get('source_type', '')
     content_kind = request.args.get('content_kind', '')
     q = request.args.get('q', '')
-    sort = request.args.get('sort', 'engagement')  # engagement | score | time
+    sort = request.args.get('sort', 'time')  # time | engagement | score
 
     where = []
     params = []
@@ -183,8 +232,8 @@ def list_topics():
     order = {
         'engagement': 'engagement_score DESC NULLS LAST, likes DESC, created_at DESC',
         'score': 'ai_score DESC NULLS LAST, engagement_score DESC, created_at DESC',
-        'time': 'created_at DESC',
-    }.get(sort, 'engagement_score DESC NULLS LAST, created_at DESC')
+        'time': 'created_at DESC, id DESC',
+    }.get(sort, 'created_at DESC, id DESC')
 
     offset = (page - 1) * pageSize
     total = conn.execute(
@@ -231,20 +280,20 @@ def get_topic(id):
 @bp.route('/api/hot-topics', methods=['POST'])
 def create_topic():
     data = request.get_json(silent=True) or {}
-    n = _insert_items([{
+    n_ins, n_upd = _insert_items([{
         **data,
         'source_type': data.get('source_type', 'manual'),
         'content_kind': data.get('content_kind', 'koubo'),
         'age_band': data.get('age_band', 'all'),
     }])
-    return jsonify({'message': '已创建', 'inserted': n})
+    return jsonify({'message': '已创建' if n_ins else '已更新', 'inserted': n_ins, 'updated': n_upd})
 
 
 @bp.route('/api/content-ops/refresh', methods=['POST'])
 def refresh_intelligence():
     """
     一键刷新内容情报：
-      mode=full|hotspots|platforms
+      mode=full|hotspots|platforms|commercial
     """
     data = request.get_json(silent=True) or {}
     mode = data.get('mode', 'full')
@@ -252,6 +301,7 @@ def refresh_intelligence():
     age_bands = data.get('age_bands')
     count = int(data.get('count', 5))
     max_keywords = int(data.get('max_keywords', 8))
+    commercial_keys = data.get('commercial_providers') or data.get('providers')
 
     try:
         if mode == 'hotspots':
@@ -265,6 +315,13 @@ def refresh_intelligence():
                 count_per_keyword=count,
                 max_keywords=max_keywords,
             )
+        elif mode == 'commercial':
+            items, message = fetch_all_commercial(provider_keys=commercial_keys)
+            from modules.content_ops.pipeline import enrich_and_rank
+            from modules.content_ops.age_bands import guess_age_band
+            for it in items:
+                it.setdefault('age_band', guess_age_band(it.get('title', ''), it.get('keyword', '')))
+            items = enrich_and_rank(items)
         else:
             items, message = run_full_intelligence(
                 platforms=platforms,
@@ -273,18 +330,47 @@ def refresh_intelligence():
                 count_per_keyword=count,
                 max_keywords=max_keywords,
             )
+            # 全量时顺带拉已启用的商业数据台（未启用则跳过，不改提示）
+            try:
+                c_items, c_msg = fetch_all_commercial(provider_keys=commercial_keys)
+                if c_items:
+                    from modules.content_ops.pipeline import enrich_and_rank
+                    from modules.content_ops.age_bands import guess_age_band
+                    for it in c_items:
+                        it.setdefault(
+                            'age_band',
+                            guess_age_band(it.get('title', ''), it.get('keyword', '')),
+                        )
+                    c_items = enrich_and_rank(c_items)
+                    items = list(items or []) + c_items
+                    message = f'{message}；{c_msg}'
+            except Exception as ce:
+                print(f'[commercial] skipped in full refresh: {ce}')
     except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({'collected': 0, 'message': f'刷新失败: {e}'}), 500
 
-    inserted = _insert_items(items)
+    items = items or []
+    inserted, updated = _insert_items(items)
     removed = _dedupe_existing_topics()
-    msg = message or f'已入库 {inserted} 条'
+    base = message or '刷新完成'
+    parts = [base, f'本次抓取 {len(items)}']
+    if inserted:
+        parts.append(f'新增 {inserted}')
+    if updated:
+        parts.append(f'覆盖更新 {updated}')
+    if not items:
+        parts.append('未抓到选题')
+    elif not inserted and not updated:
+        parts.append('无变更')
+    msg = '；'.join(parts)
     if removed:
         msg += f'；已清理重复选题 {removed} 条'
     return jsonify({
-        'collected': inserted,
+        'collected': inserted + updated,
+        'inserted': inserted,
+        'updated': updated,
         'total_fetched': len(items),
         'deduped': removed,
         'message': msg,
@@ -322,12 +408,18 @@ def collect_compat():
             it['content_kind'] = 'koubo'
             it['age_band'] = guess_age_band(it.get('title', ''), it.get('keyword', ''))
         items = enrich_and_rank(items)
-        inserted = _insert_items(items)
+        inserted, updated = _insert_items(items)
         removed = _dedupe_existing_topics()
-        msg = message or f'已入库 {inserted} 条'
+        msg = message or f'新增 {inserted}，覆盖 {updated}'
         if removed:
             msg += f'；已清理重复选题 {removed} 条'
-        return jsonify({'collected': inserted, 'deduped': removed, 'message': msg})
+        return jsonify({
+            'collected': inserted + updated,
+            'inserted': inserted,
+            'updated': updated,
+            'deduped': removed,
+            'message': msg,
+        })
 
     try:
         items, message = run_full_intelligence(
@@ -339,13 +431,15 @@ def collect_compat():
         )
     except Exception as e:
         return jsonify({'collected': 0, 'message': str(e)}), 500
-    inserted = _insert_items(items)
+    inserted, updated = _insert_items(items)
     removed = _dedupe_existing_topics()
-    msg = message or f'已入库 {inserted} 条'
+    msg = message or f'新增 {inserted}，覆盖 {updated}'
     if removed:
         msg += f'；已清理重复选题 {removed} 条'
     return jsonify({
-        'collected': inserted,
+        'collected': inserted + updated,
+        'inserted': inserted,
+        'updated': updated,
         'deduped': removed,
         'message': msg,
         'total_fetched': len(items),

@@ -31,6 +31,9 @@ def _persist_video_prefs(task_dict):
         'last_video_engine': task_dict.get('video_engine') or 'moviepy',
         'last_fade_transition': task_dict.get('fade_transition') or 'true',
         'last_title_overlay': task_dict.get('title_overlay') or 'true',
+        'last_compose_layout': task_dict.get('compose_layout') or 'default',
+        'last_person_material_id': str(task_dict.get('person_material_id') or ''),
+        'last_bg_material_id': str(task_dict.get('bg_material_id') or ''),
     }
     for key, value in mapping.items():
         try:
@@ -56,6 +59,9 @@ def get_last_video_prefs():
         'video_engine': prefs.get('last_video_engine') or vcfg.get('default_video_engine') or 'moviepy',
         'fade_transition': prefs.get('last_fade_transition') or vcfg.get('default_fade_transition') or 'true',
         'title_overlay': prefs.get('last_title_overlay') or vcfg.get('default_title_overlay') or 'true',
+        'compose_layout': prefs.get('last_compose_layout') or 'default',
+        'person_material_id': prefs.get('last_person_material_id') or '',
+        'bg_material_id': prefs.get('last_bg_material_id') or '',
         'has_saved': bool(prefs.get('last_voice') or prefs.get('last_video_style') or prefs.get('last_resolution')),
     }
 
@@ -104,6 +110,30 @@ def _get_material_paths_dict(material_ids_str):
     """Return material paths as dict {images, videos, bgm}."""
     images, videos, bgm = _get_material_paths(material_ids_str)
     return {'images': images, 'videos': videos, 'bgm': bgm}
+
+
+def _material_file_by_id(material_id):
+    """Return absolute file_path for one material id, or ''."""
+    if not material_id:
+        return ''
+    try:
+        mid = int(material_id)
+    except (TypeError, ValueError):
+        return ''
+    conn = _db()
+    row = conn.execute('SELECT file_path FROM video_material WHERE id=?', (mid,)).fetchone()
+    conn.close()
+    if not row:
+        return ''
+    path = row['file_path'] or ''
+    return path if path and os.path.exists(path) else path
+
+
+def _talking_paths_from_task(task_dict):
+    """Resolve person/bg paths for 口播模板."""
+    person_path = _material_file_by_id(task_dict.get('person_material_id'))
+    bg_path = _material_file_by_id(task_dict.get('bg_material_id'))
+    return person_path, bg_path
 
 
 def _row_asset_kind(row):
@@ -299,19 +329,38 @@ def get_video(id):
 @bp.route('/api/videos', methods=['POST'])
 def create_video():
     data = request.get_json(silent=True) or {}
+    person_id = data.get('person_material_id') or None
+    bg_id = data.get('bg_material_id') or None
+    try:
+        person_id = int(person_id) if person_id not in (None, '', 0, '0') else None
+    except (TypeError, ValueError):
+        person_id = None
+    try:
+        bg_id = int(bg_id) if bg_id not in (None, '', 0, '0') else None
+    except (TypeError, ValueError):
+        bg_id = None
+    # 口播模板：material_ids 同步为人像+背景，便于列表展示
+    material_ids = data.get('material_ids', '') or ''
+    layout = (data.get('compose_layout') or 'default').strip() or 'default'
+    if layout == 'talking':
+        ids = [str(x) for x in (person_id, bg_id) if x]
+        if ids:
+            material_ids = ','.join(ids)
+
     conn = _db()
     cur = conn.execute(
         '''INSERT INTO video_task (script_id,title,video_style,material_ids,
            resolution,fps,render_quality,fade_transition,title_overlay,video_engine,
-           narration_prompt,voice,voice_rate,
+           narration_prompt,voice,voice_rate,compose_layout,person_material_id,bg_material_id,
            voice_status,subtitle_status,video_status,export_status)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
         (data.get('script_id'), data.get('title', ''),
-         data.get('video_style', 'default'), data.get('material_ids', ''),
+         data.get('video_style', 'default'), material_ids,
          data.get('resolution', '1080x1920'), data.get('fps', '30'),
          data.get('render_quality', 'high'), data.get('fade_transition', 'true'),
          data.get('title_overlay', 'true'), data.get('video_engine', 'moviepy'),
          data.get('narration_prompt', ''), data.get('voice', ''), data.get('voice_rate', ''),
+         layout, person_id, bg_id,
          'pending', 'pending', 'pending', 'pending')
     )
     script_id = data.get('script_id')
@@ -540,13 +589,18 @@ def _run_video_step_background(task_id, step, script_dict, task_dict):
                 'voice_rate': task_dict.get('voice_rate', ''),
                 'bgm_path': bgm_paths[0] if bgm_paths else '',
                 'bgm_volume': get_setting('video', 'bgm_volume', '0.12') or '0.12',
+                'compose_layout': task_dict.get('compose_layout') or 'default',
             }
+            if (task_dict.get('compose_layout') or '') == 'talking':
+                person_path, bg_path = _talking_paths_from_task(task_dict)
+                task_params['person_path'] = person_path
+                task_params['bg_path'] = bg_path
 
             result = video_maker.compose_video(
                 audio_path, sub_path, image_paths, video_path,
                 title_text=title_text,
                 video_style=video_style,
-                video_paths=video_paths if video_paths else None,
+                video_paths=None if task_params.get('compose_layout') == 'talking' else (video_paths if video_paths else None),
                 task_params=task_params,
             )
 
@@ -567,10 +621,11 @@ def _run_video_step_background(task_id, step, script_dict, task_dict):
             materials_info = _get_material_info(material_ids_str)
             video_style = task_dict.get('video_style', 'default')
 
-            # Load pre-generated scenes if available
+            # Load pre-generated scenes if available（口播模板不用分镜）
             pre_scenes = None
+            is_talking = (task_dict.get('compose_layout') or '') == 'talking'
             scenes_json_str = task_dict.get('scenes_json', '')
-            if scenes_json_str:
+            if scenes_json_str and not is_talking:
                 try:
                     pre_scenes = json.loads(scenes_json_str)
                     print(f'[BackgroundTask] Loaded {len(pre_scenes)} pre-generated scenes')
@@ -589,15 +644,20 @@ def _run_video_step_background(task_id, step, script_dict, task_dict):
                 'voice_rate': task_dict.get('voice_rate', ''),
                 'bgm_path': (material_paths.get('bgm') or [None])[0] or '',
                 'bgm_volume': get_setting('video', 'bgm_volume', '0.12') or '0.12',
+                'compose_layout': task_dict.get('compose_layout') or 'default',
             }
+            if is_talking:
+                person_path, bg_path = _talking_paths_from_task(task_dict)
+                task_params['person_path'] = person_path
+                task_params['bg_path'] = bg_path
 
             result = video_maker.produce_video(
                 script_dict, task_id, task_output_dir,
                 video_style=video_style,
-                material_paths=material_paths,
+                material_paths=material_paths if not is_talking else {'images': [], 'videos': [], 'bgm': material_paths.get('bgm') or []},
                 task_params=task_params,
-                materials_info=materials_info if not pre_scenes else None,
-                pre_scenes=pre_scenes,
+                materials_info=None if is_talking else (materials_info if not pre_scenes else None),
+                pre_scenes=None if is_talking else pre_scenes,
             )
 
             conn = _db()
@@ -656,7 +716,9 @@ def update_video(id):
     params = []
     for k in ['title', 'voice_status', 'subtitle_status', 'video_status', 'export_status',
               'voice_url', 'subtitle_url', 'video_path', 'output_path', 'error_msg',
-              'material_ids', 'video_style', 'resolution', 'voice', 'voice_rate', 'narration_prompt']:
+              'material_ids', 'video_style', 'resolution', 'voice', 'voice_rate', 'narration_prompt',
+              'compose_layout', 'person_material_id', 'bg_material_id',
+              'fps', 'render_quality', 'fade_transition', 'title_overlay', 'video_engine']:
         if k in data:
             fields.append(f'{k}=?')
             params.append(data[k])

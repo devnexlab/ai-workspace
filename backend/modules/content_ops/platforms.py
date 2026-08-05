@@ -14,7 +14,7 @@ BUILTIN_PLATFORMS = [
         'label': '视频号',
         'color': 'green',
         'priority': 1,
-        'desc': '主阵地，微信生态口播与熟人转发（仅发布：视频号无公开网页搜索，选题走全网热榜）',
+        'desc': '主阵地，微信生态口播与熟人转发（仅发布：选题走全网热榜，勿用自动化登录采集）',
         'cookie_domain': '.qq.com',
         'creator_url': 'https://channels.weixin.qq.com/platform/post/create',
         'search_url_template': '',
@@ -22,8 +22,7 @@ BUILTIN_PLATFORMS = [
         'enable_collector': False,
         'enable_publish': True,
         'builtin': True,
-        'enabled_default': True,
-        'enable_publish': True,
+        'enabled_default': False,
         'creator_url': 'https://channels.weixin.qq.com/platform/post/create',
         'cookie_domain': '.weixin.qq.com',
     },
@@ -32,34 +31,28 @@ BUILTIN_PLATFORMS = [
         'label': '抖音',
         'color': 'black',
         'priority': 2,
-        'desc': '泛流量最大，适合全年龄口播素材',
+        'desc': '泛流量大；采集/自动发有封号风险，默认关闭采集，发布请用人工确认模式',
         'cookie_domain': '.douyin.com',
         'creator_url': 'https://creator.douyin.com/creator-micro/content/upload',
         'search_url_template': '',
         'enable_collector': True,
         'enable_publish': True,
         'builtin': True,
-        'enabled_default': True,
-        'enable_publish': True,
-        'creator_url': 'https://creator.douyin.com/creator-micro/content/upload',
-        'cookie_domain': '.douyin.com',
+        'enabled_default': False,
     },
     {
         'key': 'xiaohongshu',
         'label': '小红书',
         'color': 'red',
         'priority': 3,
-        'desc': '种草与女性/家庭向口播（可随时开关）',
+        'desc': '种草向；采集/自动发有封号风险，默认关闭采集，发布请用人工确认模式',
         'cookie_domain': '.xiaohongshu.com',
         'creator_url': 'https://creator.xiaohongshu.com/publish/publish',
         'search_url_template': '',
         'enable_collector': True,
         'enable_publish': True,
         'builtin': True,
-        'enabled_default': True,
-        'enable_publish': True,
-        'creator_url': 'https://creator.xiaohongshu.com/publish/publish',
-        'cookie_domain': '.xiaohongshu.com',
+        'enabled_default': False,
     },
 ]
 
@@ -100,7 +93,7 @@ def _normalize_row(row):
         'enable_publish': bool(d.get('enable_publish', True)),
         'builtin': bool(d.get('builtin', False)),
         'setting_category': f"collector_{d['key']}",
-        'enabled_default': True,
+        'enabled_default': bool(d.get('enabled_default', False)),
     }
 
 
@@ -169,11 +162,15 @@ def _seed_settings(conn, key, label, enable_collector=True, enable_publish=True,
     items = []
     if enable_collector:
         cookie_hint = (
+            '【高风险·不推荐】登录态/自动化采集可能封号。'
             f'浏览器打开对应网站 → F12 → Network → 复制 Cookie'
             + (f'（域名建议 {cookie_domain}）' if cookie_domain else '')
+            + '。日常选题请用全网热榜。'
         )
+        default_on = 'false'
         items.extend([
-            (f'collector_{key}', 'enabled', 'true', f'启用{label}采集', '', 'select',
+            (f'collector_{key}', 'enabled', default_on, f'启用{label}采集',
+             '高风险：易触发平台风控。默认关闭，仅实验时开启。', 'select',
              '["true","false"]', 1),
             (f'collector_{key}', 'cookies', '', f'{label} Cookies', cookie_hint, 'textarea',
              None, 2),
@@ -181,13 +178,14 @@ def _seed_settings(conn, key, label, enable_collector=True, enable_publish=True,
         ])
     if enable_publish:
         pub_hint = (
-            f'登录创作者后台后复制 Cookie'
-            + (f'；发布页：{creator_url}' if creator_url else '')
+            '安全模式无需 Cookie：发布中心会复制文案并打开官方页，由你手动点发布。'
+            + (f' 创作者页：{creator_url}' if creator_url else '')
+            + '。Cookies 仅高级「浏览器自动填充」需要（有封号风险）。'
         )
         items.extend([
-            (f'publish_{key}', 'enabled', 'false', f'启用{label}发布',
-             '使用 Playwright 打开创作者后台', 'select', '["true","false"]', 1),
-            (f'publish_{key}', 'cookies', '', f'{label}发布 Cookies', pub_hint, 'textarea',
+            (f'publish_{key}', 'enabled', 'true', f'启用{label}发布',
+             '推荐人工确认发布，避免自动化封号', 'select', '["true","false"]', 1),
+            (f'publish_{key}', 'cookies', '', f'{label}发布 Cookies（可选·高风险）', pub_hint, 'textarea',
              None, 2),
         ])
 

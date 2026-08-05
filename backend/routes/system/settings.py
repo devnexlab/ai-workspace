@@ -4,6 +4,7 @@ import json
 from flask import Blueprint, request, jsonify
 from config import update_settings_batch, get_db as _db
 from modules.content_ops.platforms import list_platforms
+from modules.content_ops.commercial_data import list_commercial_providers
 
 bp = Blueprint('settings', __name__)
 
@@ -20,16 +21,25 @@ SETTINGS_MODULES = [
         'key': 'collectors',
         'path': 'collectors',
         'label': '采集平台',
-        'desc': '视频号 / 抖音 / 小红书等口播素材采集（可扩展）',
+        'desc': '平台登录态采集默认关闭（易封号）。日常选题请用内容情报「全网热榜」',
         'icon': 'cloud-download',
         'type': 'collector_platforms',
+        'categories': [],
+    },
+    {
+        'key': 'commercial',
+        'path': 'commercial',
+        'label': '官方数据台',
+        'desc': '巨量算数 / 蝉妈妈 / 新榜等：只配官方或合规 API，拉取榜单入内容情报',
+        'icon': 'bar-chart',
+        'type': 'commercial_providers',
         'categories': [],
     },
     {
         'key': 'publish',
         'path': 'publish',
         'label': '发布平台',
-        'desc': '各平台发布账号 Cookies',
+        'desc': '推荐复制文案 + 打开官方创作者页，由你手动点发布',
         'icon': 'rocket',
         'type': 'publish_platforms',
         'categories': [],
@@ -49,14 +59,6 @@ SETTINGS_MODULES = [
         'desc': '每日 2+1 计划、品牌收口、采集间隔',
         'icon': 'file-text',
         'categories': ['system'],
-    },
-    {
-        'key': 'stock',
-        'path': 'stock',
-        'label': '股票筛选',
-        'desc': '技术面初筛上限、匹配模式、自定义形态规则',
-        'icon': 'line-chart',
-        'categories': ['stock'],
     },
 ]
 
@@ -102,6 +104,10 @@ def list_modules():
                 for p in pubs
             ]
             mod['categories'] = [f"publish_{p['key']}" for p in pubs]
+        elif m.get('type') == 'commercial_providers':
+            providers = list_commercial_providers()
+            mod['platforms'] = providers
+            mod['categories'] = [p['category'] for p in providers]
         modules.append(mod)
     return jsonify({'modules': modules})
 
@@ -151,8 +157,9 @@ def check_readiness():
         },
         'playwright': {
             'ready': pw_ok,
-            'message': 'Playwright 已安装' if pw_ok else '未安装 Playwright（自动发布需要）',
+            'message': 'Playwright 已安装（仅高级自动填充可选）' if pw_ok else '未安装 Playwright（安全发布模式不需要）',
             'path': '/settings/publish',
+            'optional': True,
         },
         'system': {'ready': True, 'message': '内容运营参数可改', 'path': '/settings/content'},
         'media': {'ready': True, 'message': '配音与视频可用', 'path': '/settings/media'},
@@ -162,31 +169,74 @@ def check_readiness():
     for p in list_platforms():
         if p.get('enable_collector', True):
             ckey = f"collector_{p['key']}"
+            enabled = str(settings.get(ckey, {}).get('enabled', 'false')).lower() == 'true'
+            has_cookie = bool(settings.get(ckey, {}).get('cookies'))
             readiness[ckey] = {
-                'ready': bool(settings.get(ckey, {}).get('cookies')),
-                'enabled': str(settings.get(ckey, {}).get('enabled', 'true')).lower() == 'true',
-                'message': f"{p['label']}采集 Cookies 已配置" if settings.get(ckey, {}).get('cookies') else f"未配置{p['label']}采集 Cookies",
+                'ready': (not enabled) or has_cookie,
+                'enabled': enabled,
+                'message': (
+                    f"{p['label']}采集已关闭（推荐）" if not enabled
+                    else (f"{p['label']}采集 Cookies 已配置" if has_cookie else f"{p['label']}采集已开但未配 Cookies")
+                ),
                 'label': p['label'],
                 'path': '/settings/collectors',
             }
         if p.get('enable_publish', True):
             pkey = f"publish_{p['key']}"
+            enabled = str(settings.get(pkey, {}).get('enabled', 'true')).lower() == 'true'
+            # 安全发布不依赖 Cookie
             readiness[pkey] = {
-                'ready': bool(settings.get(pkey, {}).get('cookies')),
-                'enabled': str(settings.get(pkey, {}).get('enabled', 'false')).lower() == 'true',
-                'message': f"{p['label']}发布已配置" if settings.get(pkey, {}).get('cookies') else f"未配置{p['label']}发布",
+                'ready': enabled,
+                'enabled': enabled,
+                'message': (
+                    f"{p['label']}发布已启用（复制文案+打开官方页）" if enabled
+                    else f"{p['label']}发布未启用"
+                ),
                 'label': p['label'],
                 'path': '/settings/publish',
             }
 
-    collector_ready = any(
-        readiness.get(f"collector_{p['key']}", {}).get('ready')
+    # 内容采集：全网热榜即可，不强制平台 Cookie
+    any_platform_collect_on = any(
+        readiness.get(f"collector_{p['key']}", {}).get('enabled')
         for p in list_platforms() if p.get('enable_collector', True)
     )
     readiness['collectors'] = {
-        'ready': collector_ready,
-        'message': '至少有一个采集平台已配置 Cookies' if collector_ready else '尚未配置任何采集平台 Cookies',
+        'ready': True,
+        'message': (
+            '可用全网热榜选题；平台登录态采集已关闭（更安全）'
+            if not any_platform_collect_on
+            else '平台登录态采集已开启（有封号风险），请确认确有必要'
+        ),
         'path': '/settings/collectors',
+        'optional': True,
+    }
+
+    commercial_list = list_commercial_providers()
+    commercial_on = [p for p in commercial_list if p.get('enabled')]
+    commercial_bad = [p for p in commercial_on if not p.get('ready')]
+    for p in commercial_list:
+        readiness[p['category']] = {
+            'ready': p['ready'],
+            'enabled': p['enabled'],
+            'message': p['message'],
+            'label': p['label'],
+            'path': '/settings/commercial',
+        }
+    readiness['commercial'] = {
+        'ready': len(commercial_bad) == 0,
+        'message': (
+            '未启用商业数据台（可选）；启用后请配齐 Base URL / API Key'
+            if not commercial_on
+            else (
+                f'已启用 {len(commercial_on)} 个数据源'
+                if not commercial_bad
+                else f'{len(commercial_bad)} 个已启用源未配齐 API'
+            )
+        ),
+        'path': '/settings/commercial',
+        'optional': True,
+        'providers': commercial_list,
     }
     publish_ready = any(
         readiness.get(f"publish_{p['key']}", {}).get('ready')
@@ -194,16 +244,17 @@ def check_readiness():
     )
     readiness['publish'] = {
         'ready': publish_ready,
-        'message': '至少有一个发布平台已配置' if publish_ready else '尚未配置发布平台',
+        'message': '至少有一个发布平台已启用' if publish_ready else '尚未启用发布平台',
         'path': '/settings/publish',
     }
 
     # 总览用的精简清单
     readiness['summary'] = [
         {'key': 'ai', **readiness['ai'], 'label': 'AI 模型'},
-        {'key': 'collectors', **readiness['collectors'], 'label': '内容采集'},
+        {'key': 'collectors', **readiness['collectors'], 'label': '内容选题'},
+        {'key': 'commercial', **readiness['commercial'], 'label': '官方数据台'},
         {'key': 'publish', **readiness['publish'], 'label': '发布平台'},
-        {'key': 'playwright', **readiness['playwright'], 'label': 'Playwright'},
+        {'key': 'playwright', **readiness['playwright'], 'label': 'Playwright（可选）'},
         {'key': 'ffmpeg', **readiness['ffmpeg'], 'label': 'FFmpeg'},
     ]
 

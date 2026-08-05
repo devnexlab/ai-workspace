@@ -59,6 +59,11 @@ export default function Videos() {
   const [materialKindTab, setMaterialKindTab] = useState('scene')
   // create=创建任务选景 | scene=场景编排补素材 | library=仅浏览素材库
   const [materialPickFor, setMaterialPickFor] = useState('create')
+  const [composeLayout, setComposeLayout] = useState('talking')
+  const [personMaterialId, setPersonMaterialId] = useState(null)
+  const [bgMaterialId, setBgMaterialId] = useState(null)
+  const [personPreview, setPersonPreview] = useState('')
+  const [bgPreview, setBgPreview] = useState('')
   // Voice options and narration presets from backend
   const [voiceOptions, setVoiceOptions] = useState([])
   const [narrationPresets, setNarrationPresets] = useState([])
@@ -218,6 +223,7 @@ export default function Videos() {
   const openCreateModal = () => {
     loadScripts()
     const prefs = lastPrefs || {}
+    const layout = prefs.compose_layout || 'talking'
     const ids = String(prefs.material_ids || '')
       .split(',')
       .map((x) => Number(x.trim()))
@@ -230,27 +236,47 @@ export default function Videos() {
       video_engine: prefs.video_engine || videoDefaults.default_video_engine || 'moviepy',
       fade_transition: prefs.fade_transition || videoDefaults.default_fade_transition || 'true',
       title_overlay: prefs.title_overlay || videoDefaults.default_title_overlay || 'true',
+      compose_layout: layout,
       voice: prefs.voice || undefined,
       voice_rate: prefs.voice_rate || undefined,
       narration_prompt: prefs.narration_prompt || undefined,
       script_id: undefined,
       title: undefined,
     })
-    setSelectedMaterialIds(ids)
+    setComposeLayout(layout)
+    const pid = Number(prefs.person_material_id) || null
+    const bid = Number(prefs.bg_material_id) || null
+    setPersonMaterialId(pid)
+    setBgMaterialId(bid)
+    setPersonPreview(pid ? `/api/materials/${pid}/preview` : '')
+    setBgPreview(bid ? `/api/materials/${bid}/preview` : '')
+    setSelectedMaterialIds(layout === 'talking' ? [] : ids)
     setCreateModal(true)
   }
 
   const handleCreate = () => {
     form.validateFields().then(values => {
+      const layout = values.compose_layout || composeLayout || 'default'
+      if (layout === 'talking' && !personMaterialId) {
+        message.warning('口播模板请选择人物照片')
+        return
+      }
       const payload = {
         ...values,
-        material_ids: selectedMaterialIds.map(toMaterialId).filter(Boolean).join(','),
+        compose_layout: layout,
+        person_material_id: layout === 'talking' ? personMaterialId : null,
+        bg_material_id: layout === 'talking' ? bgMaterialId : null,
+        material_ids: layout === 'talking'
+          ? [personMaterialId, bgMaterialId].filter(Boolean).join(',')
+          : selectedMaterialIds.map(toMaterialId).filter(Boolean).join(','),
       }
       videosApi.create(payload).then(() => {
         message.success('视频任务已创建')
         setCreateModal(false)
         form.resetFields()
         setSelectedMaterialIds([])
+        setPersonMaterialId(null)
+        setBgMaterialId(null)
         loadData(1)
       })
     })
@@ -338,6 +364,28 @@ export default function Videos() {
 
   const finishMaterialPick = () => {
     const ids = selectedMaterialIds.map(toMaterialId).filter(Boolean)
+    if (materialPickFor === 'person') {
+      const id = ids[0]
+      if (!id) {
+        message.warning('请选择一张人物照片')
+        return
+      }
+      setPersonMaterialId(id)
+      setPersonPreview(`/api/materials/${id}/preview`)
+      setMaterialModal(false)
+      return
+    }
+    if (materialPickFor === 'bg') {
+      const id = ids[0]
+      if (!id) {
+        message.warning('请选择背景图或视频')
+        return
+      }
+      setBgMaterialId(id)
+      setBgPreview(`/api/materials/${id}/preview`)
+      setMaterialModal(false)
+      return
+    }
     if (materialPickFor === 'scene' && sceneTaskId) {
       if (!ids.length) {
         message.warning('请至少选择一个场景图片或视频')
@@ -358,9 +406,13 @@ export default function Videos() {
   const toggleMaterialSelect = (rawId, assetKind) => {
     const id = toMaterialId(rawId)
     if (!id) return
-    // 创建任务 / 场景编排只允许选场景素材
     if ((materialPickFor === 'create' || materialPickFor === 'scene') && assetKind && assetKind !== 'scene') {
       message.info('分镜请选择「场景」图片或视频；BGM/封面请在素材库单独管理')
+      return
+    }
+    // 人像/背景：单选
+    if (materialPickFor === 'person' || materialPickFor === 'bg') {
+      setSelectedMaterialIds([id])
       return
     }
     setSelectedMaterialIds(prev => {
@@ -717,20 +769,73 @@ export default function Videos() {
           <Form.Item name="video_style" label="视频风格">
             <Select options={styles.map(s => ({ label: s.name, value: s.key }))} />
           </Form.Item>
-          <Form.Item label="选择素材" extra="从素材库选择「场景」图片或视频作为背景，不选则使用纯色背景（BGM/封面请在素材库单独上传）">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <Badge count={selectedMaterialIds.length}>
-                <Button icon={<PictureOutlined />} onClick={() => openSceneMaterialPicker({ for: 'create' })}>
-                  从素材库选择
-                </Button>
-              </Badge>
-              {selectedMaterialIds.length > 0 && (
-                <span style={{ color: '#999' }}>
-                  已选 {selectedMaterialIds.length} 个素材
-                </span>
-              )}
-            </div>
+          <Form.Item
+            name="compose_layout"
+            label="成片版式"
+            initialValue="talking"
+            extra="口播模板：人物居中完整显示 + 背景 + 字幕（推荐）"
+          >
+            <Select
+              onChange={(v) => setComposeLayout(v)}
+              options={[
+                { value: 'talking', label: '口播模板（人物照+背景）' },
+                { value: 'default', label: '分镜素材铺满（旧）' },
+              ]}
+            />
           </Form.Item>
+          {composeLayout === 'talking' ? (
+            <Row gutter={12}>
+              <Col span={12}>
+                <Form.Item label="人物照片" required extra="完整显示在画面中心，不会被裁成两半">
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <Button icon={<PictureOutlined />} onClick={() => {
+                      setMaterialPickFor('person')
+                      setSelectedMaterialIds(personMaterialId ? [personMaterialId] : [])
+                      setMaterialKindTab('scene')
+                      openSceneMaterialPicker({ for: 'person' })
+                    }}>
+                      {personMaterialId ? '更换人物' : '选择人物照片'}
+                    </Button>
+                    {personPreview ? (
+                      <img src={personPreview} alt="人物" style={{ width: '100%', maxHeight: 160, objectFit: 'contain', background: '#111', borderRadius: 8 }} />
+                    ) : null}
+                  </div>
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item label="背景" extra="图片或视频；可不选（用纯色底）">
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <Button icon={<PictureOutlined />} onClick={() => {
+                      setMaterialPickFor('bg')
+                      setSelectedMaterialIds(bgMaterialId ? [bgMaterialId] : [])
+                      setMaterialKindTab('scene')
+                      openSceneMaterialPicker({ for: 'bg' })
+                    }}>
+                      {bgMaterialId ? '更换背景' : '选择背景'}
+                    </Button>
+                    {bgPreview ? (
+                      <img src={bgPreview} alt="背景" style={{ width: '100%', maxHeight: 160, objectFit: 'cover', background: '#111', borderRadius: 8 }} />
+                    ) : null}
+                  </div>
+                </Form.Item>
+              </Col>
+            </Row>
+          ) : (
+            <Form.Item label="选择素材" extra="从素材库选择「场景」图片或视频作为背景，不选则使用纯色背景">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Badge count={selectedMaterialIds.length}>
+                  <Button icon={<PictureOutlined />} onClick={() => openSceneMaterialPicker({ for: 'create' })}>
+                    从素材库选择
+                  </Button>
+                </Badge>
+                {selectedMaterialIds.length > 0 && (
+                  <span style={{ color: '#999' }}>
+                    已选 {selectedMaterialIds.length} 个素材
+                  </span>
+                )}
+              </div>
+            </Form.Item>
+          )}
 
           {/* Narration Settings */}
           <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 16, marginTop: 8 }}>
@@ -849,15 +954,23 @@ export default function Videos() {
 
       {/* Material Library Modal */}
       <Modal
-        title={materialPickFor === 'scene' ? '选择场景素材（用于分镜）' : materialPickFor === 'create' ? '选择场景素材' : '素材库'}
+        title={
+          materialPickFor === 'person' ? '选择人物照片（单选）'
+            : materialPickFor === 'bg' ? '选择背景图/视频（单选）'
+              : materialPickFor === 'scene' ? '选择场景素材（用于分镜）'
+                : materialPickFor === 'create' ? '选择场景素材' : '素材库'
+        }
         open={materialModal}
         onCancel={() => setMaterialModal(false)}
-        footer={null} width={800}>
+        onOk={finishMaterialPick}
+        okText={materialPickFor === 'person' || materialPickFor === 'bg' ? '选用' : '完成'}
+        width={800}
+      >
         <Tabs
           activeKey={materialKindTab}
           onChange={(k) => {
-            if ((materialPickFor === 'create' || materialPickFor === 'scene') && k !== 'scene') {
-              message.info('生成视频分镜请使用「场景」素材；BGM/封面请从顶部「素材库」管理')
+            if ((materialPickFor === 'create' || materialPickFor === 'scene' || materialPickFor === 'person' || materialPickFor === 'bg') && k !== 'scene') {
+              message.info('请使用「场景」素材')
               return
             }
             setMaterialKindTab(k)
@@ -866,7 +979,7 @@ export default function Videos() {
             loadMaterials(next)
           }}
           items={
-            (materialPickFor === 'create' || materialPickFor === 'scene')
+            (materialPickFor === 'create' || materialPickFor === 'scene' || materialPickFor === 'person' || materialPickFor === 'bg')
               ? [{ key: 'scene', label: '场景（图片/视频）' }]
               : [
                 { key: 'scene', label: '场景' },

@@ -68,6 +68,9 @@ CREATE TABLE IF NOT EXISTS video_task (
     voice TEXT DEFAULT '',
     voice_rate TEXT DEFAULT '',
     scenes_json TEXT DEFAULT '',
+    compose_layout TEXT DEFAULT 'default',
+    person_material_id INTEGER,
+    bg_material_id INTEGER,
     voice_status TEXT DEFAULT 'pending',
     subtitle_status TEXT DEFAULT 'pending',
     video_status TEXT DEFAULT 'pending',
@@ -323,22 +326,29 @@ DEFAULT_SETTINGS = [
      '["professional","casual","passionate","humorous","serious","friendly"]', 8),
 
     # ---- Collector: Douyin ----
-    ('collector_douyin', 'enabled', 'true', '启用抖音采集', '', 'select', '["true","false"]', 1),
+    ('collector_douyin', 'enabled', 'false', '启用抖音采集',
+     '高风险：自动化/Cookie 采集易触发平台风控导致封号。推荐用「全网热榜」选题；仅实验时开启。',
+     'select', '["true","false"]', 1),
     ('collector_douyin', 'cookies', '', '抖音 Cookies',
-     '浏览器打开 douyin.com → F12 → Network → 任意请求 → 复制 Cookie 值', 'textarea', None, 2),
+     '【高风险·不推荐】登录态采集可能封号。浏览器打开 douyin.com → F12 → Network → 复制 Cookie',
+     'textarea', None, 2),
     ('collector_douyin', 'keywords', '养老金,家庭保障,保险避坑,理赔案例,职场内耗,育儿焦虑,健康养生,中年危机,防骗防坑,人情世故', '采集关键词',
      '逗号分隔，泛流量+保险热点', 'text', None, 3),
 
     # ---- Collector: Xiaohongshu ----
-    ('collector_xiaohongshu', 'enabled', 'true', '启用小红书采集', '', 'select', '["true","false"]', 1),
+    ('collector_xiaohongshu', 'enabled', 'false', '启用小红书采集',
+     '高风险：自动化/Cookie 采集易触发平台风控导致封号。推荐用「全网热榜」选题；仅实验时开启。',
+     'select', '["true","false"]', 1),
     ('collector_xiaohongshu', 'cookies', '', '小红书 Cookies',
-     '浏览器打开 xiaohongshu.com → F12 → Network → 任意请求 → 复制 Cookie 值', 'textarea', None, 2),
+     '【高风险·不推荐】登录态采集可能封号。浏览器打开 xiaohongshu.com → F12 → Network → 复制 Cookie',
+     'textarea', None, 2),
     ('collector_xiaohongshu', 'keywords', '家庭保障,保险避坑,宝妈理财,重疾险,医保报销,情感共鸣,生活智慧', '采集关键词', '逗号分隔', 'text', None, 3),
 
     # ---- Collector: Shipinhao (视频号) ----
-    ('collector_shipinhao', 'enabled', 'true', '启用视频号采集', '需配置 Cookies', 'select', '["true","false"]', 1),
+    ('collector_shipinhao', 'enabled', 'false', '启用视频号采集',
+     '视频号无公开网页搜索，此开关预留；选题请用全网热榜。', 'select', '["true","false"]', 1),
     ('collector_shipinhao', 'cookies', '', '视频号 Cookies',
-     '浏览器打开 channels.weixin.qq.com → F12 → 复制 Cookie', 'textarea', None, 2),
+     '一般无需配置。浏览器打开 channels.weixin.qq.com → F12 → 复制 Cookie', 'textarea', None, 2),
     ('collector_shipinhao', 'keywords', '养老金,保险避坑,理赔,家庭责任,健康预警,退休生活', '采集关键词', '逗号分隔', 'text', None, 3),
 
     # ---- TTS (配音) ----
@@ -373,23 +383,34 @@ DEFAULT_SETTINGS = [
     ('video', 'default_title_overlay', 'true', '默认显示标题', '新建视频任务时的默认值', 'select', '["true","false"]', 11),
 
     # ---- Publish: Douyin ----
-    ('publish_douyin', 'enabled', 'false', '启用抖音发布', '使用 Playwright 自动化', 'select', '["true","false"]', 1),
-    ('publish_douyin', 'cookies', '', '抖音发布 Cookies', '需登录 creator.douyin.com 的 Cookie', 'textarea', None, 2),
+    ('publish_douyin', 'enabled', 'true', '启用抖音发布',
+     '推荐：复制文案并打开官方创作者页，由你在平台手动点发布（避免自动化封号）',
+     'select', '["true","false"]', 1),
+    ('publish_douyin', 'cookies', '', '抖音发布 Cookies（可选·高风险）',
+     '仅「浏览器自动填充」高级模式需要；登录自动化有封号风险，可不填', 'textarea', None, 2),
 
     # ---- Publish: Xiaohongshu ----
-    ('publish_xiaohongshu', 'enabled', 'false', '启用小红书发布', '', 'select', '["true","false"]', 1),
-    ('publish_xiaohongshu', 'cookies', '', '小红书发布 Cookies', '', 'textarea', None, 2),
+    ('publish_xiaohongshu', 'enabled', 'true', '启用小红书发布',
+     '推荐：复制文案并打开官方创作者页，手动点发布', 'select', '["true","false"]', 1),
+    ('publish_xiaohongshu', 'cookies', '', '小红书发布 Cookies（可选·高风险）',
+     '仅高级自动填充需要；可不填', 'textarea', None, 2),
 
     # ---- Publish: Shipinhao ----
-    ('publish_shipinhao', 'enabled', 'false', '启用视频号发布', '', 'select', '["true","false"]', 1),
-    ('publish_shipinhao', 'cookies', '', '视频号发布 Cookies', '', 'textarea', None, 2),
+    ('publish_shipinhao', 'enabled', 'true', '启用视频号发布',
+     '推荐：复制文案并打开官方创作者页，手动点发布', 'select', '["true","false"]', 1),
+    ('publish_shipinhao', 'cookies', '', '视频号发布 Cookies（可选·高风险）',
+     '仅高级自动填充需要；可不填', 'textarea', None, 2),
 
     # ---- Publish: 通用 ----
-    ('publish', 'keep_open_minutes', '60', '发布浏览器保持打开(分钟)', '打开发布页后浏览器保留多久等待你手动确认', 'text', None, 1),
+    ('publish', 'keep_open_minutes', '60', '发布浏览器保持打开(分钟)',
+     '仅高级「浏览器自动填充」模式使用；安全模式下无需', 'text', None, 1),
+    ('publish', 'mode', 'manual', '发布模式',
+     'manual=复制文案+打开官方页（推荐）/ autofill=Playwright自动填充（高风险）',
+     'select', '["manual","autofill"]', 2),
 
     # ---- System ----
-    ('system', 'collect_interval', '60', '采集间隔(分钟)', '预留：平台口播定时采集间隔', 'text', None, 1),
-    ('system', 'auto_publish', 'false', '自动发布', '开启后视频完成后自动发布', 'select', '["true","false"]', 2),
+    ('system', 'collect_interval', '60', '采集间隔(分钟)', '预留：平台口播定时采集间隔（默认已关闭平台采集）', 'text', None, 1),
+    ('system', 'auto_publish', 'false', '自动发布', '不推荐开启：自动发布易触发风控', 'select', '["true","false"]', 2),
     # V1.2: Content schedule
     ('system', 'daily_traffic_count', '2', '每日泛流量文案数', '提高播放/点赞/转发/关注', 'text', None, 3),
     ('system', 'daily_insurance_count', '1', '每日保险知识文案数', '保险避坑/理赔案例/家庭保障', 'text', None, 4),
@@ -406,6 +427,101 @@ DEFAULT_SETTINGS = [
     ('stock', 'min_hits', '1', '最少命中规则数', '配合 match_mode=min 或 or 使用', 'text', None, 3),
     ('stock', 'pattern_rules_json', '', '自定义形态规则JSON', '留空则用系统默认启用规则', 'textarea', None, 4),
     ('stock', 'cache_dir', '', '行情缓存目录', '留空=backend/data/stock_cache', 'text', None, 5),
+
+    # ---- 官方/商业数据台（API 配置，不爬登录页）----
+    # 巨量算数
+    ('commercial_julang', 'enabled', 'false', '启用巨量算数',
+     '填入你购买/申请的官方或合规代理 API 后拉取榜单；勿用 Cookie 爬网页',
+     'select', '["true","false"]', 1),
+    ('commercial_julang', 'api_base_url', '', 'API Base URL',
+     '如 https://your-gateway.example.com', 'text', None, 2),
+    ('commercial_julang', 'api_key', '', 'API Key / Token', '鉴权密钥', 'password', None, 3),
+    ('commercial_julang', 'api_secret', '', 'API Secret（可选）', '部分签名接口需要', 'password', None, 4),
+    ('commercial_julang', 'endpoint_path', '/hot/rank', '榜单接口路径',
+     '相对 Base URL；也可填完整 https URL', 'text', None, 5),
+    ('commercial_julang', 'http_method', 'GET', '请求方法', '', 'select', '["GET","POST"]', 6),
+    ('commercial_julang', 'auth_type', 'bearer', '鉴权方式',
+     'bearer=Authorization Bearer / header=自定义头 / query=URL参数 / none=无',
+     'select', '["bearer","header","query","none"]', 7),
+    ('commercial_julang', 'auth_header_name', 'X-Api-Key', '鉴权头/参数名',
+     'auth_type=header 或 query 时使用', 'text', None, 8),
+    ('commercial_julang', 'list_json_path', 'data', '列表 JSON 路径',
+     '点分路径，如 data / data.list / result.items', 'text', None, 9),
+    ('commercial_julang', 'title_field', 'title,name,word,keyword', '标题字段',
+     '逗号分隔候选字段名', 'text', None, 10),
+    ('commercial_julang', 'hot_field', 'hot,hot_value,hotValue,score,index', '热度字段',
+     '逗号分隔候选', 'text', None, 11),
+    ('commercial_julang', 'url_field', 'url,link,rawUrl', '链接字段', '逗号分隔候选', 'text', None, 12),
+    ('commercial_julang', 'query_params', '', 'Query 参数 JSON', '如 {"limit":30}', 'textarea', None, 13),
+    ('commercial_julang', 'request_body', '', 'POST Body JSON',
+     '仅 POST；可用 {{api_key}} 占位', 'textarea', None, 14),
+    ('commercial_julang', 'extra_headers', '', '额外请求头 JSON', '如 {"X-Tenant":"xxx"}', 'textarea', None, 15),
+    ('commercial_julang', 'limit', '30', '最多条数', '', 'text', None, 16),
+
+    # 蝉妈妈
+    ('commercial_chanmama', 'enabled', 'false', '启用蝉妈妈',
+     '企业开通的数据 API 或合规网关；配置后拉取热榜/达人榜等',
+     'select', '["true","false"]', 1),
+    ('commercial_chanmama', 'api_base_url', '', 'API Base URL', '', 'text', None, 2),
+    ('commercial_chanmama', 'api_key', '', 'API Key / Token', '', 'password', None, 3),
+    ('commercial_chanmama', 'api_secret', '', 'API Secret（可选）', '', 'password', None, 4),
+    ('commercial_chanmama', 'endpoint_path', '/hot/rank', '榜单接口路径', '', 'text', None, 5),
+    ('commercial_chanmama', 'http_method', 'GET', '请求方法', '', 'select', '["GET","POST"]', 6),
+    ('commercial_chanmama', 'auth_type', 'bearer', '鉴权方式', '',
+     'select', '["bearer","header","query","none"]', 7),
+    ('commercial_chanmama', 'auth_header_name', 'X-Api-Key', '鉴权头/参数名', '', 'text', None, 8),
+    ('commercial_chanmama', 'list_json_path', 'data', '列表 JSON 路径', '', 'text', None, 9),
+    ('commercial_chanmama', 'title_field', 'title,name,word,keyword', '标题字段', '', 'text', None, 10),
+    ('commercial_chanmama', 'hot_field', 'hot,hot_value,hotValue,score,index', '热度字段', '', 'text', None, 11),
+    ('commercial_chanmama', 'url_field', 'url,link,rawUrl', '链接字段', '', 'text', None, 12),
+    ('commercial_chanmama', 'query_params', '', 'Query 参数 JSON', '', 'textarea', None, 13),
+    ('commercial_chanmama', 'request_body', '', 'POST Body JSON', '', 'textarea', None, 14),
+    ('commercial_chanmama', 'extra_headers', '', '额外请求头 JSON', '', 'textarea', None, 15),
+    ('commercial_chanmama', 'limit', '30', '最多条数', '', 'text', None, 16),
+
+    # 新榜
+    ('commercial_xinbang', 'enabled', 'false', '启用新榜',
+     '新榜企业 API 或代理网关；配置 Key 后拉取内容榜/热点',
+     'select', '["true","false"]', 1),
+    ('commercial_xinbang', 'api_base_url', '', 'API Base URL',
+     '如官方企业接口域名', 'text', None, 2),
+    ('commercial_xinbang', 'api_key', '', 'API Key / Token', '', 'password', None, 3),
+    ('commercial_xinbang', 'api_secret', '', 'API Secret（可选）', '', 'password', None, 4),
+    ('commercial_xinbang', 'endpoint_path', '/hot/rank', '榜单接口路径', '', 'text', None, 5),
+    ('commercial_xinbang', 'http_method', 'GET', '请求方法', '', 'select', '["GET","POST"]', 6),
+    ('commercial_xinbang', 'auth_type', 'header', '鉴权方式', '',
+     'select', '["bearer","header","query","none"]', 7),
+    ('commercial_xinbang', 'auth_header_name', 'Key', '鉴权头/参数名',
+     '按厂商文档填写，常见 Key / X-Api-Key', 'text', None, 8),
+    ('commercial_xinbang', 'list_json_path', 'data', '列表 JSON 路径', '', 'text', None, 9),
+    ('commercial_xinbang', 'title_field', 'title,name,word,keyword', '标题字段', '', 'text', None, 10),
+    ('commercial_xinbang', 'hot_field', 'hot,hot_value,hotValue,score,index', '热度字段', '', 'text', None, 11),
+    ('commercial_xinbang', 'url_field', 'url,link,rawUrl', '链接字段', '', 'text', None, 12),
+    ('commercial_xinbang', 'query_params', '', 'Query 参数 JSON', '', 'textarea', None, 13),
+    ('commercial_xinbang', 'request_body', '', 'POST Body JSON', '', 'textarea', None, 14),
+    ('commercial_xinbang', 'extra_headers', '', '额外请求头 JSON', '', 'textarea', None, 15),
+    ('commercial_xinbang', 'limit', '30', '最多条数', '', 'text', None, 16),
+
+    # 自定义
+    ('commercial_custom', 'enabled', 'false', '启用自定义数据源',
+     '飞瓜/卡思/自建网关等：只要返回 JSON 列表即可',
+     'select', '["true","false"]', 1),
+    ('commercial_custom', 'api_base_url', '', 'API Base URL', '', 'text', None, 2),
+    ('commercial_custom', 'api_key', '', 'API Key / Token', '', 'password', None, 3),
+    ('commercial_custom', 'api_secret', '', 'API Secret（可选）', '', 'password', None, 4),
+    ('commercial_custom', 'endpoint_path', '/hot/rank', '榜单接口路径', '', 'text', None, 5),
+    ('commercial_custom', 'http_method', 'GET', '请求方法', '', 'select', '["GET","POST"]', 6),
+    ('commercial_custom', 'auth_type', 'bearer', '鉴权方式', '',
+     'select', '["bearer","header","query","none"]', 7),
+    ('commercial_custom', 'auth_header_name', 'Authorization', '鉴权头/参数名', '', 'text', None, 8),
+    ('commercial_custom', 'list_json_path', 'data', '列表 JSON 路径', '', 'text', None, 9),
+    ('commercial_custom', 'title_field', 'title,name,word,keyword', '标题字段', '', 'text', None, 10),
+    ('commercial_custom', 'hot_field', 'hot,hot_value,hotValue,score,index', '热度字段', '', 'text', None, 11),
+    ('commercial_custom', 'url_field', 'url,link,rawUrl', '链接字段', '', 'text', None, 12),
+    ('commercial_custom', 'query_params', '', 'Query 参数 JSON', '', 'textarea', None, 13),
+    ('commercial_custom', 'request_body', '', 'POST Body JSON', '', 'textarea', None, 14),
+    ('commercial_custom', 'extra_headers', '', '额外请求头 JSON', '', 'textarea', None, 15),
+    ('commercial_custom', 'limit', '30', '最多条数', '', 'text', None, 16),
 ]
 
 
@@ -483,6 +599,9 @@ def init_db():
     _add_column_if_not_exists(cur, 'stock_watchlist', 'alert_on_target', 'BOOLEAN DEFAULT TRUE')
     _add_column_if_not_exists(cur, 'video_material', 'asset_kind', "TEXT DEFAULT 'scene'")
     _add_column_if_not_exists(cur, 'video_material', 'style_key', "TEXT DEFAULT ''")
+    _add_column_if_not_exists(cur, 'video_task', 'compose_layout', "TEXT DEFAULT 'default'")
+    _add_column_if_not_exists(cur, 'video_task', 'person_material_id', 'INTEGER')
+    _add_column_if_not_exists(cur, 'video_task', 'bg_material_id', 'INTEGER')
     _add_column_if_not_exists(cur, 'knowledge_item', 'source_file', "TEXT DEFAULT ''")
 
     # 强制校正品牌内容运营关键设置（修正旧默认值）
@@ -501,7 +620,18 @@ def init_db():
         row = cur.fetchone()
         if row and ('AI副业' in (row[0] or '') or 'AI赚钱' in (row[0] or '') or 'AI工具' in (row[0] or '')):
             _upsert_setting(cur, cat, 'keywords', new_kw)
-    _upsert_setting(cur, 'collector_shipinhao', 'enabled', 'true')
+
+    # 安全策略：默认关闭平台登录态采集（易封号）；发布改为启用（人工复制+打开官方页）
+    for cat in ('collector_douyin', 'collector_xiaohongshu', 'collector_shipinhao'):
+        _upsert_setting(cur, cat, 'enabled', 'false')
+    for cat in ('publish_douyin', 'publish_xiaohongshu', 'publish_shipinhao'):
+        # 仅当从未启用过时不强制改用户选择；但若仍是旧默认 false，升为 true 以支持安全发布
+        cur.execute('SELECT value FROM system_setting WHERE category=%s AND key=%s', (cat, 'enabled'))
+        row = cur.fetchone()
+        if row is None or str(row[0] or '').lower() in ('', 'false'):
+            _upsert_setting(cur, cat, 'enabled', 'true')
+    _upsert_setting(cur, 'publish', 'mode', 'manual')
+    _upsert_setting(cur, 'system', 'auto_publish', 'false')
 
     # Edge TTS 大量中文音色已下线：更新下拉选项，并把已失效音色映射到仍可用的
     _alive_voices = [

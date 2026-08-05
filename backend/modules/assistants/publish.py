@@ -144,10 +144,13 @@ def _task_retry_publish(task_id: int) -> dict:
 
 def _task_do_publish(task_id: int) -> dict:
     try:
-        from modules.publisher import publish_video
+        from config import get_setting
+        from modules.content_ops.platforms import get_platform
+
+        mode = (get_setting('publish', 'mode', 'manual') or 'manual').lower()
         conn = _db()
         task = conn.execute(
-            '''SELECT p.*, v.output_path FROM publish_task p
+            '''SELECT p.*, v.output_path, v.title as video_title FROM publish_task p
                LEFT JOIN video_task v ON p.video_task_id=v.id WHERE p.id=%s''',
             (task_id,),
         ).fetchone()
@@ -167,6 +170,31 @@ def _task_do_publish(task_id: int) -> dict:
             conn.close()
             return {'error': '视频成片路径为空，无法发布'}
 
+        # 默认安全模式：不启动自动化浏览器
+        if mode != 'autofill':
+            meta = get_platform(t['platform']) or {}
+            label = meta.get('label') or t['platform']
+            creator_url = meta.get('creator_url') or ''
+            conn.execute(
+                "UPDATE publish_task SET status='reviewing', error_msg=%s WHERE id=%s",
+                (
+                    f'请到发布中心点「准备发布」：复制文案并打开{label}官方页，手动上传点发表后确认',
+                    task_id,
+                ),
+            )
+            conn.commit()
+            conn.close()
+            msg = f'已标记待确认。请打开发布中心对任务 #{task_id} 点「准备发布」（安全模式，避免封号）'
+            return {
+                'assistant': 'publish',
+                'task': f'publish:{task_id}',
+                'summary': msg,
+                'next_actions': ['打开发布中心 → 准备发布', '在平台点发表后确认已发'],
+                'message': msg,
+                'data': {'creator_url': creator_url, 'mode': 'manual'},
+            }
+
+        from modules.publisher import publish_video
         result = publish_video(
             platform=t['platform'],
             video_path=t['output_path'],

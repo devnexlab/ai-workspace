@@ -33,6 +33,7 @@ const pathGroupMap = {
   '/workflows': 'ai',
   '/settings/ai': 'settings',
   '/settings/collectors': 'settings',
+  '/settings/commercial': 'settings',
   '/settings/publish': 'settings',
   '/settings/media': 'settings',
   '/settings/content': 'settings',
@@ -51,6 +52,7 @@ const pageTitleMap = {
   '/stocks': '股票研究',
   '/settings/ai': 'AI 大模型',
   '/settings/collectors': '采集平台',
+  '/settings/commercial': '官方数据台',
   '/settings/publish': '发布平台',
   '/settings/media': '配音与视频',
   '/settings/content': '内容运营',
@@ -95,6 +97,7 @@ const menuItems = [
     children: [
       { key: '/settings/ai', label: 'AI 大模型' },
       { key: '/settings/collectors', label: '采集平台' },
+      { key: '/settings/commercial', label: '官方数据台' },
       { key: '/settings/publish', label: '发布平台' },
       { key: '/settings/media', label: '配音与视频' },
       { key: '/settings/content', label: '内容运营' },
