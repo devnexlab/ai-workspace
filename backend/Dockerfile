@@ -2,14 +2,24 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# 视频合成 / 时长探测需要系统 FFmpeg；中文字幕需要字体
+# 国内 apt 镜像（否则 deb.debian.org 可能极慢）
+RUN set -eux; \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+      sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources; \
+      sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources; \
+    fi; \
+    if [ -f /etc/apt/sources.list ]; then \
+      sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list; \
+      sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list; \
+    fi
+
+# 视频合成需要 FFmpeg；中文字幕用文泉驿即可（比 fonts-noto-cjk 小很多）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     fonts-wqy-zenhei \
-    fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
-# 依赖以仓库根目录 pyproject.toml 为准（不再使用 requirements.txt）
+# 依赖以仓库根目录 pyproject.toml 为准
 COPY pyproject.toml README.md ./
 COPY backend/ ./backend/
 
