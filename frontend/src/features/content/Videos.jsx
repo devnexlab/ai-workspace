@@ -27,6 +27,24 @@ const statusIcons = {
 const statusColors = { pending: 'default', done: 'success', failed: 'error', processing: 'processing' }
 const statusLabels = { pending: '待处理', done: '完成', failed: '失败', processing: '执行中' }
 
+/** 合成用时：90 → 1分30秒 */
+function formatElapsedSec(sec) {
+  if (sec == null || sec === '' || Number.isNaN(Number(sec))) return ''
+  const s = Math.max(0, Math.floor(Number(sec)))
+  const h = Math.floor(s / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const r = s % 60
+  if (h > 0) return `${h}小时${m}分${r}秒`
+  if (m > 0) return `${m}分${r}秒`
+  return `${r}秒`
+}
+
+function composeElapsedOf(row) {
+  const n = Number(row?.compose_elapsed_sec)
+  if (Number.isFinite(n) && n > 0) return n
+  return null
+}
+
 const STYLE_COLORS = {
   default: 'blue', cyberpunk: 'cyan', punk: 'red', minimalist: 'default',
   vintage: 'orange', tech: 'geekblue', warm: 'gold', cinematic: 'purple',
@@ -120,7 +138,8 @@ export default function Videos() {
           stopPolling(taskId)
           loadData()
           if (res.export_status === 'done') {
-            message.success(`视频任务 #${taskId} 制作完成！`)
+            const cost = formatElapsedSec(res.compose_elapsed_sec)
+            message.success(`视频任务 #${taskId} 制作完成！${cost ? `用时 ${cost}` : ''}`)
           } else if (res.video_status === 'failed' || res.export_status === 'failed') {
             message.error(`视频任务 #${taskId} 失败: ${res.error_msg || '未知错误'}`)
           }
@@ -519,23 +538,53 @@ export default function Videos() {
       ),
     },
     {
-      title: '时长', dataIndex: 'duration', width: 64,
+      title: '成片', dataIndex: 'duration', width: 64,
       render: v => (v ? `${Number(v).toFixed(0)}s` : '-'),
+    },
+    {
+      title: '用时', dataIndex: 'compose_elapsed_sec', width: 88,
+      render: (v, r) => {
+        const sec = composeElapsedOf(r)
+        const busy = r.video_status === 'processing' || r.export_status === 'processing'
+          || (r.voice_status === 'processing' && pollingTasks.has(r.id))
+        if (sec == null) return <span style={{ color: '#94a3b8' }}>{busy ? '计时中' : '-'}</span>
+        return (
+          <Tooltip title={busy ? '合成进行中（实时刷新）' : '合成总用时'}>
+            <span style={{ color: busy ? '#1677ff' : '#64748b', fontVariantNumeric: 'tabular-nums' }}>
+              {formatElapsedSec(sec)}
+            </span>
+          </Tooltip>
+        )
+      },
     },
     {
       title: '说明', dataIndex: 'error_msg', width: 140, ellipsis: true,
       render: (v, r) => {
         const failed = failedStepOf(r)
+        const sec = composeElapsedOf(r)
         if (!failed) {
-          if (r.export_status === 'done') return <span style={{ color: '#94a3b8' }}>已完成</span>
+          if (r.export_status === 'done') {
+            return (
+              <span style={{ color: '#94a3b8' }}>
+                已完成{sec != null ? ` · 用时${formatElapsedSec(sec)}` : ''}
+              </span>
+            )
+          }
           if (r.voice_status === 'processing' || r.subtitle_status === 'processing' || r.video_status === 'processing' || r.export_status === 'processing') {
-            return <span style={{ color: '#1677ff' }}>制作中…</span>
+            return (
+              <span style={{ color: '#1677ff' }}>
+                制作中{sec != null ? ` · ${formatElapsedSec(sec)}` : '…'}
+              </span>
+            )
           }
           return <span style={{ color: '#94a3b8' }}>-</span>
         }
         return (
           <Tooltip title={v || '步骤失败，可点重试'}>
-            <span style={{ color: '#cf1322', fontSize: 12 }}>{v || `${failed.name}失败`}</span>
+            <span style={{ color: '#cf1322', fontSize: 12 }}>
+              {v || `${failed.name}失败`}
+              {sec != null ? ` · ${formatElapsedSec(sec)}` : ''}
+            </span>
           </Tooltip>
         )
       },

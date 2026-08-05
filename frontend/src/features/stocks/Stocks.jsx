@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   Table, Tag, Button, Input, Select, Space, Modal, message,
   Form, Popconfirm, Tooltip, Row, Col, Card, Tabs, Checkbox,
@@ -12,6 +12,7 @@ import {
 } from '@ant-design/icons'
 import { stocksApi } from '../../api'
 import { formatDateTime } from '../../utils/date'
+import './Stocks.css'
 
 const listTypeOptions = [
   { value: 'watch', label: '关注' },
@@ -43,6 +44,78 @@ const STRATEGY_RULE_EXAMPLE = `买入条件：
 3. 出现明显放量滞涨则清仓
 
 备注：避开ST、北交所；开盘半小时后再看量能确认。`
+
+/** 把复盘字段（含误返回的 JSON 对象/字符串）整理成可读条目 */
+function parseReviewField(value) {
+  if (value == null || value === '') return []
+  if (Array.isArray(value)) {
+    return value
+      .map((item, i) => {
+        if (item && typeof item === 'object') {
+          const label = item.title || item.name || item.label || `第 ${i + 1} 条`
+          const text = item.text || item.content || item.action || item.desc || JSON.stringify(item)
+          return { label: String(label), text: String(text) }
+        }
+        return { label: '', text: String(item) }
+      })
+      .filter(x => x.text.trim())
+  }
+  if (typeof value === 'object') {
+    return Object.entries(value)
+      .map(([key, v]) => {
+        let label = key
+        const m = String(key).match(/^position[_-]?(\d{6})$/i)
+        if (m) label = `持仓 ${m[1]}`
+        else if (/^strategy[_-]?/i.test(key)) label = `策略 ${String(key).replace(/^strategy[_-]?/i, '') || ''}`.trim()
+        else if (key === 'overall' || key === 'general') label = '整体'
+        return { label, text: typeof v === 'string' ? v : (v == null ? '' : JSON.stringify(v)) }
+      })
+      .filter(x => String(x.text).trim())
+  }
+  const raw = String(value).trim()
+  if ((raw.startsWith('{') && raw.endsWith('}')) || (raw.startsWith('[') && raw.endsWith(']'))) {
+    try {
+      return parseReviewField(JSON.parse(raw))
+    } catch {
+      /* fall through */
+    }
+  }
+  // 按空行或编号拆成多条
+  const chunks = raw
+    .split(/\n+/)
+    .map(s => s.trim())
+    .filter(Boolean)
+  if (chunks.length <= 1) return [{ label: '', text: raw }]
+  return chunks.map(line => {
+    const m = line.match(/^【([^】]+)】\s*(.*)$/)
+    if (m) return { label: m[1], text: m[2] || '' }
+    return { label: '', text: line }
+  })
+}
+
+function ReviewFieldText({ value, danger = false }) {
+  const items = parseReviewField(value)
+  if (!items.length) return null
+  const style = {
+    whiteSpace: 'pre-wrap',
+    lineHeight: 1.8,
+    fontSize: 13,
+    color: danger ? '#a8071a' : undefined,
+  }
+  if (items.length === 1 && !items[0].label) {
+    return <div style={style}>{items[0].text}</div>
+  }
+  return (
+    <div className="stocks-review-actions">
+      {items.map((item, idx) => (
+        <div key={`${item.label}-${idx}`} className="stocks-review-action-item">
+          {item.label ? <div className="stocks-review-action-label">{item.label}</div> : null}
+          <div style={style}>{item.text}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
 
 /** 把库里的 rules_json 转成普通人可读的文字（兼容旧 JSON） */
 function rulesToText(raw) {
@@ -116,6 +189,37 @@ const screeningConditionsFallback = [
   { key: 'kdj_golden_cross', label: 'KDJ金叉' },
   { key: 'pullback_support', label: '回踩支撑' },
 ]
+
+const RULE_GROUPS = [
+  {
+    key: 'trend',
+    title: '趋势 / 结构',
+    keys: ['ma_all_rising', 'ma_bullish', 'breakthrough', 'pullback_support'],
+  },
+  {
+    key: 'momentum',
+    title: '动量 / 强弱',
+    keys: ['recent_limit_up', 'volume_increase', 'macd_golden_cross', 'kdj_golden_cross'],
+  },
+  {
+    key: 'reversion',
+    title: '超卖 / 回踩',
+    keys: ['rsi_low', 'boll_lower'],
+  },
+]
+
+function groupPatternRules(rules) {
+  const byKey = Object.fromEntries((rules || []).map(r => [r.key, r]))
+  const used = new Set()
+  const groups = RULE_GROUPS.map(g => {
+    const items = g.keys.map(k => byKey[k]).filter(Boolean)
+    items.forEach(r => used.add(r.key))
+    return { ...g, items }
+  }).filter(g => g.items.length)
+  const rest = (rules || []).filter(r => r.key && !used.has(r.key))
+  if (rest.length) groups.push({ key: 'other', title: '其他条件', items: rest })
+  return groups
+}
 
 const paramLabels = {
   periods: '均线周期（逗号分隔）',
@@ -488,6 +592,18 @@ export default function Stocks() {
   const [ruleParamsForm] = Form.useForm()
   const [activeStrategies, setActiveStrategies] = useState([])
   const [selectedStrategyId, setSelectedStrategyId] = useState(null)
+  const [screenConfigOpen, setScreenConfigOpen] = useState(false)
+  const [screenResultOpen, setScreenResultOpen] = useState(false)
+  const screeningPollRef = useRef(null)
+  const viewingResultIdRef = useRef(null)
+  const ruleGroups = useMemo(() => groupPatternRules(patternRules), [patternRules])
+
+  const toggleCondition = (label) => {
+    setSelectedStrategyId(null)
+    setSelectedConditions(prev => (
+      prev.includes(label) ? prev.filter(x => x !== label) : [...prev, label]
+    ))
+  }
 
   const openRuleParams = (rule) => {
     const values = {}
@@ -567,48 +683,91 @@ export default function Stocks() {
     if (strategy.screen_min_hits) setMinHits(Number(strategy.screen_min_hits) || 1)
     setSelectedStrategyId(strategy.id)
     message.success(`已应用策略「${strategy.name}」到筛选条件`)
-    if (switchTab) setActiveTab('screening')
+    if (switchTab) {
+      setActiveTab('screening')
+      setScreenConfigOpen(true)
+    }
   }
 
-  const loadScreeningHistory = () => {
-    setHistoryLoading(true)
+  const loadScreeningHistory = (opts = {}) => {
+    const silent = !!opts.silent
+    if (!silent) setHistoryLoading(true)
     stocksApi.screeningHistory()
       .then(res => setScreeningHistory(res?.list || res || []))
       .catch(() => {})
-      .finally(() => setHistoryLoading(false))
+      .finally(() => { if (!silent) setHistoryLoading(false) })
   }
 
+  const stopScreeningPoll = () => {
+    if (screeningPollRef.current) {
+      clearTimeout(screeningPollRef.current)
+      screeningPollRef.current = null
+    }
+  }
+
+  /** 后台轮询任务状态；仅当结果弹窗正查看同一任务时更新弹窗内容 */
   const pollScreening = (id) => {
+    stopScreeningPoll()
     setActiveScreeningId(id)
     const tick = () => {
       stocksApi.getScreening(id).then(res => {
-        setScreeningResult(res)
+        if (viewingResultIdRef.current === id) {
+          setScreeningResult(res)
+        }
         if (res.status === 'running' || res.status === 'pending') {
-          setTimeout(tick, 2500)
+          loadScreeningHistory({ silent: true })
+          screeningPollRef.current = setTimeout(tick, 2500)
         } else {
           setScreeningLoading(false)
-          setActiveScreeningId(null)
-          loadScreeningHistory()
+          setActiveScreeningId(prev => (prev === id ? null : prev))
+          loadScreeningHistory({ silent: true })
           if (res.status === 'completed') {
             message.success(res.message || `筛选完成，命中 ${(res.results || []).length} 只`)
+          } else if (res.status === 'cancelled') {
+            message.info(res.message || '筛选已取消')
           } else {
             message.error(res.message || '筛选失败')
           }
         }
       }).catch(() => {
         setScreeningLoading(false)
-        setActiveScreeningId(null)
+        setActiveScreeningId(prev => (prev === id ? null : prev))
         message.error('轮询筛选结果失败')
       })
     }
     tick()
   }
 
+  const closeScreenResult = () => {
+    setScreenResultOpen(false)
+    viewingResultIdRef.current = null
+    setScreeningLoading(false)
+  }
+
+  const openScreeningResult = (id) => {
+    viewingResultIdRef.current = id
+    setScreenResultOpen(true)
+    setScreeningResult(null)
+    setScreeningLoading(true)
+    stocksApi.getScreening(id).then(res => {
+      setScreeningResult(res)
+      setScreeningLoading(false)
+      if (res.status === 'running' || res.status === 'pending') {
+        pollScreening(id)
+      }
+    }).catch(() => {
+      setScreeningLoading(false)
+      message.error('加载筛选结果失败')
+    })
+  }
+
   const handleScreening = () => {
     // 不选条件 = 用后端默认启用规则
     const strategy = activeStrategies.find(s => s.id === selectedStrategyId)
-    setScreeningLoading(true)
-    setScreeningResult(null)
+    const scanLimit = maxStocks == null || maxStocks === '' ? 300 : Number(maxStocks)
+    setScreenConfigOpen(false)
+    setScreeningLoading(false)
+    message.loading({ content: '正在提交筛选任务…', key: 'screen-submit', duration: 0 })
     stocksApi.screening({
       name: strategy ? `策略·${strategy.name}` : '技术面筛选',
       conditions: selectedConditions,
@@ -617,27 +776,26 @@ export default function Stocks() {
         enabled: selectedConditions.includes(r.label || r.key),
       })) : null,
       match_mode: matchMode,
-      min_hits: minHits,
-      max_stocks: maxStocks,
+      min_hits: minHits == null ? 1 : minHits,
+      max_stocks: Number.isFinite(scanLimit) ? scanLimit : 300,
     })
       .then(res => {
+        message.destroy('screen-submit')
+        loadScreeningHistory()
         if (res.status === 'completed' && res.results) {
-          setScreeningResult(res)
-          setScreeningLoading(false)
-          loadScreeningHistory()
           message.success(res.message || '筛选完成')
         } else if (res.id) {
-          message.info('筛选已在后台运行…')
+          message.info('筛选已在后台运行，可在历史中查看进度')
           pollScreening(res.id)
-        } else {
-          setScreeningLoading(false)
         }
       })
       .catch(err => {
+        message.destroy('screen-submit')
         message.error(err?.error || '筛选失败')
-        setScreeningLoading(false)
       })
   }
+
+  useEffect(() => () => stopScreeningPoll(), [])
 
   const addResultToWatch = (row) => {
     stocksApi.addStock({
@@ -662,31 +820,30 @@ export default function Stocks() {
 
   const screeningHistoryColumns = [
     { title: 'ID', dataIndex: 'id', width: 60 },
-    { title: '名称', dataIndex: 'name', width: 120, ellipsis: true, render: v => v || '-' },
+    { title: '名称', dataIndex: 'name', width: 140, ellipsis: true, render: v => v || '-' },
     {
-      title: '条件', dataIndex: 'condition_labels', width: 220, ellipsis: true,
+      title: '条件', dataIndex: 'condition_labels', width: 280, ellipsis: true,
       render: (v, r) => (v && v.length ? v.join('、') : (r.message || '-')),
     },
     {
-      title: '命中', dataIndex: 'matched', width: 70,
-      render: v => v != null ? v : '-',
+      title: '命中', dataIndex: 'matched', width: 80,
+      render: v => (v != null ? <Tag color={v > 0 ? 'green' : 'default'}>{v}</Tag> : '-'),
     },
     {
       title: '状态', dataIndex: 'status', width: 90,
       render: v => (
-        <Tag color={v === 'completed' ? 'green' : v === 'running' ? 'processing' : v === 'failed' ? 'red' : 'blue'}>
-          {v || '-'}
+        <Tag color={v === 'completed' ? 'green' : v === 'running' || v === 'pending' ? 'processing' : v === 'failed' ? 'red' : 'blue'}>
+          {v === 'completed' ? '完成' : v === 'running' || v === 'pending' ? '扫描中' : v === 'failed' ? '失败' : (v || '-')}
         </Tag>
       ),
     },
     { title: '时间', dataIndex: 'created_at', width: 160, render: v => formatDateTime(v) },
     {
-      title: '操作', width: 90,
+      title: '操作', width: 100, fixed: 'right',
       render: (_, r) => (
-        <Button size="small" onClick={() => {
-          setScreeningLoading(true)
-          pollScreening(r.id)
-        }}>查看</Button>
+        <Button size="small" type="link" onClick={() => openScreeningResult(r.id)}>
+          查看结果
+        </Button>
       ),
     },
   ]
@@ -707,8 +864,14 @@ export default function Stocks() {
     { title: 'MA60', dataIndex: 'ma60', width: 72, render: v => v ?? '-' },
     { title: '年线', dataIndex: 'ma250', width: 80, render: v => v ?? '-' },
     {
-      title: '命中形态', dataIndex: 'hits', width: 220, ellipsis: true,
-      render: v => (v || []).join('、'),
+      title: '命中形态', dataIndex: 'hits', width: 260,
+      render: v => (
+        <Space size={[4, 4]} wrap>
+          {(v || []).length
+            ? (v || []).map(h => <Tag key={h} color="blue" style={{ margin: 0 }}>{h}</Tag>)
+            : '-'}
+        </Space>
+      ),
     },
     { title: '命中数', dataIndex: 'hit_count', width: 70 },
     {
@@ -1084,194 +1247,315 @@ export default function Stocks() {
       ),
     },
 
-    // Tab 2: 条件筛选
+    // Tab 2: 条件筛选 — 主界面为历史；配置与结果用弹窗
     {
       key: 'screening',
       label: <span><SearchOutlined /> 条件筛选</span>,
       children: (
-        <div>
-          <Card title={<span><FundOutlined /> 技术面筛选（可配置；清空勾选则用已保存/系统默认规则）</span>} size="small" style={{ marginBottom: 16 }}>
-            <Space wrap style={{ marginBottom: 12 }}>
-              <span>使用 AI 策略</span>
-              <Select
-                allowClear
-                placeholder={activeStrategies.length ? '选择已启用的策略' : '暂无启用中的策略'}
-                style={{ minWidth: 260 }}
-                value={selectedStrategyId}
-                options={activeStrategies.map(s => ({
-                  value: s.id,
-                  label: `${s.name}${matchedLabelsOf(s).length ? `（${matchedLabelsOf(s).join('、')}）` : '（未识别条件）'}`,
-                  disabled: !matchedLabelsOf(s).length,
-                }))}
-                onChange={(id) => {
-                  if (!id) {
-                    setSelectedStrategyId(null)
-                    return
-                  }
-                  const st = activeStrategies.find(s => s.id === id)
-                  applyStrategyToScreening(st)
-                }}
-              />
-              <Button type="link" onClick={() => setActiveTab('strategy')}>去管理策略</Button>
-            </Space>
-            <Checkbox.Group
-              value={selectedConditions}
-              onChange={(vals) => {
-                setSelectedConditions(vals)
-                setSelectedStrategyId(null)
-              }}
-              style={{ width: '100%' }}
-            >
-              <Row gutter={[16, 12]}>
-                {patternRules.map(c => (
-                  <Col key={c.key || c.label} xs={24} sm={12} lg={8}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
-                      <Checkbox value={c.label || c.key} style={{ flex: 1 }}>
-                        <div>{c.label || c.key}</div>
-                        {c.desc ? <div style={{ color: '#999', fontSize: 12, fontWeight: 400 }}>{c.desc}</div> : null}
-                      </Checkbox>
-                      {Object.keys(c.params || {}).length > 0 && (
-                        <Tooltip title="调整这条规则的参数">
-                          <Button size="small" type="text" icon={<SettingOutlined />}
-                            onClick={() => openRuleParams(c)} />
-                        </Tooltip>
-                      )}
-                    </div>
-                  </Col>
-                ))}
-              </Row>
-            </Checkbox.Group>
-            <Divider />
-            <Space wrap style={{ marginBottom: 12 }}>
-              <span>匹配模式</span>
-              <Select
-                style={{ width: 160 }}
-                value={matchMode}
-                onChange={setMatchMode}
-                options={[
-                  { value: 'or', label: '命中任一(初筛)' },
-                  { value: 'min', label: '至少N条' },
-                  { value: 'and', label: '全部命中(精筛)' },
-                ]}
-              />
-              <span>最少命中</span>
-              <InputNumber min={1} max={12} value={minHits} onChange={v => setMinHits(v || 1)} />
-              <span>扫描上限</span>
-              <InputNumber min={0} max={6000} step={50} value={maxStocks} onChange={v => setMaxStocks(v ?? 300)} />
-              <span style={{ color: '#888' }}>0=全市场(很慢)。首次建议 200~300；当天有缓存后再加大</span>
-            </Space>
-            <div>
-              <Button type="primary" icon={<SearchOutlined />} loading={screeningLoading}
-                onClick={handleScreening} size="large"
-              >开始筛选</Button>
-              <Button style={{ marginLeft: 8 }} onClick={() => {
-                const enabled = patternRules.filter(r => r.enabled !== false).map(r => r.label || r.key)
-                setSelectedConditions(enabled)
-              }}>恢复默认勾选</Button>
-              <Button style={{ marginLeft: 8 }} onClick={() => {
-                setSelectedConditions(['多周期均线全部朝上', '近1个月有涨停'])
-                setMatchMode('and')
-                setMinHits(2)
-              }}>趋势+涨停初筛</Button>
-              <Button style={{ marginLeft: 8 }} onClick={() => {
-                const next = patternRules.map(r => ({
-                  ...r,
-                  enabled: selectedConditions.includes(r.label || r.key),
-                }))
-                stocksApi.savePatternRules({
-                  rules: next,
-                  match_mode: matchMode,
-                  min_hits: minHits,
-                  max_stocks: maxStocks,
-                }).then(() => {
-                  setPatternRules(next)
-                  message.success('已保存为默认形态规则（下次打开筛选页会沿用）')
-                }).catch(() => message.error('保存失败'))
-              }}>保存为默认</Button>
-              <Button type="link" onClick={() => setSelectedConditions([])}>清空勾选</Button>
-              {activeScreeningId && (
-                <>
-                  <Tag color="processing" style={{ marginLeft: 12 }}>任务 #{activeScreeningId} 运行中</Tag>
-                  <Button size="small" danger style={{ marginLeft: 8 }} onClick={() => {
-                    stocksApi.cancelScreening(activeScreeningId).then(() => {
-                      message.info('已取消')
-                      setScreeningLoading(false)
-                      setActiveScreeningId(null)
-                      loadScreeningHistory()
-                    }).catch(() => message.error('取消失败'))
-                  }}>取消</Button>
-                </>
+        <div className="stocks-screen">
+          <div className="table-toolbar" style={{ marginBottom: 0 }}>
+            <div className="table-toolbar-left">
+              <Button icon={<ReloadOutlined />} onClick={loadScreeningHistory}>刷新</Button>
+              {activeScreeningId ? (
+                <Tag color="processing">任务 #{activeScreeningId} 扫描中</Tag>
+              ) : (
+                <span style={{ color: '#64748b', fontSize: 13 }}>
+                  历史记录一览；点「查看结果」打开详情，点右侧开始新筛选
+                </span>
               )}
             </div>
-            <Modal
-              title={`调整规则参数 - ${ruleEditing?.label || ''}`}
-              open={!!ruleEditing}
-              onOk={saveRuleParams}
-              onCancel={() => setRuleEditing(null)}
-              destroyOnClose
-            >
-              <Form form={ruleParamsForm} layout="vertical" style={{ marginTop: 16 }}>
-                {Object.entries(ruleEditing?.params || {}).map(([key, value]) => (
-                  <Form.Item key={key} name={key} label={paramLabels[key] || key}
-                    rules={[{ required: true, message: '不能为空' }]}>
-                    {Array.isArray(value)
-                      ? <Input placeholder="例如：5,10,20,30,60,250" />
-                      : <InputNumber style={{ width: '100%' }} precision={Number.isInteger(value) ? 0 : 3} />}
-                  </Form.Item>
-                ))}
-              </Form>
-              <div style={{ color: '#888' }}>{ruleEditing?.desc}</div>
-            </Modal>
-          </Card>
+            <Space>
+              {activeScreeningId && (
+                <Button size="small" danger onClick={() => {
+                  stocksApi.cancelScreening(activeScreeningId).then(() => {
+                    message.info('已取消')
+                    stopScreeningPoll()
+                    setScreeningLoading(false)
+                    setActiveScreeningId(null)
+                    loadScreeningHistory()
+                  }).catch(() => message.error('取消失败'))
+                }}>取消任务</Button>
+              )}
+              <Button
+                type="primary"
+                icon={<FundOutlined />}
+                onClick={() => {
+                  loadPatternRules()
+                  loadActiveStrategies()
+                  setScreenConfigOpen(true)
+                }}
+              >
+                技术面筛选
+              </Button>
+            </Space>
+          </div>
 
-          {screeningResult && (
-            <Card
-              title={<span><ThunderboltOutlined /> 筛选结果 {(screeningResult.results || []).length} 只</span>}
-              size="small"
-              style={{ marginBottom: 16 }}
-              extra={<span style={{ color: '#888' }}>{screeningResult.message || screeningResult.status}</span>}
-            >
-              {!!(screeningResult.rule_stats || []).length && (
-                <div style={{ marginBottom: 12 }}>
-                  <span style={{ color: '#888', marginRight: 8 }}>各条件单独命中：</span>
-                  <Space wrap>
-                    {screeningResult.rule_stats.map(s => (
+          <div className="stocks-screen-panel">
+            <div className="stocks-screen-panel-bd" style={{ paddingTop: 12 }}>
+              <Table
+                columns={screeningHistoryColumns}
+                dataSource={screeningHistory}
+                rowKey="id"
+                loading={historyLoading}
+                scroll={{ x: 900 }}
+                size="middle"
+                pagination={{ pageSize: 15, showTotal: (t) => `共 ${t} 条` }}
+                locale={{ emptyText: <Empty description="暂无筛选历史，点击右上角「技术面筛选」开始" /> }}
+              />
+            </div>
+          </div>
+
+          {/* 技术面筛选配置弹窗 */}
+          <Modal
+            title="技术面筛选"
+            open={screenConfigOpen}
+            onCancel={() => setScreenConfigOpen(false)}
+            width={720}
+            destroyOnClose={false}
+            className="stocks-screen-modal"
+            footer={
+              <div className="stocks-screen-footer">
+                <Space wrap>
+                  <Button onClick={() => {
+                    setSelectedConditions(['多周期均线全部朝上', '近1个月有涨停'])
+                    setMatchMode('and')
+                    setMinHits(2)
+                  }}>趋势+涨停</Button>
+                  <Button onClick={() => {
+                    const enabled = patternRules.filter(r => r.enabled !== false).map(r => r.label || r.key)
+                    setSelectedConditions(enabled)
+                  }}>恢复默认</Button>
+                  <Button onClick={() => {
+                    const next = patternRules.map(r => ({
+                      ...r,
+                      enabled: selectedConditions.includes(r.label || r.key),
+                    }))
+                    const scanLimit = maxStocks == null ? 300 : Number(maxStocks)
+                    stocksApi.savePatternRules({
+                      rules: next,
+                      match_mode: matchMode,
+                      min_hits: minHits == null ? 1 : minHits,
+                      max_stocks: Number.isFinite(scanLimit) ? scanLimit : 300,
+                    }).then(() => {
+                      setPatternRules(next)
+                      if (maxStocks == null) setMaxStocks(300)
+                      message.success('已保存为默认')
+                    }).catch(() => message.error('保存失败'))
+                  }}>保存默认</Button>
+                  <Button type="link" onClick={() => setSelectedConditions([])}>清空条件</Button>
+                </Space>
+                <Button type="primary" icon={<SearchOutlined />} onClick={handleScreening}>
+                  开始筛选
+                </Button>
+              </div>
+            }
+          >
+            <div className="stocks-screen-modal-body">
+              <div className="stocks-screen-form">
+                <div className="stocks-screen-field">
+                  <label>匹配方式</label>
+                  <Select
+                    value={matchMode}
+                    onChange={setMatchMode}
+                    options={[
+                      { value: 'or', label: '命中任一（初筛）' },
+                      { value: 'min', label: '至少 N 条' },
+                      { value: 'and', label: '全部命中（精筛）' },
+                    ]}
+                  />
+                </div>
+                {matchMode === 'min' && (
+                  <div className="stocks-screen-field stocks-screen-field-sm">
+                    <label>最少命中</label>
+                    <InputNumber
+                      min={1}
+                      max={12}
+                      value={minHits}
+                      onChange={v => setMinHits(v)}
+                      onBlur={() => { if (minHits == null) setMinHits(1) }}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                )}
+                <div className="stocks-screen-field stocks-screen-field-sm">
+                  <label>扫描上限</label>
+                  <InputNumber
+                    min={0}
+                    max={6000}
+                    step={50}
+                    value={maxStocks}
+                    onChange={v => setMaxStocks(v)}
+                    onBlur={() => { if (maxStocks == null) setMaxStocks(300) }}
+                    placeholder="300"
+                    style={{ width: '100%' }}
+                  />
+                  <span className="hint">0 = 全市场（较慢）；可清空后改数字</span>
+                </div>
+                <div className="stocks-screen-field stocks-screen-field-grow">
+                  <label>AI 策略（可选）</label>
+                  <Space.Compact style={{ width: '100%' }}>
+                    <Select
+                      allowClear
+                      placeholder={activeStrategies.length ? '选择已启用策略' : '暂无启用策略'}
+                      style={{ width: '100%' }}
+                      value={selectedStrategyId}
+                      options={activeStrategies.map(s => ({
+                        value: s.id,
+                        label: `${s.name}${matchedLabelsOf(s).length ? `（${matchedLabelsOf(s).join('、')}）` : ''}`,
+                        disabled: !matchedLabelsOf(s).length,
+                      }))}
+                      onChange={(id) => {
+                        if (!id) {
+                          setSelectedStrategyId(null)
+                          return
+                        }
+                        applyStrategyToScreening(activeStrategies.find(s => s.id === id))
+                      }}
+                    />
+                    <Button onClick={() => {
+                      setScreenConfigOpen(false)
+                      setActiveTab('strategy')
+                    }}>管理</Button>
+                  </Space.Compact>
+                </div>
+              </div>
+
+              <div className="stocks-screen-conditions-hd">
+                <span>筛选条件</span>
+                <Tag>{selectedConditions.length} 条已选</Tag>
+              </div>
+
+              {ruleGroups.map(group => (
+                <div key={group.key} className="stocks-rule-group">
+                  <div className="stocks-rule-group-title">{group.title}</div>
+                  <div className="stocks-rule-list">
+                    {group.items.map(c => {
+                      const label = c.label || c.key
+                      const on = selectedConditions.includes(label)
+                      return (
+                        <div
+                          key={c.key || label}
+                          className={`stocks-rule-row${on ? ' is-on' : ''}`}
+                          onClick={() => toggleCondition(label)}
+                        >
+                          <Checkbox checked={on} onClick={e => e.stopPropagation()} onChange={() => toggleCondition(label)} />
+                          <div className="stocks-rule-row-main">
+                            <div className="name">{label}</div>
+                            {c.desc ? <div className="desc">{c.desc}</div> : null}
+                          </div>
+                          {Object.keys(c.params || {}).length > 0 && (
+                            <Tooltip title="调整参数">
+                              <Button
+                                size="small"
+                                type="text"
+                                icon={<SettingOutlined />}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  openRuleParams(c)
+                                }}
+                              />
+                            </Tooltip>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Modal>
+
+          <Modal
+            title={`调整规则参数 - ${ruleEditing?.label || ''}`}
+            open={!!ruleEditing}
+            onOk={saveRuleParams}
+            onCancel={() => setRuleEditing(null)}
+            destroyOnClose
+            zIndex={1100}
+          >
+            <Form form={ruleParamsForm} layout="vertical" style={{ marginTop: 16 }}>
+              {Object.entries(ruleEditing?.params || {}).map(([key, value]) => (
+                <Form.Item key={key} name={key} label={paramLabels[key] || key}
+                  rules={[{ required: true, message: '不能为空' }]}>
+                  {Array.isArray(value)
+                    ? <Input placeholder="例如：5,10,20,30,60,250" />
+                    : <InputNumber style={{ width: '100%' }} precision={Number.isInteger(value) ? 0 : 3} />}
+                </Form.Item>
+              ))}
+            </Form>
+            <div style={{ color: '#888' }}>{ruleEditing?.desc}</div>
+          </Modal>
+
+          {/* 筛选结果弹窗 */}
+          <Modal
+            title={
+              <Space>
+                <ThunderboltOutlined style={{ color: '#f59e0b' }} />
+                <span>筛选结果</span>
+                {screeningResult && (
+                  <Tag color={(screeningResult.results || []).length ? 'green' : 'default'}>
+                    {(screeningResult.results || []).length} 只
+                  </Tag>
+                )}
+              </Space>
+            }
+            open={screenResultOpen}
+            onCancel={closeScreenResult}
+            width={1100}
+            footer={
+              <Button type="primary" onClick={closeScreenResult}>关闭</Button>
+            }
+            destroyOnClose={false}
+            className="stocks-screen-modal"
+            maskClosable
+          >
+            {!screeningResult ? (
+              <Empty description="加载中…" />
+            ) : (
+              <div>
+                <div style={{ marginBottom: 12, color: '#64748b', fontSize: 13 }}>
+                  {screeningResult.message || screeningResult.status || ''}
+                  {screeningResult.name ? ` · ${screeningResult.name}` : ''}
+                </div>
+                <div className="stocks-result-summary">
+                  <div className="stat">
+                    <div className="k">命中股票</div>
+                    <div className="v">{(screeningResult.results || []).length}</div>
+                  </div>
+                  <div className="stat">
+                    <div className="k">状态</div>
+                    <div className="v" style={{ fontSize: 14, paddingTop: 4 }}>
+                      {screeningResult.status === 'completed' ? '完成'
+                        : (screeningResult.status === 'running' || screeningResult.status === 'pending') ? '扫描中'
+                          : (screeningResult.status || '-')}
+                    </div>
+                  </div>
+                </div>
+                {!!(screeningResult.rule_stats || []).length && (
+                  <div className="stocks-hit-tags">
+                    {(screeningResult.rule_stats || []).map(s => (
                       <Tag key={s.key} color={s.hits > 0 ? 'blue' : 'default'}>
-                        {s.label} {s.hits}
+                        {s.label} · {s.hits}
                       </Tag>
                     ))}
-                  </Space>
-                  {(screeningResult.results || []).length === 0 && (
-                    <div style={{ color: '#d46b08', marginTop: 6 }}>
-                      当前为“全部命中”，若某条为 0 就不会有结果；可改成“至少N条”或放宽该条件参数。
-                    </div>
-                  )}
-                </div>
-              )}
-              <Table
-                columns={resultColumns}
-                dataSource={screeningResult.results || []}
-                rowKey={(r) => r.code || r.id}
-                size="small"
-                scroll={{ x: 1200 }}
-                pagination={{ pageSize: 20, showTotal: t => `共 ${t} 条` }}
-                locale={{ emptyText: screeningResult.status === 'running' ? '扫描中…' : '暂无命中' }}
-              />
-            </Card>
-          )}
-
-          <Card title={<span><ReloadOutlined /> 筛选历史</span>} size="small">
-            <Table
-              columns={screeningHistoryColumns}
-              dataSource={screeningHistory}
-              rowKey="id"
-              loading={historyLoading}
-              scroll={{ x: 800 }}
-              size="small"
-              pagination={{ pageSize: 10, showTotal: (t) => `共 ${t} 条` }}
-              locale={{ emptyText: <Empty description="暂无筛选历史" /> }}
-            />
-          </Card>
+                  </div>
+                )}
+                <Table
+                  columns={resultColumns}
+                  dataSource={screeningResult.results || []}
+                  rowKey={(r) => r.code || r.id}
+                  size="small"
+                  scroll={{ x: 1100, y: 420 }}
+                  pagination={{ pageSize: 20, showTotal: t => `共 ${t} 条` }}
+                  locale={{
+                    emptyText: (screeningResult.status === 'running' || screeningResult.status === 'pending')
+                      ? '扫描中'
+                      : '暂无命中',
+                  }}
+                />
+              </div>
+            )}
+          </Modal>
         </div>
       ),
     },
@@ -1419,71 +1703,49 @@ export default function Stocks() {
                   <Card title="复盘结果" size="small" style={{ marginBottom: 12 }}
                     extra={<Tag color="green">AI 分析完成</Tag>}>
                     {reviewResult.situation_summary ? (
-                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, fontSize: 13 }}>
-                        {reviewResult.situation_summary}
-                      </div>
+                      <ReviewFieldText value={reviewResult.situation_summary} />
                     ) : (
                       <div style={{ color: '#888', fontSize: 13 }}>已生成分析结果，见下方分项</div>
                     )}
                   </Card>
                   {reviewResult.position_view && (
                     <Card title="持仓看法" size="small" style={{ marginBottom: 12 }}>
-                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, fontSize: 13 }}>
-                        {reviewResult.position_view}
-                      </div>
+                      <ReviewFieldText value={reviewResult.position_view} />
                     </Card>
                   )}
                   {reviewResult.next_actions && (
                     <Card title="下一步怎么操作" size="small" style={{ marginBottom: 12 }}>
-                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, fontSize: 13 }}>
-                        {reviewResult.next_actions}
-                      </div>
+                      <ReviewFieldText value={reviewResult.next_actions} />
                     </Card>
                   )}
                   {reviewResult.risk_warning && (
                     <Card title="风险提示" size="small" style={{ marginBottom: 12 }}>
-                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, fontSize: 13, color: '#a8071a' }}>
-                        {reviewResult.risk_warning}
-                      </div>
+                      <ReviewFieldText value={reviewResult.risk_warning} danger />
                     </Card>
                   )}
                   {reviewResult.success_trades && (
                     <Card title="成功交易" size="small" style={{ marginBottom: 12 }}>
-                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, fontSize: 13 }}>
-                        {Array.isArray(reviewResult.success_trades)
-                          ? reviewResult.success_trades.join('\n')
-                          : reviewResult.success_trades}
-                      </div>
+                      <ReviewFieldText value={reviewResult.success_trades} />
                     </Card>
                   )}
                   {reviewResult.failure_trades && (
                     <Card title="失败交易" size="small" style={{ marginBottom: 12 }}>
-                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, fontSize: 13 }}>
-                        {Array.isArray(reviewResult.failure_trades)
-                          ? reviewResult.failure_trades.join('\n')
-                          : reviewResult.failure_trades}
-                      </div>
+                      <ReviewFieldText value={reviewResult.failure_trades} />
                     </Card>
                   )}
                   {reviewResult.reason_analysis && (
                     <Card title="原因分析" size="small" style={{ marginBottom: 12 }}>
-                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, fontSize: 13 }}>
-                        {reviewResult.reason_analysis}
-                      </div>
+                      <ReviewFieldText value={reviewResult.reason_analysis} />
                     </Card>
                   )}
                   {reviewResult.strategy_suggestions && (
                     <Card title="策略建议" size="small" style={{ marginBottom: 12 }}>
-                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, fontSize: 13 }}>
-                        {reviewResult.strategy_suggestions}
-                      </div>
+                      <ReviewFieldText value={reviewResult.strategy_suggestions} />
                     </Card>
                   )}
                   {reviewResult.win_rate_trend && (
                     <Card title="后续观察" size="small" style={{ marginBottom: 12 }}>
-                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, fontSize: 13 }}>
-                        {reviewResult.win_rate_trend}
-                      </div>
+                      <ReviewFieldText value={reviewResult.win_rate_trend} />
                     </Card>
                   )}
                 </div>
@@ -1500,10 +1762,10 @@ export default function Stocks() {
   ]
 
   return (
-    <div>
-      <div className="page-title">股票研究系统</div>
+    <div className="stocks-page">
+      <div className="page-title">股票研究</div>
       <div className="page-desc">
-        自选、全部股票、筛选与技术分析，辅助研究判断（不构成投资建议）。
+        自选跟踪、全市场浏览、技术筛选与 AI 策略复盘，辅助研究判断（不构成投资建议）。
       </div>
       <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} size="large" />
 

@@ -3,6 +3,7 @@
 import os
 import json
 import threading
+from datetime import datetime
 from flask import Blueprint, request, jsonify, send_file
 from config import OUTPUT_DIR as _OUTPUT_DIR, get_db as _db, get_setting, update_setting, get_settings_by_category, get_video_config, get_tts_config
 from modules import video_maker
@@ -13,6 +14,40 @@ OUTPUT_DIR = str(_OUTPUT_DIR)
 
 # Track running background tasks: {task_id: thread}
 _running_tasks = {}
+
+
+def _mark_compose_start(conn, task_id):
+    conn.execute(
+        '''UPDATE video_task SET compose_started_at=?, compose_elapsed_sec=? WHERE id=?''',
+        (datetime.now(), 0, task_id),
+    )
+
+
+def _compose_elapsed_sec(conn, task_id):
+    row = conn.execute(
+        'SELECT compose_started_at FROM video_task WHERE id=?', (task_id,)
+    ).fetchone()
+    if not row or not row['compose_started_at']:
+        return None
+    started = row['compose_started_at']
+    if isinstance(started, str):
+        try:
+            started = datetime.strptime(started[:19], '%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            return None
+    return max(0.0, (datetime.now() - started).total_seconds())
+
+
+def _mark_compose_finish(conn, task_id, extra_sql='', extra_params=()):
+    """写入合成耗时；extra_sql 为额外 SET 片段（勿含 SET 关键字）。"""
+    elapsed = _compose_elapsed_sec(conn, task_id)
+    sets = ['compose_elapsed_sec=?']
+    params = [elapsed if elapsed is not None else 0]
+    if extra_sql:
+        sets.append(extra_sql)
+        params.extend(extra_params)
+    params.append(task_id)
+    conn.execute(f'UPDATE video_task SET {", ".join(sets)} WHERE id=?', params)
 
 
 def _persist_video_prefs(task_dict):
@@ -417,6 +452,7 @@ def execute_step(id, step):
                 'UPDATE video_task SET video_status=?, error_msg=? WHERE id=?',
                 ('processing', '', id)
             )
+        _mark_compose_start(conn, id)
         conn.commit()
         conn.close()
 
@@ -623,9 +659,10 @@ def _run_video_step_background(task_id, step, script_dict, task_dict):
 
             if (task_dict.get('voice_status') or '') != 'done' or not audio_path or not os.path.exists(audio_path):
                 conn = _db()
-                conn.execute(
-                    'UPDATE video_task SET video_status=?, export_status=?, error_msg=? WHERE id=?',
-                    ('failed', 'failed', '请先完成配音步骤', task_id),
+                _mark_compose_finish(
+                    conn, task_id,
+                    'video_status=?, export_status=?, error_msg=?',
+                    ('failed', 'failed', '请先完成配音步骤'),
                 )
                 conn.commit()
                 conn.close()
@@ -633,9 +670,10 @@ def _run_video_step_background(task_id, step, script_dict, task_dict):
 
             if (task_dict.get('subtitle_status') or '') != 'done' or not sub_path or not os.path.exists(sub_path):
                 conn = _db()
-                conn.execute(
-                    'UPDATE video_task SET video_status=?, export_status=?, error_msg=? WHERE id=?',
-                    ('failed', 'failed', '请先完成字幕步骤', task_id),
+                _mark_compose_finish(
+                    conn, task_id,
+                    'video_status=?, export_status=?, error_msg=?',
+                    ('failed', 'failed', '请先完成字幕步骤'),
                 )
                 conn.commit()
                 conn.close()
@@ -692,9 +730,10 @@ def _run_video_step_background(task_id, step, script_dict, task_dict):
             )
 
             conn = _db()
-            conn.execute(
-                'UPDATE video_task SET video_status=?, video_path=?, export_status=?, output_path=? WHERE id=?',
-                ('done', result['video_path'], 'done', result['video_path'], task_id)
+            _mark_compose_finish(
+                conn, task_id,
+                'video_status=?, video_path=?, export_status=?, output_path=?',
+                ('done', result['video_path'], 'done', result['video_path']),
             )
             conn.commit()
             conn.close()
@@ -748,10 +787,11 @@ def _run_video_step_background(task_id, step, script_dict, task_dict):
             )
 
             conn = _db()
+            elapsed = _compose_elapsed_sec(conn, task_id)
             conn.execute(
                 '''UPDATE video_task SET voice_status=?, voice_url=?, subtitle_status=?,
                    subtitle_url=?, video_status=?, video_path=?, export_status=?,
-                   output_path=?, duration=?, error_msg=? WHERE id=?''',
+                   output_path=?, duration=?, error_msg=?, compose_elapsed_sec=? WHERE id=?''',
                 (result.get('voice_status', 'pending'),
                  result.get('voice', {}).get('audio_path', ''),
                  result.get('subtitle_status', 'pending'),
@@ -762,6 +802,7 @@ def _run_video_step_background(task_id, step, script_dict, task_dict):
                  result.get('output_path', ''),
                  result.get('voice', {}).get('duration', 0),
                  result.get('error_msg', ''),
+                 elapsed if elapsed is not None else 0,
                  task_id)
             )
             # Save updated scenes (with timings) if available
@@ -778,13 +819,14 @@ def _run_video_step_background(task_id, step, script_dict, task_dict):
         import traceback
         traceback.print_exc()
         conn = _db()
+        elapsed = _compose_elapsed_sec(conn, task_id)
         # all 步骤失败时，把仍停在 processing 的配音/字幕一并标失败，避免前端一直转圈
         conn.execute(
             '''UPDATE video_task SET
                  voice_status=CASE WHEN voice_status='processing' THEN 'failed' ELSE voice_status END,
                  subtitle_status=CASE WHEN subtitle_status='processing' THEN 'failed' ELSE subtitle_status END,
-                 video_status=?, export_status=?, error_msg=? WHERE id=?''',
-            ('failed', 'failed', str(e), task_id)
+                 video_status=?, export_status=?, error_msg=?, compose_elapsed_sec=? WHERE id=?''',
+            ('failed', 'failed', str(e), elapsed if elapsed is not None else 0, task_id)
         )
         conn.commit()
         conn.close()
@@ -1068,14 +1110,26 @@ def video_status(id):
     conn = _db()
     task = conn.execute(
         '''SELECT voice_status, subtitle_status, video_status, export_status,
-           error_msg, duration, output_path FROM video_task WHERE id=?''',
+           error_msg, duration, output_path, compose_started_at, compose_elapsed_sec
+           FROM video_task WHERE id=?''',
         (id,)
     ).fetchone()
-    conn.close()
     if not task:
+        conn.close()
         return jsonify({'error': 'not found'}), 404
 
     is_running = id in _running_tasks and _running_tasks[id].is_alive()
+    elapsed = task['compose_elapsed_sec']
+    processing = (
+        task['video_status'] == 'processing'
+        or task['export_status'] == 'processing'
+        or (task['voice_status'] == 'processing' and is_running)
+    )
+    if processing:
+        live = _compose_elapsed_sec(conn, id)
+        if live is not None:
+            elapsed = live
+    conn.close()
     return jsonify({
         'voice_status': task['voice_status'],
         'subtitle_status': task['subtitle_status'],
@@ -1083,6 +1137,8 @@ def video_status(id):
         'export_status': task['export_status'],
         'error_msg': task['error_msg'],
         'duration': task['duration'],
+        'compose_started_at': task['compose_started_at'],
+        'compose_elapsed_sec': elapsed,
         'has_output': bool(task['output_path']),
         'is_running': is_running,
     })

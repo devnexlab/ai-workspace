@@ -651,6 +651,66 @@ def _safe_parse_llm_json(text: str):
     return None
 
 
+def _review_action_label(key: str) -> str:
+    """把 position_601899 / strategy_trend 这类键转成可读标题。"""
+    k = str(key or '').strip()
+    if not k:
+        return ''
+    m = re.match(r'^position[_-]?(\d{6})$', k, flags=re.IGNORECASE)
+    if m:
+        return f'持仓 {m.group(1)}'
+    m = re.match(r'^strategy[_-]?(.*)$', k, flags=re.IGNORECASE)
+    if m:
+        tip = (m.group(1) or '').strip() or '策略'
+        tip_map = {
+            'trend': '趋势策略',
+            'breakout': '突破策略',
+            'rebound': '反弹策略',
+            'leader': '龙头策略',
+            'overall': '整体策略',
+        }
+        return tip_map.get(tip.lower(), f'策略·{tip}')
+    tip_map = {
+        'overall': '整体',
+        'general': '整体',
+        'risk': '风控',
+        'trend': '趋势',
+    }
+    return tip_map.get(k.lower(), k)
+
+
+def _review_field_to_text(val, field_name: str = '') -> str:
+    """把模型可能返回的 dict/list/JSON 字符串，整理成可读中文。"""
+    if val is None:
+        return ''
+    if isinstance(val, list):
+        lines = []
+        for i, item in enumerate(val, 1):
+            text = _review_field_to_text(item, field_name).strip()
+            if text:
+                lines.append(f'{i}. {text}')
+        return '\n'.join(lines)
+    if isinstance(val, dict):
+        lines = []
+        for key, item in val.items():
+            text = _review_field_to_text(item, field_name).strip()
+            if not text:
+                continue
+            label = _review_action_label(key)
+            lines.append(f'【{label}】{text}' if label else text)
+        return '\n\n'.join(lines)
+    s = str(val).strip()
+    if not s:
+        return ''
+    if (s.startswith('{') and s.endswith('}')) or (s.startswith('[') and s.endswith(']')):
+        try:
+            parsed = json.loads(s)
+            return _review_field_to_text(parsed, field_name)
+        except Exception:
+            pass
+    return s
+
+
 @bp.route('/api/stocks/review', methods=['POST'])
 def ai_review():
     """支持两类输入：
@@ -753,12 +813,16 @@ def ai_review():
 2. 若用户写了买卖记录，再写 success_trades / failure_trades。
 3. 没有买卖记录时，success_trades/failure_trades 写空字符串即可，不要写“暂无xxx”。
 4. 建议要具体可执行（继续持有/减仓比例/加仓条件/止损位思路），并说明依据；同时声明不构成投资建议。
-5. 只返回 JSON，不要 markdown。字段值都是字符串。
+5. 只返回 JSON，不要 markdown。每个字段值必须是「一段可读中文」，禁止再嵌套 JSON 对象或用 position_601899 这类键名。
+6. next_actions 用编号分条，每条一行，优先按持仓标的分开写，例如：
+   1. 紫金矿业(601899)：……
+   2. 紫光国微(002049)：……
+   3. 整体：……
 
 {{
   "situation_summary": "用2-4句话概括当前处境",
   "position_view": "对持仓标的的看法（强弱、关键位、是否与策略一致）",
-  "next_actions": "接下来怎么操作：分情景给出（例如反弹减仓/跌破某条件止损/企稳再看）",
+  "next_actions": "1. 标的A：情景操作\\n2. 标的B：情景操作\\n3. 整体纪律：……",
   "risk_warning": "主要风险与无效条件",
   "success_trades": "今日成功交易分析（没有则空字符串）",
   "failure_trades": "今日失败交易分析（没有则空字符串）",
@@ -771,6 +835,7 @@ def ai_review():
             prompt,
             system_prompt=(
                 '你是专业、务实的A股交易顾问。只输出合法 JSON。'
+                '每个字段值必须是可读中文句子或编号列表，禁止字段值再嵌套对象。'
                 '字符串里如需引号请使用中文直角引号或避免引号。'
                 '回答要具体，禁止空洞套话。'
             ),
@@ -797,13 +862,7 @@ def ai_review():
             }
         else:
             for key in keys:
-                val = result.get(key, '')
-                if isinstance(val, (list, dict)):
-                    result[key] = json.dumps(val, ensure_ascii=False)
-                elif val is None:
-                    result[key] = ''
-                else:
-                    result[key] = str(val)
+                result[key] = _review_field_to_text(result.get(key, ''), key)
             # 清掉无意义占位
             for key in ('success_trades', 'failure_trades', 'win_rate_trend'):
                 t = (result.get(key) or '').strip()

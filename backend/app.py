@@ -13,15 +13,31 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from flask import Flask, jsonify
+from flask.json.provider import DefaultJSONProvider
 from flask_cors import CORS
+from datetime import date, datetime, time as dt_time
 
 from config import FLASK_DEBUG, FLASK_HOST, FLASK_PORT, FLASK_THREADED, get_db
 from database import init_db
 from routes import register_blueprints
 
 
+class LocalTimeJSONProvider(DefaultJSONProvider):
+    """无时区 datetime 按北京墙钟输出，避免被标成 GMT 后前端再 +8 小时。"""
+
+    def default(self, o):
+        if isinstance(o, datetime):
+            return o.strftime('%Y-%m-%d %H:%M:%S')
+        if isinstance(o, date):
+            return o.strftime('%Y-%m-%d')
+        if isinstance(o, dt_time):
+            return o.strftime('%H:%M:%S')
+        return super().default(o)
+
+
 def create_app():
     app = Flask(__name__)
+    app.json = LocalTimeJSONProvider(app)
     CORS(app)
     register_blueprints(app)
 

@@ -626,6 +626,8 @@ def init_db():
     _add_column_if_not_exists(cur, 'video_task', 'compose_layout', "TEXT DEFAULT 'default'")
     _add_column_if_not_exists(cur, 'video_task', 'person_material_id', 'INTEGER')
     _add_column_if_not_exists(cur, 'video_task', 'bg_material_id', 'INTEGER')
+    _add_column_if_not_exists(cur, 'video_task', 'compose_started_at', 'TIMESTAMP')
+    _add_column_if_not_exists(cur, 'video_task', 'compose_elapsed_sec', 'REAL DEFAULT 0')
     _add_column_if_not_exists(cur, 'knowledge_item', 'source_file', "TEXT DEFAULT ''")
 
     # 强制校正品牌内容运营关键设置（修正旧默认值）
