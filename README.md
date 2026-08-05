@@ -365,21 +365,23 @@ npm run dev
 
 安装并启动 **Docker Desktop for Windows**（需开启 WSL2，安装向导会提示）。
 
-#### 2. 配置 `.env`
+#### 2～3. 一键安装并启动（推荐）
+
+双击项目根目录 **`安装并启动.bat`**：
+
+- 检测 / 尝试启动 Docker Desktop  
+- 若无 `backend\.env` 则从 `.env.example` 复制（默认密码无需修改）  
+- 执行 `docker compose up -d --build`  
+- 打开 http://localhost:5180  
+
+也可手动：
 
 ```bat
 copy backend\.env.example backend\.env
-```
-
-按需改密码等；Compose 会把后端的 `PG_HOST` 设为 `postgres`，连的是同组容器里的数据库。
-
-#### 3. 启动
-
-在项目根目录 PowerShell：
-
-```powershell
 docker compose up -d --build
 ```
+
+Compose 会把后端的 `PG_HOST` 设为 `postgres`，连的是同组容器里的数据库。
 
 #### 4. 访问
 
