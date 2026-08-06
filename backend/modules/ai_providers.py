@@ -128,6 +128,21 @@ def list_ai_providers():
     return builtins + customs
 
 
+_provider_list_cache = None
+_provider_list_ts = 0.0
+
+
+def list_ai_providers_cached(ttl: float = 2.0):
+    global _provider_list_cache, _provider_list_ts
+    import time
+    now = time.time()
+    if _provider_list_cache is not None and (now - _provider_list_ts) < ttl:
+        return _provider_list_cache
+    _provider_list_cache = list_ai_providers()
+    _provider_list_ts = now
+    return _provider_list_cache
+
+
 def provider_meta(key: str) -> dict | None:
     key = (key or '').strip().lower()
     aliases = {
@@ -135,7 +150,7 @@ def provider_meta(key: str) -> dict | None:
         'chatgpt': 'openai', 'gpt': 'openai',
     }
     key = aliases.get(key, key)
-    for p in list_ai_providers():
+    for p in list_ai_providers_cached():
         if p['key'] == key:
             return p
     return None

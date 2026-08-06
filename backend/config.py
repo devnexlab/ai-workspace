@@ -6,6 +6,7 @@
 """
 
 import os
+import time
 from pathlib import Path
 
 import psycopg2
@@ -60,6 +61,9 @@ PG_PORT = _env_int('PG_PORT', 5432)
 PG_DBNAME = _env('PG_DBNAME', 'ai_ops')
 PG_USER = _env('PG_USER', 'postgres')
 PG_PASSWORD = _env('PG_PASSWORD', 'postgres')
+# 连接池：关闭后归还，而不是每次 TCP 新建
+PG_POOL_MIN = _env_int('PG_POOL_MIN', 2)
+PG_POOL_MAX = _env_int('PG_POOL_MAX', 20)
 
 # ---- Flask 服务 ----
 FLASK_HOST = _env('FLASK_HOST', '0.0.0.0')
@@ -80,6 +84,33 @@ KNOWLEDGE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ---- PostgreSQL 连接包装（兼容原 sqlite3 风格接口）----
+
+from psycopg2 import pool as _pg_pool_mod
+
+_pg_pool = None
+
+
+def _get_pg_pool():
+    """懒加载线程安全连接池（psycopg2.pool.ThreadedConnectionPool）。"""
+    global _pg_pool
+    if _pg_pool is None:
+        _pg_pool = _pg_pool_mod.ThreadedConnectionPool(
+            minconn=max(1, PG_POOL_MIN),
+            maxconn=max(PG_POOL_MIN, PG_POOL_MAX),
+            host=PG_HOST,
+            port=PG_PORT,
+            dbname=PG_DBNAME,
+            user=PG_USER,
+            password=PG_PASSWORD,
+            connect_timeout=10,
+        )
+        print(
+            f'[DB] PostgreSQL pool ready '
+            f'{PG_HOST}:{PG_PORT}/{PG_DBNAME} '
+            f'(min={PG_POOL_MIN}, max={PG_POOL_MAX})'
+        )
+    return _pg_pool
+
 
 class PgCursor:
     """Wraps psycopg2 cursor to mimic sqlite3 cursor (auto ? -> %s, lastrowid)."""
@@ -128,16 +159,18 @@ class PgCursor:
 
 
 class PgConnection:
-    """Wraps psycopg2 connection to mimic sqlite3 connection interface."""
+    """从连接池取连接；close() 归还池，不真正断开 TCP。"""
 
     def __init__(self):
-        self._conn = psycopg2.connect(
-            host=PG_HOST, port=PG_PORT, dbname=PG_DBNAME,
-            user=PG_USER, password=PG_PASSWORD,
-            connect_timeout=10,
-        )
+        self._conn = _get_pg_pool().getconn()
+        # 归还前可能残留事务，取用时复位
+        try:
+            self._conn.rollback()
+        except Exception:
+            pass
         self._conn.autocommit = False
         self._last_cur = None
+        self._closed = False
 
     def execute(self, sql, params=None):
         cur = PgCursor(self._conn.cursor(cursor_factory=RealDictCursor))
@@ -158,7 +191,30 @@ class PgConnection:
         self._conn.rollback()
 
     def close(self):
-        self._conn.close()
+        """归还连接到池（不是关闭 TCP）。"""
+        if self._closed:
+            return
+        self._closed = True
+        conn = self._conn
+        self._conn = None
+        try:
+            if conn is None:
+                return
+            # 未 commit 的事务先回滚，避免脏连接回到池里
+            if getattr(conn, 'closed', 1) == 0:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+                _get_pg_pool().putconn(conn)
+            else:
+                _get_pg_pool().putconn(conn, close=True)
+        except Exception:
+            try:
+                if conn is not None:
+                    _get_pg_pool().putconn(conn, close=True)
+            except Exception:
+                pass
 
     @property
     def total_changes(self):
@@ -166,7 +222,7 @@ class PgConnection:
 
 
 def get_db():
-    """Get a PostgreSQL connection (mimics sqlite3 interface)."""
+    """从连接池获取 PostgreSQL 连接（接口同 sqlite3）。"""
     return PgConnection()
 
 
@@ -175,8 +231,31 @@ _get_db = get_db
 
 # ---- 业务设置（数据库）----
 
+_settings_cache = None
+_settings_cache_ts = 0.0
+_SETTINGS_CACHE_TTL = 2.0  # 秒；短 TTL，避免写入后长期脏读
+
+
+def _invalidate_settings_cache():
+    global _settings_cache, _settings_cache_ts
+    _settings_cache = None
+    _settings_cache_ts = 0.0
+
+
+def prime_settings_cache(settings_map: dict):
+    """用已加载的 settings 填入缓存，避免同一次请求里重复查库。"""
+    global _settings_cache, _settings_cache_ts
+    _settings_cache = settings_map
+    _settings_cache_ts = time.time()
+
+
 def get_all_settings():
-    """Return all settings as a dict grouped by category."""
+    """Return all settings as a dict grouped by category（带短时缓存，避免每次 get_setting 新建 PG 连接）。"""
+    global _settings_cache, _settings_cache_ts
+    now = time.time()
+    if _settings_cache is not None and (now - _settings_cache_ts) < _SETTINGS_CACHE_TTL:
+        return _settings_cache
+
     conn = get_db()
     rows = conn.execute('SELECT category, key, value FROM system_setting').fetchall()
     conn.close()
@@ -186,28 +265,19 @@ def get_all_settings():
         if cat not in result:
             result[cat] = {}
         result[cat][row['key']] = row['value']
+    _settings_cache = result
+    _settings_cache_ts = now
     return result
 
 
 def get_settings_by_category(category):
     """Return all settings in a category as a flat dict."""
-    conn = get_db()
-    rows = conn.execute(
-        'SELECT key, value FROM system_setting WHERE category=%s', (category,)
-    ).fetchall()
-    conn.close()
-    return {row['key']: row['value'] for row in rows}
+    return dict(get_all_settings().get(category) or {})
 
 
 def get_setting(category, key, default=''):
     """Return a single setting value."""
-    conn = get_db()
-    row = conn.execute(
-        'SELECT value FROM system_setting WHERE category=%s AND key=%s',
-        (category, key)
-    ).fetchone()
-    conn.close()
-    return row['value'] if row else default
+    return get_all_settings().get(category, {}).get(key, default)
 
 
 def update_setting(category, key, value):
@@ -221,6 +291,7 @@ def update_setting(category, key, value):
     )
     conn.commit()
     conn.close()
+    _invalidate_settings_cache()
 
 
 def update_settings_batch(settings_dict):
@@ -236,6 +307,7 @@ def update_settings_batch(settings_dict):
             )
     conn.commit()
     conn.close()
+    _invalidate_settings_cache()
 
 
 def get_ai_config():

@@ -16,6 +16,10 @@ from modules.ai_providers import (
 
 bp = Blueprint('settings', __name__)
 
+# Playwright / FFmpeg 检测结果缓存（秒）
+_ENV_TOOL_CACHE = {'ts': 0.0, 'pw': False, 'ff': False}
+_ENV_TOOL_TTL = 60.0
+
 SETTINGS_MODULES = [
     {
         'key': 'ai',
@@ -167,17 +171,28 @@ def check_readiness():
             settings[cat] = {}
         settings[cat][row['key']] = row['value']
 
-    # Playwright / FFmpeg（运行环境）
-    try:
-        from modules.publisher import check_playwright
-        pw_ok = bool(check_playwright())
-    except Exception:
-        pw_ok = False
-    try:
-        from modules.video_maker import check_ffmpeg
-        ff_ok = bool(check_ffmpeg())
-    except Exception:
-        ff_ok = False
+    # 同请求内后续 get_setting / resolve_ai_config 复用，避免再开一堆 PG 连接
+    from config import prime_settings_cache
+    prime_settings_cache(settings)
+
+    # Playwright / FFmpeg（运行环境，结果缓存，避免每次 spawn 子进程）
+    import time as _time
+    now = _time.time()
+    if now - _ENV_TOOL_CACHE['ts'] > _ENV_TOOL_TTL:
+        try:
+            from modules.publisher import check_playwright
+            pw_ok = bool(check_playwright())
+        except Exception:
+            pw_ok = False
+        try:
+            from modules.video_maker import check_ffmpeg
+            ff_ok = bool(check_ffmpeg())
+        except Exception:
+            ff_ok = False
+        _ENV_TOOL_CACHE.update({'ts': now, 'pw': pw_ok, 'ff': ff_ok})
+    else:
+        pw_ok = _ENV_TOOL_CACHE['pw']
+        ff_ok = _ENV_TOOL_CACHE['ff']
 
     readiness = {
         'ai': {
