@@ -1,466 +1,109 @@
 # AI 智能运营系统
 
-内容运营、客户管理、视频发布与股票研究一体化的全栈系统。
+面向个人经营者与小团队的 **内容运营 + 客户管理 + 视频生产 + 股票研究** 一体化后台。
 
-> 功能说明与变更辑录：[`docs/FEATURES.md`](docs/FEATURES.md) · [`docs/CHANGELOG.md`](docs/CHANGELOG.md)
+用 AI 写口播、合成短视频、跟进客户，并把微信公众号作为对外留资入口；顾问侧用 Web 后台，客户侧用手机微信打开页面。
+
+| 文档 | 说明 |
+|------|------|
+| [**部署文档**](docs/DEPLOY.md) | 本机 / Docker / 云服务器公网、域名 HTTPS、微信公众号挂链（完整步骤） |
+| [功能说明](docs/FEATURES.md) | 模块与能力说明 |
+| [变更记录](docs/CHANGELOG.md) | 版本变更 |
+
+---
+
+## 功能概览
+
+| 模块 | 说明 |
+|------|------|
+| 总览 | 热点、文案、视频、客户、发布等数据一览 |
+| 内容情报 | 全网热榜、官方数据台 API、选题 |
+| 文案中心 | AI 生成口播文案、日更、出片 |
+| 视频中心 | 配音 / 字幕 / 合成导出 |
+| 发布中心 | 复制文案 + 打开官方创作者页（人工确认发布） |
+| 客户管理 | 客户档案、跟进、提醒 |
+| 知识库 | 笔记与材料沉淀 |
+| 股票研究 | 自选股、全市场列表、筛选、预警 |
+| AI 助手 | Agent / 工作流 |
+| 系统设置 | 大模型、推送、公众号对外页等 |
+| 微信对外页 | `/m/about` 介绍、`/m/book` 预约留资（挂公众号菜单） |
+
+---
 
 ## 技术栈
 
 | 层级 | 技术 |
 |------|------|
-| 前端 | React 18 + Ant Design 5 + Vite |
-| 后端 | Python + Flask（依赖见根目录 `pyproject.toml`） |
-| 数据库 | PostgreSQL（生产）/ 可按配置切换 |
-| 自动化 | Playwright（采集 / 发布） |
-| 视频合成 | MoviePy + FFmpeg + edge-tts（配音） |
-| AI | OpenAI 兼容接口 |
-| 部署 | Docker Compose / 本地直接运行 |
+| 前端 | React 18 · Ant Design 5 · Vite |
+| 后端 | Python · Flask |
+| 数据库 | PostgreSQL 16 |
+| 视频 | MoviePy · FFmpeg · edge-tts |
+| AI | OpenAI 兼容接口（智谱 / 火山 / DeepSeek / OpenAI 等） |
+| 部署 | Docker Compose · Nginx / Caddy · 云服务器 |
 
-## 功能模块
-
-1. **总览** — 热点、文案、视频、客户、发布等数据一览
-2. **内容情报** — 全网热点采集、AI 评分、选题
-3. **文案中心** — AI 生成口播文案、出片
-4. **视频中心** — 配音 / 字幕 / 剪辑 / 导出
-5. **发布中心** — 多平台发布任务
-6. **客户管理** — 客户资料、跟进、提醒
-7. **知识库** — 知识条目沉淀
-8. **股票研究** — 自选股、筛选、策略、AI 复盘（现价可定时刷新）
-9. **AI 助手 / Agents** — 运营与客户相关工作流
-10. **系统设置** — AI 模型、路径与业务参数
+依赖声明见 [`pyproject.toml`](pyproject.toml)。
 
 ---
 
-## 部署前：先下载软件
+## 架构说明
 
-按你的操作系统安装下列工具，再继续部署。
+```text
+顾问（电脑） ──► Web 管理后台 ──► Flask API ──► PostgreSQL
 
-### Windows
+客户（微信） ──► 公众号菜单 ──► https://你的域名/m/about|/m/book
+                              （必须公网可访问，推荐 HTTPS）
+```
 
-| 软件 | 用途 | 下载 |
-|------|------|------|
-| Git | 拉取代码 | https://git-scm.com/download/win |
-| **方式 A 必装** PostgreSQL 16+ | 本机跑库 | https://www.postgresql.org/download/windows/ |
-| **方式 A 必装** Python 3.12+ | 跑后端（与 `pyproject.toml` 一致） | https://www.python.org/downloads/ （安装时勾选 *Add python.exe to PATH*） |
-| **方式 A 必装** Node.js 20 LTS | 跑前端 | https://nodejs.org/ |
-| **方式 A 推荐** FFmpeg | 视频时长探测 / FFmpeg 合成引擎 | 见下方「视频剪辑相关软件」 |
-| **方式 B 必装** Docker Desktop | 容器部署（含 Postgres、镜像内已带 FFmpeg） | https://www.docker.com/products/docker-desktop/ |
-
-> Windows 可选两种部署：**方式 A 本机直接跑**，或 **方式 B Docker**。只需装对应方式需要的软件。  
-> 方式 A 需要本机 **PostgreSQL**；方式 B 由 Compose 自带数据库，一般不用再装。
-
-### macOS
-
-| 软件 | 用途 | 下载 / 安装 |
-|------|------|-------------|
-| Git | 拉取代码 | 终端执行 `xcode-select --install`，或 https://git-scm.com/download/mac |
-| Docker Desktop | 容器部署（含 Postgres） | https://www.docker.com/products/docker-desktop/ |
-
-macOS 推荐用 **Docker** 部署（见下文）；Compose 已包含 PostgreSQL。本机开发再单独装库即可。
-
-### Linux
-
-| 软件 | 用途 | 安装示例 |
-|------|------|----------|
-| Git | 拉取代码 | `sudo apt install git`（Debian/Ubuntu） |
-| Docker Engine + Compose 插件 | 容器部署（含 Postgres） | 见 https://docs.docker.com/engine/install/ |
-
-Linux 推荐用 **Docker** 部署（见下文）；Compose 已包含 PostgreSQL。本机开发再单独装库即可。
+- 仅顾问本机使用：可不买域名。  
+- 客户微信要打开介绍 / 预约页：必须部署到公网，并配置域名（详见 [部署文档](docs/DEPLOY.md)）。
 
 ---
 
-## 视频剪辑相关软件（重要）
+## 快速开始
 
-本系统的视频能力是 **自动配音 + 字幕 + 合成导出**，**不需要安装剪映 / Premiere**。
-
-| 能力 | 依赖 | 是否要单独下载 |
-|------|------|----------------|
-| 配音（TTS） | Python 包 `edge-tts`（默认免费） | 否，写入 `pyproject.toml` 后 `pip install -e .`；需能访问外网 |
-| 字幕 | 后端根据 TTS 时间戳生成 SRT | 否 |
-| 合成（默认 MoviePy） | Python 包 `moviepy`（自带 `imageio-ffmpeg`） | 否，装 Python 依赖即可 |
-| 合成（FFmpeg 引擎）/ 音频时长探测 | 系统 **FFmpeg**（含 `ffprobe`） | **是，本机方式 A 建议安装** |
-| 采集 / 自动发布 | **Playwright** + Chromium | `pip` 后还需执行浏览器安装命令 |
-| 中文字幕显示 | 系统中文字体 | Windows 一般自带；Linux / Docker 镜像已装字体 |
-
-### 安装 FFmpeg（本机部署推荐）
-
-**Windows**
-
-1. 下载：https://www.gyan.dev/ffmpeg/builds/ （选 `ffmpeg-release-essentials.zip`）  
-   或用 winget：`winget install Gyan.FFmpeg`
-2. 解压后把 `bin` 目录加入系统 **PATH**（保证命令行能执行 `ffmpeg`、`ffprobe`）
-3. 验证：
-
-```bat
-ffmpeg -version
-ffprobe -version
-```
-
-4. 若未加入 PATH，在系统设置 →「配音与视频」→ **FFmpeg 路径** 填完整路径，例如：  
-   `C:\ffmpeg\bin\ffmpeg.exe`
-
-**macOS**
-
-```bash
-brew install ffmpeg
-```
-
-**Linux（Debian / Ubuntu）**
-
-```bash
-sudo apt update
-sudo apt install -y ffmpeg
-```
-
-> **Docker 部署**：后端镜像已内置 `ffmpeg` 与中文字体，一般不用再装。
-
-### 安装 Playwright 浏览器（采集 / 发布）
-
-本机方式 A，在项目根目录装完依赖后执行：
-
-```bat
-backend\venv\Scripts\playwright install chromium
-```
-
-Docker 镜像构建时会自动安装 Chromium。
-
-### 可选：素材图片
-
-- 在「系统设置」配置本地素材目录，或填写 Pexels API Key  
-- 无素材时合成仍可走纯色 / 渐变背景
-
----
-
-## 安装 PostgreSQL
-
-后端依赖 PostgreSQL。安装完成后创建数据库 `ai_ops`，并把账号密码写进 `backend/.env`。
-
-### Windows（安装包）
-
-1. 打开 https://www.postgresql.org/download/windows/ ，用 **EDB 安装器** 下载 PostgreSQL 16（或更新）。
-2. 安装向导中：
-   - 组件至少勾选 **PostgreSQL Server**、**Command Line Tools**、**pgAdmin**（可选）
-   - 端口保持默认 **5432**
-   - 设置超级用户 `postgres` 的密码（后面要填进 `.env`）
-3. 安装完成后，打开 **SQL Shell (psql)** 或 **pgAdmin**，创建业务库：
-
-```sql
-CREATE DATABASE ai_ops;
-```
-
-用 psql 命令行时也可：
-
-```bat
-psql -U postgres -c "CREATE DATABASE ai_ops;"
-```
-
-4. 确认服务已启动：在「服务」里找到 `postgresql-x64-16`（名称因版本而异）为「正在运行」。
-
-### macOS
-
-**方式 1：Homebrew（推荐）**
-
-```bash
-brew install postgresql@16
-brew services start postgresql@16
-
-# 创建数据库（当前 macOS 用户一般为超级用户）
-createdb ai_ops
-# 若需 postgres 用户：
-# createuser -s postgres
-# psql -d postgres -c "ALTER USER postgres PASSWORD '你的密码';"
-# createdb -O postgres ai_ops
-```
-
-**方式 2：官方安装包**
-
-https://www.postgresql.org/download/macosx/
-
-### Linux（Debian / Ubuntu 示例）
-
-```bash
-sudo apt update
-sudo apt install -y postgresql postgresql-contrib
-sudo systemctl enable --now postgresql
-
-# 切换到 postgres 系统用户后建库建密
-sudo -u postgres psql -c "ALTER USER postgres PASSWORD '你的密码';"
-sudo -u postgres psql -c "CREATE DATABASE ai_ops OWNER postgres;"
-```
-
-若本机用密码登录 `127.0.0.1`，可能还需改 `pg_hba.conf` 中对应行为 `md5` 或 `scram-sha-256`，然后：
-
-```bash
-sudo systemctl reload postgresql
-```
-
-### 也可用 Docker 只跑数据库
-
-本机不装 Postgres、只起一个数据库容器时：
-
-```bash
-docker run -d --name ai-ops-pg \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=ai_ops \
-  -p 5432:5432 \
-  -v ai_ops_pgdata:/var/lib/postgresql/data \
-  postgres:16-alpine
-```
-
-此时 `backend/.env` 中：
-
-```env
-PG_HOST=127.0.0.1
-PG_PORT=5432
-PG_DBNAME=ai_ops
-PG_USER=postgres
-PG_PASSWORD=postgres
-```
-
-> 若后端也在 Docker Compose 里跑，容器访问「本机」上的 Postgres 时，Windows / Mac 可用 `host.docker.internal` 作为 `PG_HOST`；Linux 视网络情况改用宿主机 IP 或把 Postgres 一并写进 `docker-compose.yml`。
-
-### 验证能否连上
-
-```bash
-psql -h 127.0.0.1 -U postgres -d ai_ops -c "SELECT version();"
-```
-
-能输出版本信息即表示数据库就绪。首次启动后端时会自动建表，一般无需手工执行 SQL 建表脚本。
-
----
-
-## 获取代码
+### Docker（推荐）
 
 ```bash
 git clone https://github.com/devnexlab/ai-workspace.git
 cd ai-workspace
-```
-
----
-
-## 配置环境变量（所有方式都建议做）
-
-```bash
-# 后端
 cp backend/.env.example backend/.env
-# 按实际修改 PostgreSQL 等配置
-
-# 前端（可选，有默认值）
-cp frontend/.env.example frontend/.env
-```
-
-`backend/.env` 至少确认数据库可连（与上面安装时设置的账号一致）：
-
-```env
-PG_HOST=127.0.0.1
-PG_PORT=5432
-PG_DBNAME=ai_ops
-PG_USER=postgres
-PG_PASSWORD=你的密码
-
-FLASK_HOST=0.0.0.0
-FLASK_PORT=3456
-```
-
----
-
-## Linux / macOS：Docker 部署（推荐）
-
-1. 安装并启动 **Docker Desktop**（Mac）或 **Docker Engine**（Linux）。
-2. 进入项目根目录，确认已有 `backend/.env`（可先从 `backend/.env.example` 复制）。
-3. 构建并启动（会一并启动 **PostgreSQL**，无需本机再装数据库）：
-
-```bash
 docker compose up -d --build
 ```
 
-4. 浏览器访问：
+访问：前端 http://localhost:5180 · 后端 http://localhost:3456 · 健康检查 `/api/health`  
 
-| 服务 | 地址 |
-|------|------|
-| 前端 | http://localhost:5180 |
-| 后端 API | http://localhost:3456 |
-| PostgreSQL | localhost:5432（库名 `ai_ops`，默认账号见 `.env`） |
+Windows 也可双击 **`安装并启动.bat`**。
 
-常用命令：
+### 本机开发
 
-```bash
-docker compose ps          # 查看状态
-docker compose logs -f     # 看日志
-docker compose down        # 停止并移除容器（数据卷 pgdata 默认保留）
-docker compose down -v     # 停止并删除数据库数据卷（慎用）
-docker compose up -d --build   # 改代码后重新构建
-```
+见 [部署文档 · 方式 A](docs/DEPLOY.md#3-方式-a本机开发启动)。
 
-> Compose 会挂载 `./backend/data`、`outputs`、`uploads`；数据库数据在 Docker 卷 `pgdata` 中。  
-> 所有服务加入同一网络 `ai-ops-net`，容器内互访用服务名：`postgres`、`backend`、`frontend`（不要用 `127.0.0.1`）。
+### 公网 / 域名 / 微信公众号
+
+完整步骤（云服务器、安全组、Nginx/Caddy、备案 HTTPS、菜单挂链、验收清单）：
+
+**→ [`docs/DEPLOY.md`](docs/DEPLOY.md)**
 
 ---
 
-## Windows 部署
+## 致谢
 
-### 方式 A：下载软件后本机直接运行
+感谢以下开源项目与服务（排名不分先后）：
 
-适合本地开发、调试自动化（Playwright 采集/发布、本机 FFmpeg 视频合成更方便）。
+- [React](https://react.dev/) · [Vite](https://vitejs.dev/) · [Ant Design](https://ant.design/)
+- [Flask](https://flask.palletsprojects.com/) · [psycopg2](https://www.psycopg.org/) · [PostgreSQL](https://www.postgresql.org/)
+- [MoviePy](https://zulko.github.io/moviepy/) · [FFmpeg](https://ffmpeg.org/) · [edge-tts](https://github.com/rany2/edge-tts)
+- [Playwright](https://playwright.dev/) · [AKShare](https://github.com/akfamily/akshare)
+- [Docker](https://www.docker.com/) · [Nginx](https://nginx.org/) · [Caddy](https://caddyserver.com/)
 
-#### 1. 安装软件
+以及智谱、火山引擎、DeepSeek、OpenAI 等大模型服务商提供的开放 API。
 
-安装 **Git、Python 3.12+、Node.js 20 LTS、PostgreSQL**，并建议安装 **FFmpeg**（见上文「视频剪辑相关软件」）。安装 Python 时务必勾选 **Add to PATH**。
-
-#### 2. 配置 `.env`
-
-按上文复制并修改 `backend/.env`。
-
-#### 3. 安装依赖（首次）
-
-Python 依赖统一写在仓库根目录 **`pyproject.toml`**（不再使用 `requirements.txt`）。
-
-在 **PowerShell** 或 **CMD** 中，于**项目根目录**执行：
-
-```bat
-cd /d d:\idea\ai-workspace
-python -m venv backend\venv
-backend\venv\Scripts\pip install -U pip
-backend\venv\Scripts\pip install -e .
-backend\venv\Scripts\playwright install chromium
-
-cd frontend
-npm install
-```
-
-#### 4. 启动
-
-项目根目录已提供脚本，**各开一个窗口**：
-
-```bat
-start_backend.bat
-start_frontend.bat
-```
-
-或手动启动：
-
-```bat
-:: 后端（端口 3456）
-cd backend
-venv\Scripts\python.exe app.py
-
-:: 前端（默认开发端口见 frontend/.env，一般为 5180）
-cd frontend
-npm run dev
-```
-
-#### 5. 访问
-
-- 前端：http://localhost:5180  
-- 后端：http://localhost:3456  
+欢迎 Star；问题与建议可通过 GitHub Issues 反馈。
 
 ---
 
-### 方式 B：Docker 部署
+## 许可证
 
-适合不想本机装 Python / Node、只要能跑起来的场景。`docker-compose.yml` 已内置 **PostgreSQL**，一般不必再单独装数据库。
+若仓库含 `LICENSE` 文件，以该文件为准；未声明时请仅作个人 / 团队内部使用，商用前请自行评估合规要求。
 
-#### 1. 安装软件
-
-安装并启动 **Docker Desktop for Windows**（需开启 WSL2，安装向导会提示）。
-
-#### 2～3. 一键安装并启动（推荐）
-
-双击项目根目录 **`安装并启动.bat`**：
-
-- 检测 / 尝试启动 Docker Desktop  
-- 若无 `backend\.env` 则从 `.env.example` 复制（默认密码无需修改）  
-- 执行 `docker compose up -d --build`  
-- 打开 http://localhost:5180  
-
-也可手动：
-
-```bat
-copy backend\.env.example backend\.env
-docker compose up -d --build
-```
-
-Compose 会把后端的 `PG_HOST` 设为 `postgres`，连的是同组容器里的数据库。
-
-#### 4. 访问
-
-- 前端：http://localhost:5180  
-- 后端：http://localhost:3456  
-- 数据库：localhost:5432（库 `ai_ops`）
-
-```powershell
-docker compose logs -f
-docker compose down
-```
-
----
-
-## 部署方式对照
-
-| | Windows 方式 A（本机） | Windows 方式 B（Docker） | Linux / macOS（Docker） |
-|--|------------------------|--------------------------|-------------------------|
-| 需安装 | Git + Python + Node + **PostgreSQL** | Git + Docker Desktop | Git + Docker |
-| 数据库 | 本机 / 外置 Postgres | Compose 内置 `postgres` | Compose 内置 `postgres` |
-| 启动 | `start_*.bat` 或手动 | `docker compose up -d` | `docker compose up -d` |
-| 前端地址 | http://localhost:5180 | http://localhost:5180 | http://localhost:5180 |
-| 后端地址 | http://localhost:3456 | http://localhost:3456 | http://localhost:3456 |
-| 适用 | 开发、本机自动化 | 快速部署 | 推荐生产 / 一键部署 |
-
----
-
-## 数据库相关表（节选）
-
-- `hot_topic` — 热点
-- `script` — 口播文案
-- `video_task` — 视频任务
-- `customer` / `follow_record` — 客户与跟进
-- `publish_task` — 发布
-- `stock_watchlist` — 自选股
-- `knowledge_item` — 知识库
-- `system_setting` — 系统设置
-
-## 主要 API（节选）
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| GET | /api/dashboard | 总览汇总 |
-| GET/POST | /api/hot-topics | 热点 |
-| GET/POST | /api/scripts | 文案 |
-| POST | /api/scripts/:id/produce | 文案出片 |
-| GET/POST | /api/videos | 视频任务 |
-| GET/POST | /api/customers | 客户 |
-| GET/POST | /api/publish | 发布 |
-| GET/POST | /api/stocks/watchlist | 自选股 |
-| POST | /api/stocks/watchlist/refresh-prices | 刷新自选股现价 |
-| GET/PUT | /api/settings | 系统设置 |
-
----
-
-## 常见问题
-
-**1. Windows 上 `python` / `pip` 找不到**  
-重新安装 Python 并勾选 *Add to PATH*，或使用完整路径：`backend\venv\Scripts\python.exe`。
-
-**2. Docker 起不来 / 端口被占用**  
-确认 5180、3456 未被占用；Docker Desktop 已启动；Linux 用户是否在 `docker` 组：`sudo usermod -aG docker $USER` 后重新登录。
-
-**3. 前端能开但接口失败**  
-检查后端是否在跑、`backend/.env` 数据库是否通；Docker 下看 `docker compose logs backend`。
-
-**4. 连不上 PostgreSQL / 后端启动报数据库错误**  
-- 确认 Postgres 服务已启动，库名 `ai_ops` 已创建  
-- `.env` 里 `PG_HOST` / `PG_PORT` / `PG_USER` / `PG_PASSWORD` 与安装时一致  
-- Windows / Mac 上后端在 Docker、库在本机时，`PG_HOST` 用 `host.docker.internal`  
-- 用 `psql -h 127.0.0.1 -U postgres -d ai_ops` 先测能否登录  
-
-**5. 自选股刷新现价失败**  
-需本机或容器能访问外网行情接口；重启后端后再点「刷新现价」。
-
-**6. 视频合成失败 / 提示找不到 FFmpeg**  
-- 本机：安装 FFmpeg 并加入 PATH，或在系统设置填写完整路径  
-- Docker：重新 `docker compose build backend`（镜像已含 ffmpeg）  
-- 默认可用 MoviePy 引擎；FFmpeg 引擎与 `ffprobe` 测时长更依赖系统 FFmpeg  
-
-**7. 自动发布 / 采集打不开浏览器**  
-确认已执行 `playwright install chromium`（Docker 构建时已包含）。
+行情与第三方数据仅供学习与辅助决策，**不构成投资建议**。请遵守各平台规则，注意账号安全。
