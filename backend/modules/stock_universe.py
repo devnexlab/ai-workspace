@@ -88,22 +88,32 @@ def refresh_stock_universe(force_refresh=True):
         turnover = item.get('turnover')
         try:
             price = float(price) if price is not None and price != '' else None
+            if price is not None and (price != price):  # NaN
+                price = None
         except (TypeError, ValueError):
             price = None
         try:
             pct_chg = float(pct_chg) if pct_chg is not None and pct_chg != '' else None
+            if pct_chg is not None and (pct_chg != pct_chg):
+                pct_chg = None
         except (TypeError, ValueError):
             pct_chg = None
         try:
             volume = float(volume) if volume is not None and volume != '' else None
+            if volume is not None and (volume != volume):
+                volume = None
         except (TypeError, ValueError):
             volume = None
         try:
             amount = float(amount) if amount is not None and amount != '' else None
+            if amount is not None and (amount != amount):
+                amount = None
         except (TypeError, ValueError):
             amount = None
         try:
             turnover = float(turnover) if turnover is not None and turnover != '' else None
+            if turnover is not None and (turnover != turnover):
+                turnover = None
         except (TypeError, ValueError):
             turnover = None
 
@@ -161,6 +171,17 @@ def refresh_stock_universe(force_refresh=True):
     if deactivated:
         msg += f'，下架 {deactivated}'
     msg += '）'
+    src = ''
+    for item in rows[:20]:
+        if item.get('_quote_source'):
+            src = item.get('_quote_source')
+            break
+    if src == 'tencent':
+        msg += '；行情由腾讯接口补全（东财现货暂不可用）'
+    elif src == 'eastmoney':
+        msg += '；行情来自东财现货'
+    elif src == 'code_name':
+        msg += '；仅同步了代码名称，行情未取到'
 
     return {
         'total': active_count,

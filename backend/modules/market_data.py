@@ -95,10 +95,8 @@ def _normalize_stock_code(code) -> str:
 
 def list_a_shares(force_refresh=False):
     """
-    返回 [{'code','name',...}, ...]
-    优先读当日缓存；东财现货失败时回退到代码表。
-    注意：代码表回退没有价格，不会覆盖已有「带价格」的现货缓存。
-    默认已剔除 ST / 退市等普通账户难交易标的。
+    返回 [{'code','name','price','pct_chg','volume','amount','turnover'}, ...]
+    优先读当日缓存；东财现货失败时回退代码表，再用腾讯行情补全现价/涨跌幅等。
     """
     cache_file = _cache_dir() / f"spot_{datetime.now().strftime('%Y%m%d')}.csv"
     if cache_file.exists() and not force_refresh:
@@ -115,6 +113,8 @@ def list_a_shares(force_refresh=False):
     ak = _ak()
     df = None
     from_spot = False
+    quote_source = ''
+
     # 1) 东财现货（字段全，但偶发断连）
     for attempt in range(2):
         try:
@@ -139,17 +139,19 @@ def list_a_shares(force_refresh=False):
             keep = [c for c in ('code', 'name', 'price', 'pct_chg', 'volume', 'amount', 'turnover') if c in raw.columns]
             df = raw[keep].copy()
             from_spot = 'price' in df.columns
+            quote_source = 'eastmoney'
             break
         except Exception as e:
             print(f'[market_data] spot_em failed ({attempt}): {e}')
             time.sleep(1.5)
 
-    # 2) 回退：A股代码名称表（稳，但无价格）
+    # 2) 回退：A股代码名称表（稳，但无价格）→ 再用腾讯批量补行情
     if df is None or df.empty:
         try:
             raw = ak.stock_info_a_code_name()
             df = raw.rename(columns={'code': 'code', 'name': 'name'})[['code', 'name']].copy()
             from_spot = False
+            quote_source = 'code_name'
         except Exception as e:
             raise RuntimeError(f'无法获取 A 股列表: {e}')
 
@@ -169,13 +171,32 @@ def list_a_shares(force_refresh=False):
     # 过滤北交所/基金等常见前缀：只保留主板/创业板/科创常见
     df = df[df['code'].str.startswith(('00', '30', '60', '68'))]
 
-    # 只有真正带价格的现货才覆盖缓存，避免把无价代码表写进 spot_*.csv
-    if from_spot:
+    # 东财失败时：用腾讯行情补全现价/涨跌幅/成交额（否则全市场表只有代码名）
+    need_quote = (not from_spot) or ('price' not in df.columns) or df['price'].isna().all()
+    if need_quote and not df.empty:
+        print(f'[market_data] enriching {len(df)} symbols via Tencent quotes…')
+        quotes = fetch_spot_quotes(df['code'].tolist())
+        if quotes:
+            qdf = pd.DataFrame(list(quotes.values()))
+            keep_q = [c for c in ('code', 'price', 'pct_chg', 'volume', 'amount', 'turnover') if c in qdf.columns]
+            qdf = qdf[keep_q]
+            df = df.drop(columns=[c for c in ('price', 'pct_chg', 'volume', 'amount', 'turnover') if c in df.columns], errors='ignore')
+            df = df.merge(qdf, on='code', how='left')
+            from_spot = bool(qdf['price'].notna().any()) if 'price' in qdf.columns else False
+            quote_source = 'tencent' if from_spot else 'code_name'
+            print(f'[market_data] tencent enriched {int(qdf["price"].notna().sum()) if "price" in qdf.columns else 0} / {len(df)}')
+
+    # 带行情才写缓存，避免无价代码表污染
+    if from_spot and 'price' in df.columns:
         try:
             df.to_csv(cache_file, index=False)
         except Exception:
             pass
-    return df.to_dict('records')
+    # 附加来源标记（不入库，供调试）
+    records = df.to_dict('records')
+    for r in records:
+        r['_quote_source'] = quote_source
+    return records
 
 
 def _market_symbol(code: str) -> str:
@@ -186,11 +207,68 @@ def _market_symbol(code: str) -> str:
     return f'sz{code}'
 
 
-def fetch_spot_prices(codes) -> dict:
+def _parse_tencent_line(line: str) -> dict | None:
+    """解析腾讯 qt.gtimg.cn 单行行情。"""
+    line = (line or '').strip()
+    if '="' not in line:
+        return None
+    payload = line.split('="', 1)[1].rstrip('";')
+    if not payload:
+        return None
+    parts = payload.split('~')
+    if len(parts) < 5:
+        return None
+    code = _normalize_stock_code(parts[2])
+    try:
+        price = float(parts[3])
+    except (TypeError, ValueError):
+        return None
+    if not code or price <= 0:
+        return None
+
+    def _f(idx):
+        try:
+            if idx >= len(parts):
+                return None
+            v = parts[idx]
+            if v is None or v == '':
+                return None
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    # 成交额：优先 parts[35] 第三段（元），否则 parts[37]（万元）
+    amount = None
+    if len(parts) > 35 and parts[35]:
+        segs = str(parts[35]).split('/')
+        if len(segs) >= 3:
+            try:
+                amount = float(segs[2])
+            except (TypeError, ValueError):
+                amount = None
+    if amount is None:
+        wan = _f(37)
+        if wan is not None:
+            amount = wan * 10000
+
+    return {
+        'code': code,
+        'name': parts[1] if len(parts) > 1 else '',
+        'price': price,
+        'pct_chg': _f(32),
+        'volume': _f(36),
+        'amount': amount,
+        'turnover': _f(38),
+    }
+
+
+def fetch_spot_quotes(codes, workers: int = 8) -> dict:
     """
-    按代码批量取实时/最新价（腾讯行情），返回 { '600519': 1333.0, ... }。
-    适合自选股刷新；不要依赖全市场东财快照（易失败且缓存可能无价）。
+    批量取腾讯实时行情，返回
+    { '600519': {'price', 'pct_chg', 'volume', 'amount', 'turnover', 'name'}, ... }
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     uniq = []
     seen = set()
     for c in codes or []:
@@ -201,43 +279,56 @@ def fetch_spot_prices(codes) -> dict:
     if not uniq:
         return {}
 
-    price_map = {}
-    # 腾讯单次建议别太长，按 60 只一批
-    for i in range(0, len(uniq), 60):
-        batch = uniq[i:i + 60]
+    batches = [uniq[i:i + 60] for i in range(0, len(uniq), 60)]
+
+    def _fetch_batch(batch):
         symbols = ','.join(_market_symbol(c) for c in batch)
         url = f'https://qt.gtimg.cn/q={symbols}'
         req = Request(url, headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
             'Referer': 'https://gu.qq.com/',
         })
+        out = {}
         try:
             with urlopen(req, timeout=12) as resp:
-                # 腾讯行情默认 GBK
                 body = resp.read().decode('gbk', 'ignore')
         except Exception as e:
-            print(f'[market_data] tencent quote failed: {e}')
-            continue
-
+            print(f'[market_data] tencent quote batch failed: {e}')
+            return out
         for line in body.replace('\n', '').split(';'):
-            line = line.strip()
-            if '="' not in line:
-                continue
-            payload = line.split('="', 1)[1].rstrip('";')
-            if not payload:
-                continue
-            parts = payload.split('~')
-            if len(parts) < 4:
-                continue
-            code = _normalize_stock_code(parts[2])
+            parsed = _parse_tencent_line(line)
+            if parsed:
+                out[parsed['code']] = parsed
+        return out
+
+    quote_map = {}
+    workers = max(1, min(int(workers or 8), 16))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = [ex.submit(_fetch_batch, b) for b in batches]
+        for fut in as_completed(futs):
             try:
-                price = float(parts[3])
-            except (TypeError, ValueError):
-                continue
-            if code and price > 0:
-                price_map[code] = price
+                quote_map.update(fut.result() or {})
+            except Exception as e:
+                print(f'[market_data] tencent worker error: {e}')
+    return quote_map
+
+
+def fetch_spot_prices(codes) -> dict:
+    """
+    按代码批量取实时/最新价（腾讯行情），返回 { '600519': 1333.0, ... }。
+    适合自选股刷新；不要依赖全市场东财快照（易失败且缓存可能无价）。
+    """
+    quotes = fetch_spot_quotes(codes)
+    price_map = {c: q['price'] for c, q in quotes.items() if q.get('price')}
 
     # 个别失败时用最近日K收盘兜底
+    uniq = []
+    seen = set()
+    for c in codes or []:
+        code = _normalize_stock_code(c)
+        if code and code not in seen:
+            seen.add(code)
+            uniq.append(code)
     missing = [c for c in uniq if c not in price_map]
     for code in missing:
         try:
