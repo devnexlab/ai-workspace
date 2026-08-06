@@ -37,6 +37,7 @@ const pathGroupMap = {
   '/settings/publish': 'settings',
   '/settings/media': 'settings',
   '/settings/notify': 'settings',
+  '/settings/wechat-oa': 'settings',
   '/settings/content': 'settings',
 }
 
@@ -57,6 +58,7 @@ const pageTitleMap = {
   '/settings/publish': '发布平台',
   '/settings/media': '配音与视频',
   '/settings/notify': '消息推送',
+  '/settings/wechat-oa': '微信服务号',
   '/settings/content': '内容运营',
 }
 
@@ -103,6 +105,7 @@ const menuItems = [
       { key: '/settings/publish', label: '发布平台' },
       { key: '/settings/media', label: '配音与视频' },
       { key: '/settings/notify', label: '消息推送' },
+      { key: '/settings/wechat-oa', label: '微信服务号' },
       { key: '/settings/content', label: '内容运营' },
     ],
   },

@@ -13,11 +13,17 @@ import Agents from './features/agents/Agents'
 import Workflows from './features/agents/Workflows'
 import SettingsLayout from './features/settings/SettingsLayout'
 import SettingsModulePage from './features/settings/SettingsModulePage'
+import WechatOaAbout from './features/wechat/WechatOaAbout'
+import WechatOaBook from './features/wechat/WechatOaBook'
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* 服务号菜单可挂的客户页（无侧栏） */}
+        <Route path="/m/about" element={<WechatOaAbout />} />
+        <Route path="/m/book" element={<WechatOaBook />} />
+
         <Route path="/" element={<MainLayout />}>
           <Route index element={<Dashboard />} />
           <Route path="hot-topics" element={<HotTopics />} />

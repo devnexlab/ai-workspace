@@ -1,0 +1,136 @@
+.woa-page {
+  min-height: 100vh;
+  margin: 0;
+  padding: 24px 16px 48px;
+  box-sizing: border-box;
+  background:
+    radial-gradient(120% 80% at 10% 0%, #dbeafe 0%, transparent 55%),
+    radial-gradient(100% 70% at 100% 10%, #fef3c7 0%, transparent 50%),
+    linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  color: #0f172a;
+}
+
+.woa-hero {
+  max-width: 480px;
+  margin: 0 auto 16px;
+}
+
+.woa-brand {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #1d4ed8;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.woa-hero h1 {
+  margin: 0 0 8px;
+  font-size: 28px;
+  line-height: 1.25;
+  font-weight: 750;
+}
+
+.woa-sub {
+  margin: 0;
+  color: #475569;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.woa-card {
+  max-width: 480px;
+  margin: 0 auto;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 18px;
+  padding: 20px;
+  backdrop-filter: blur(8px);
+}
+
+.woa-text {
+  margin: 0 0 16px;
+  font-size: 16px;
+  line-height: 1.7;
+  color: #334155;
+  white-space: pre-wrap;
+}
+
+.woa-contact {
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #f1f5f9;
+  color: #0f172a;
+  font-size: 15px;
+}
+
+.woa-contact p {
+  margin: 0 0 4px;
+}
+
+.woa-label {
+  display: block;
+  margin-bottom: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.woa-input {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  box-sizing: border-box;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 16px;
+  background: #fff;
+  color: #0f172a;
+}
+
+.woa-textarea {
+  resize: vertical;
+  min-height: 84px;
+}
+
+.woa-btn {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  border: 0;
+  border-radius: 999px;
+  padding: 14px 18px;
+  background: #1d4ed8;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.woa-btn:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.woa-link {
+  display: block;
+  margin-top: 14px;
+  text-align: center;
+  color: #1d4ed8;
+  text-decoration: none;
+  font-size: 14px;
+}
+
+.woa-error {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 14px;
+}

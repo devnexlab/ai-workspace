@@ -518,6 +518,22 @@ DEFAULT_SETTINGS = [
     ('notify', 'on_screening_done', 'false', '筛选完成时推送',
      '技术面筛选任务完成时推送（可选）', 'select', '["true","false"]', 2),
 
+    # ---- 微信服务号（阶段①：对外 H5 + 留资）----
+    ('wechat_oa', 'enabled', 'false', '启用服务号对外页',
+     '关闭后客户打开 H5 会提示暂未开放', 'select', '["true","false"]', 1),
+    ('wechat_oa', 'brand_name', '祁实说实话', '对外品牌名', '客户页顶部展示', 'text', None, 2),
+    ('wechat_oa', 'public_base_url', '', '对外访问地址',
+     '客户手机能打开的根地址，如 https://your.domain.com 或 http://公网IP:端口；用于生成菜单链接',
+     'text', None, 3),
+    ('wechat_oa', 'intro_title', '你好，我是祁实说实话', '介绍页标题', '', 'text', None, 4),
+    ('wechat_oa', 'intro_text',
+     '替你的保单说话，给你最放心的选择。关注我，来找我。\n可预约一对一沟通，聊聊家庭保障与保单问题。',
+     '介绍正文', '支持换行', 'textarea', None, 5),
+    ('wechat_oa', 'contact_wechat', '', '对外微信号', '介绍页展示，方便客户添加', 'text', None, 6),
+    ('wechat_oa', 'contact_phone', '', '对外电话（可选）', '', 'text', None, 7),
+    ('wechat_oa', 'booking_hint', '留下联系方式，我会尽快与你联系。', '预约页提示语', '', 'text', None, 8),
+    ('wechat_oa', 'app_id', '', '服务号 AppID（可选）', '阶段②模板消息再用，现在可先填', 'text', None, 9),
+
     # ---- 官方/商业数据台（API 配置，不爬登录页）----
     # 巨量算数
     ('commercial_julang', 'enabled', 'false', '启用巨量算数',

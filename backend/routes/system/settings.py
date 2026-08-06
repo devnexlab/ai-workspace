@@ -75,6 +75,15 @@ SETTINGS_MODULES = [
         'categories': [],
     },
     {
+        'key': 'wechat_oa',
+        'path': 'wechat-oa',
+        'label': '微信服务号',
+        'desc': '对外客户入口：介绍页、预约留资；菜单链接挂到服务号',
+        'icon': 'wechat',
+        'type': 'wechat_oa',
+        'categories': ['wechat_oa'],
+    },
+    {
         'key': 'content',
         'path': 'content',
         'label': '内容运营',
@@ -382,6 +391,41 @@ def check_readiness():
         'message': '至少有一个发布平台已启用' if publish_ready else '尚未启用发布平台',
         'path': '/settings/publish',
     }
+
+    try:
+        from modules.wechat_oa import get_oa_profile
+        oa = get_oa_profile()
+        if not oa['enabled']:
+            readiness['wechat_oa'] = {
+                'ready': True,
+                'optional': True,
+                'enabled': False,
+                'message': '服务号对外页未启用（可选）',
+                'path': '/settings/wechat-oa',
+            }
+        elif not oa['public_base_url']:
+            readiness['wechat_oa'] = {
+                'ready': False,
+                'optional': True,
+                'enabled': True,
+                'message': '已启用但未填对外访问地址',
+                'path': '/settings/wechat-oa',
+            }
+        else:
+            readiness['wechat_oa'] = {
+                'ready': True,
+                'optional': True,
+                'enabled': True,
+                'message': f"对外页已开：{oa['brand_name']}",
+                'path': '/settings/wechat-oa',
+            }
+    except Exception:
+        readiness['wechat_oa'] = {
+            'ready': True,
+            'optional': True,
+            'message': '服务号配置可选',
+            'path': '/settings/wechat-oa',
+        }
 
     # 总览用的精简清单
     readiness['summary'] = [

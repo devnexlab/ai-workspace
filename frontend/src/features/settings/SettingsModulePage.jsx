@@ -26,6 +26,7 @@ const CATEGORY_TITLES = {
   video: '视频制作',
   system: '内容与采集策略',
   notify: '微信推送',
+  wechat_oa: '微信服务号',
 }
 
 /**
@@ -74,6 +75,10 @@ export default function SettingsModulePage() {
 
   if (mod.type === 'ai_providers') {
     return <AiProvidersPage mod={mod} />
+  }
+
+  if (mod.type === 'wechat_oa') {
+    return <WechatOaSettingsPage mod={mod} />
   }
 
   const handleSave = () => {
@@ -329,6 +334,123 @@ function NotifyChannelsPage({ mod }) {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+function WechatOaSettingsPage({ mod }) {
+  const [settings, setSettings] = useState({})
+  const [values, setValues] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [links, setLinks] = useState(null)
+
+  const load = () => {
+    setLoading(true)
+    Promise.all([settingsApi.get(), settingsApi.wechatOaMenuLinks()])
+      .then(([s, l]) => {
+        setSettings(s)
+        setValues(flattenValues(s))
+        setLinks(l)
+      })
+      .catch(() => message.error('加载失败'))
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => { load() }, [mod.key])
+
+  const handleSave = () => {
+    setSaving(true)
+    const payload = groupValues(values)
+    settingsApi.update(payload)
+      .then(() => {
+        message.success('服务号配置已保存')
+        return settingsApi.wechatOaMenuLinks()
+      })
+      .then(l => setLinks(l))
+      .catch(() => message.error('保存失败'))
+      .finally(() => setSaving(false))
+  }
+
+  const copyText = (text) => {
+    if (!text) {
+      message.warning('请先填写并保存「对外访问地址」')
+      return
+    }
+    navigator.clipboard?.writeText(text)
+      .then(() => message.success('已复制'))
+      .catch(() => message.info(text))
+  }
+
+  if (loading) {
+    return <div style={{ textAlign: 'center', padding: 60 }}><Spin /></div>
+  }
+
+  const items = settings.wechat_oa || []
+
+  return (
+    <div>
+      <div className="page-title">{mod.label}</div>
+      <div className="page-desc">{mod.desc}</div>
+
+      <Alert
+        style={{ marginBottom: 16 }}
+        type="info"
+        showIcon
+        message="阶段①：服务号菜单 + 客户页（改动最小）"
+        description={
+          <ol style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+            <li>在微信公众平台注册并认证「服务号」</li>
+            <li>本页填写品牌文案，打开「启用」，填客户能打开的「对外访问地址」</li>
+            <li>公众平台 → 自定义菜单：介绍页 / 预约沟通，粘贴下方链接</li>
+            <li>客户提交预约后，会出现在「客户管理」，并尽量走消息推送通知你</li>
+          </ol>
+        }
+      />
+
+      <Card title="菜单链接（复制到公众平台）" style={{ marginBottom: 16 }}>
+        <p style={{ color: '#666', marginBottom: 12 }}>{links?.hint}</p>
+        <Space direction="vertical" style={{ width: '100%' }} size="middle">
+          <div>
+            <div style={{ marginBottom: 6 }}>介绍页</div>
+            <Space.Compact style={{ width: '100%' }}>
+              <Input readOnly value={links?.about_url || `（保存对外地址后生成）…${links?.about_path || '/m/about'}`} />
+              <Button onClick={() => copyText(links?.about_url)}>复制</Button>
+            </Space.Compact>
+          </div>
+          <div>
+            <div style={{ marginBottom: 6 }}>预约沟通</div>
+            <Space.Compact style={{ width: '100%' }}>
+              <Input readOnly value={links?.book_url || `（保存对外地址后生成）…${links?.book_path || '/m/book'}`} />
+              <Button onClick={() => copyText(links?.book_url)}>复制</Button>
+            </Space.Compact>
+          </div>
+          <Space wrap>
+            <Button href={links?.about_path || '/m/about'} target="_blank">本机预览介绍页</Button>
+            <Button href={links?.book_path || '/m/book'} target="_blank">本机预览预约页</Button>
+          </Space>
+        </Space>
+      </Card>
+
+      <Card
+        title="对外内容与开关"
+        extra={
+          <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={handleSave}>
+            保存
+          </Button>
+        }
+      >
+        <Form layout="vertical">
+          {items.map(item => (
+            <Form.Item key={item.key} label={item.label} extra={item.description}>
+              {renderSettingField(item, values, setValues)}
+            </Form.Item>
+          ))}
+          {!items.length && (
+            <Alert type="warning" message="配置项未初始化，请重启后端后再打开本页。" />
+          )}
+        </Form>
+      </Card>
     </div>
   )
 }
