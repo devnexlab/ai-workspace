@@ -7,6 +7,7 @@ Supported providers:
   - qwen (通义千问): https://dashscope.aliyuncs.com
   - deepseek (深度求索): https://api.deepseek.com
   - moonshot (月之暗面): https://api.moonshot.cn
+  - volcano (火山引擎方舟/豆包): https://ark.cn-beijing.volces.com
 
 All providers use OpenAI-compatible chat/completions API format.
 The user configures provider + API key + model in Settings.
@@ -25,15 +26,29 @@ PROVIDER_URLS = {
     'qwen': 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     'deepseek': 'https://api.deepseek.com/v1',
     'moonshot': 'https://api.moonshot.cn/v1',
+    # 火山方舟 OpenAI 兼容接口
+    'volcano': 'https://ark.cn-beijing.volces.com/api/v3',
+    'volcengine': 'https://ark.cn-beijing.volces.com/api/v3',
+    'doubao': 'https://ark.cn-beijing.volces.com/api/v3',
 }
 
-# Recommended models per provider
+# Recommended models per provider（火山引擎请填控制台「推理接入点」ID，如 ep-xxxx）
 PROVIDER_MODELS = {
     'zhipu': 'glm-4-flash',
     'openai': 'gpt-4o-mini',
     'qwen': 'qwen-plus',
     'deepseek': 'deepseek-chat',
     'moonshot': 'moonshot-v1-8k',
+    'volcano': '',
+    'volcengine': '',
+    'doubao': '',
+}
+
+_PROVIDER_ALIASES = {
+    'volcengine': 'volcano',
+    'doubao': 'volcano',
+    'ark': 'volcano',
+    'huoshan': 'volcano',
 }
 
 DEFAULT_BRAND_ENDING = '祁实说实话，替你的保单说话，给你最放心的选择。关注我，来找我。'
@@ -75,9 +90,38 @@ def call_llm(prompt, system_prompt=None, temperature=None, max_tokens=None):
     if not api_key:
         raise Exception('AI API Key 未配置，请在系统设置中填写')
 
-    provider = config.get('provider', 'zhipu')
-    base_url = config.get('base_url', '').strip() or PROVIDER_URLS.get(provider, PROVIDER_URLS['zhipu'])
-    model = config.get('model', '').strip() or PROVIDER_MODELS.get(provider, 'glm-4-flash')
+    provider = (config.get('provider') or 'zhipu').strip().lower()
+    provider = _PROVIDER_ALIASES.get(provider, provider)
+
+    provider_default_url = PROVIDER_URLS.get(provider, PROVIDER_URLS['zhipu'])
+    base_url = (config.get('base_url') or '').strip()
+    known_urls = {u.rstrip('/') for u in PROVIDER_URLS.values()}
+    # 未填，或仍是其他厂商默认地址时，跟随当前服务商
+    if (not base_url) or (
+        base_url.rstrip('/') in known_urls
+        and base_url.rstrip('/') != provider_default_url.rstrip('/')
+    ):
+        base_url = provider_default_url
+
+    model = (config.get('model') or '').strip()
+    provider_default_model = PROVIDER_MODELS.get(provider) or ''
+    known_models = {m for m in PROVIDER_MODELS.values() if m}
+    if not model:
+        model = provider_default_model
+    elif model in known_models:
+        # 仍是其他厂商的默认模型名时，换成当前厂商默认；火山需用户填接入点
+        if provider_default_model and model != provider_default_model:
+            model = provider_default_model
+        elif provider == 'volcano':
+            model = ''
+    if not model:
+        if provider == 'volcano':
+            raise Exception(
+                '火山引擎请填写「推理接入点 ID」作为模型名称（控制台创建接入点后形如 ep-xxxxxxxx）。'
+                'API Key 使用方舟 ARK_API_KEY。'
+            )
+        model = 'glm-4-flash'
+
     temp = float(temperature) if temperature else float(config.get('temperature', '0.7'))
     max_tok = int(max_tokens) if max_tokens else int(config.get('max_tokens', '2000'))
 

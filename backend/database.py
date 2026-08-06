@@ -332,11 +332,16 @@ CREATE TABLE IF NOT EXISTS workflow (
 # Default configuration entries - the user fills in their own credentials
 DEFAULT_SETTINGS = [
     # ---- AI / LLM ----
-    ('ai', 'provider', 'zhipu', 'LLM服务商', '选择大模型服务商', 'select',
-     '["zhipu","openai","qwen","deepseek","moonshot"]', 1),
-    ('ai', 'api_key', '', 'API Key', '在对应平台注册后获取的 API Key', 'password', None, 2),
-    ('ai', 'base_url', 'https://open.bigmodel.cn/api/paas/v4', 'API Base URL', '接口地址，一般无需修改', 'text', None, 3),
-    ('ai', 'model', 'glm-4-flash', '模型名称', '如 glm-4-flash, gpt-4o, qwen-plus 等', 'text', None, 4),
+    ('ai', 'provider', 'zhipu', 'LLM服务商',
+     'zhipu=智谱 / openai / qwen / deepseek / moonshot / volcano=火山引擎方舟(豆包)',
+     'select',
+     '["zhipu","openai","qwen","deepseek","moonshot","volcano"]', 1),
+    ('ai', 'api_key', '', 'API Key',
+     '智谱/OpenAI等填对应 Key；火山引擎填方舟 ARK_API_KEY', 'password', None, 2),
+    ('ai', 'base_url', 'https://open.bigmodel.cn/api/paas/v4', 'API Base URL',
+     '一般随服务商自动匹配。火山引擎：https://ark.cn-beijing.volces.com/api/v3', 'text', None, 3),
+    ('ai', 'model', 'glm-4-flash', '模型名称',
+     '如 glm-4-flash、qwen-plus；火山引擎填「推理接入点 ID」（ep-开头）', 'text', None, 4),
     ('ai', 'temperature', '0.7', '创意温度', '0-1，越高越有创意', 'text', None, 5),
     ('ai', 'max_tokens', '2000', '最大Token数', '单次生成的最大长度', 'text', None, 6),
     ('ai', 'default_audience', '20-80岁泛流量用户，口播易懂，强共鸣强分享，适合视频号/抖音/小红书', '默认目标受众', '泛流量全年龄段', 'text', None, 7),
@@ -657,6 +662,36 @@ def init_db():
     _upsert_setting(cur, 'ai', 'default_audience',
                     '20-80岁泛流量用户，口播易懂，强共鸣强分享，适合视频号/抖音/小红书')
     _upsert_setting(cur, 'ai', 'default_tone', 'casual')
+    # 同步 AI 服务商下拉（加入火山引擎 volcano）
+    cur.execute(
+        '''UPDATE system_setting
+           SET options=%s, label=%s, description=%s
+           WHERE category=%s AND key=%s''',
+        (
+            '["zhipu","openai","qwen","deepseek","moonshot","volcano"]',
+            'LLM服务商',
+            'zhipu=智谱 / openai / qwen / deepseek / moonshot / volcano=火山引擎方舟(豆包)',
+            'ai', 'provider',
+        ),
+    )
+    cur.execute(
+        '''UPDATE system_setting SET description=%s WHERE category=%s AND key=%s''',
+        ('智谱/OpenAI等填对应 Key；火山引擎填方舟 ARK_API_KEY', 'ai', 'api_key'),
+    )
+    cur.execute(
+        '''UPDATE system_setting SET description=%s WHERE category=%s AND key=%s''',
+        (
+            '一般随服务商自动匹配。火山引擎：https://ark.cn-beijing.volces.com/api/v3',
+            'ai', 'base_url',
+        ),
+    )
+    cur.execute(
+        '''UPDATE system_setting SET description=%s WHERE category=%s AND key=%s''',
+        (
+            '如 glm-4-flash、qwen-plus；火山引擎填「推理接入点 ID」（ep-开头）',
+            'ai', 'model',
+        ),
+    )
     # 仅当仍是旧 AI 副业关键词时才覆盖
     for cat, new_kw in [
         ('collector_douyin', '养老金,家庭保障,保险避坑,理赔案例,职场内耗,育儿焦虑,健康养生,中年危机,防骗防坑,人情世故'),
