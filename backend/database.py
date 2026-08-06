@@ -195,6 +195,20 @@ CREATE TABLE IF NOT EXISTS ops_platform (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 自定义 AI 大模型厂商（卡片可添加）
+CREATE TABLE IF NOT EXISTS ai_llm_provider (
+    id SERIAL PRIMARY KEY,
+    key TEXT NOT NULL UNIQUE,
+    label TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    color TEXT DEFAULT 'blue',
+    auth_type TEXT DEFAULT 'api_key',
+    default_base_url TEXT DEFAULT '',
+    default_model TEXT DEFAULT '',
+    model_hint TEXT DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- ============================================================
 -- V1.2 New Tables
 -- ============================================================
@@ -331,22 +345,48 @@ CREATE TABLE IF NOT EXISTS workflow (
 
 # Default configuration entries - the user fills in their own credentials
 DEFAULT_SETTINGS = [
-    # ---- AI / LLM ----
-    ('ai', 'provider', 'zhipu', 'LLM服务商',
-     'zhipu=智谱 / openai / qwen / deepseek / moonshot / volcano=火山引擎方舟(豆包)',
-     'select',
-     '["zhipu","openai","qwen","deepseek","moonshot","volcano"]', 1),
-    ('ai', 'api_key', '', 'API Key',
-     '智谱/OpenAI等填对应 Key；火山引擎填方舟 ARK_API_KEY', 'password', None, 2),
-    ('ai', 'base_url', 'https://open.bigmodel.cn/api/paas/v4', 'API Base URL',
-     '一般随服务商自动匹配。火山引擎：https://ark.cn-beijing.volces.com/api/v3', 'text', None, 3),
-    ('ai', 'model', 'glm-4-flash', '模型名称',
-     '如 glm-4-flash、qwen-plus；火山引擎填「推理接入点 ID」（ep-开头）', 'text', None, 4),
-    ('ai', 'temperature', '0.7', '创意温度', '0-1，越高越有创意', 'text', None, 5),
-    ('ai', 'max_tokens', '2000', '最大Token数', '单次生成的最大长度', 'text', None, 6),
-    ('ai', 'default_audience', '20-80岁泛流量用户，口播易懂，强共鸣强分享，适合视频号/抖音/小红书', '默认目标受众', '泛流量全年龄段', 'text', None, 7),
+    # ---- AI / LLM（按厂商分卡片；共用参数在 ai）----
+    ('ai_zhipu', 'enabled', 'false', '启用智谱',
+     '开启后作为当前大模型；建议只启用一家', 'select', '["true","false"]', 1),
+    ('ai_zhipu', 'api_key', '', 'API Key', '智谱开放平台 API Key', 'password', None, 2),
+    ('ai_zhipu', 'base_url', 'https://open.bigmodel.cn/api/paas/v4', 'API Base URL', '一般无需修改', 'text', None, 3),
+    ('ai_zhipu', 'model', 'glm-4-flash', '模型名称', '如 glm-4-flash、glm-4', 'text', None, 4),
+
+    ('ai_volcano', 'enabled', 'false', '启用火山引擎',
+     '方舟豆包；模型名称填推理接入点 ID（ep-开头）', 'select', '["true","false"]', 1),
+    ('ai_volcano', 'api_key', '', 'API Key', '方舟 ARK_API_KEY', 'password', None, 2),
+    ('ai_volcano', 'base_url', 'https://ark.cn-beijing.volces.com/api/v3', 'API Base URL', '一般无需修改', 'text', None, 3),
+    ('ai_volcano', 'model', '', '推理接入点 ID', '控制台创建后形如 ep-xxxxxxxx', 'text', None, 4),
+
+    ('ai_qwen', 'enabled', 'false', '启用通义千问',
+     '阿里云 DashScope', 'select', '["true","false"]', 1),
+    ('ai_qwen', 'api_key', '', 'API Key', 'DashScope API Key', 'password', None, 2),
+    ('ai_qwen', 'base_url', 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'API Base URL', '一般无需修改', 'text', None, 3),
+    ('ai_qwen', 'model', 'qwen-plus', '模型名称', '如 qwen-plus、qwen-turbo', 'text', None, 4),
+
+    ('ai_deepseek', 'enabled', 'false', '启用 DeepSeek',
+     '深度求索', 'select', '["true","false"]', 1),
+    ('ai_deepseek', 'api_key', '', 'API Key', 'DeepSeek API Key', 'password', None, 2),
+    ('ai_deepseek', 'base_url', 'https://api.deepseek.com/v1', 'API Base URL', '一般无需修改', 'text', None, 3),
+    ('ai_deepseek', 'model', 'deepseek-chat', '模型名称', '如 deepseek-chat', 'text', None, 4),
+
+    ('ai_moonshot', 'enabled', 'false', '启用 Moonshot',
+     '月之暗面 Kimi', 'select', '["true","false"]', 1),
+    ('ai_moonshot', 'api_key', '', 'API Key', 'Moonshot API Key', 'password', None, 2),
+    ('ai_moonshot', 'base_url', 'https://api.moonshot.cn/v1', 'API Base URL', '一般无需修改', 'text', None, 3),
+    ('ai_moonshot', 'model', 'moonshot-v1-8k', '模型名称', '如 moonshot-v1-8k', 'text', None, 4),
+
+    ('ai_openai', 'enabled', 'false', '启用 OpenAI / ChatGPT',
+     '官方 GPT：使用 platform.openai.com 的 API Key（sk-）', 'select', '["true","false"]', 1),
+    ('ai_openai', 'api_key', '', 'API Key', 'sk- 开头；不是 ChatGPT 登录密码', 'password', None, 2),
+    ('ai_openai', 'base_url', 'https://api.openai.com/v1', 'API Base URL', '官方地址；中转可改', 'text', None, 3),
+    ('ai_openai', 'model', 'gpt-4o-mini', '模型名称', '如 gpt-4o-mini、gpt-4o', 'text', None, 4),
+
+    ('ai', 'temperature', '0.7', '创意温度', '0-1，越高越有创意（所有厂商共用）', 'text', None, 1),
+    ('ai', 'max_tokens', '2000', '最大Token数', '单次生成最大长度（所有厂商共用）', 'text', None, 2),
+    ('ai', 'default_audience', '20-80岁泛流量用户，口播易懂，强共鸣强分享，适合视频号/抖音/小红书', '默认目标受众', '泛流量全年龄段', 'text', None, 3),
     ('ai', 'default_tone', 'casual', '默认文案语气', '', 'select',
-     '["professional","casual","passionate","humorous","serious","friendly"]', 8),
+     '["professional","casual","passionate","humorous","serious","friendly"]', 4),
 
     # ---- Collector: Douyin ----
     ('collector_douyin', 'enabled', 'false', '启用抖音采集',
@@ -662,36 +702,57 @@ def init_db():
     _upsert_setting(cur, 'ai', 'default_audience',
                     '20-80岁泛流量用户，口播易懂，强共鸣强分享，适合视频号/抖音/小红书')
     _upsert_setting(cur, 'ai', 'default_tone', 'casual')
-    # 同步 AI 服务商下拉（加入火山引擎 volcano）
-    cur.execute(
-        '''UPDATE system_setting
-           SET options=%s, label=%s, description=%s
-           WHERE category=%s AND key=%s''',
-        (
-            '["zhipu","openai","qwen","deepseek","moonshot","volcano"]',
-            'LLM服务商',
-            'zhipu=智谱 / openai / qwen / deepseek / moonshot / volcano=火山引擎方舟(豆包)',
-            'ai', 'provider',
-        ),
-    )
-    cur.execute(
-        '''UPDATE system_setting SET description=%s WHERE category=%s AND key=%s''',
-        ('智谱/OpenAI等填对应 Key；火山引擎填方舟 ARK_API_KEY', 'ai', 'api_key'),
-    )
-    cur.execute(
-        '''UPDATE system_setting SET description=%s WHERE category=%s AND key=%s''',
-        (
-            '一般随服务商自动匹配。火山引擎：https://ark.cn-beijing.volces.com/api/v3',
-            'ai', 'base_url',
-        ),
-    )
-    cur.execute(
-        '''UPDATE system_setting SET description=%s WHERE category=%s AND key=%s''',
-        (
-            '如 glm-4-flash、qwen-plus；火山引擎填「推理接入点 ID」（ep-开头）',
-            'ai', 'model',
-        ),
-    )
+
+    # AI 大模型：旧单表 → 分厂商卡片
+    def _ai_get(cat, key):
+        cur.execute(
+            'SELECT value FROM system_setting WHERE category=%s AND key=%s',
+            (cat, key),
+        )
+        row = cur.fetchone()
+        return (row[0] if row else '') or ''
+
+    old_provider = (_ai_get('ai', 'provider') or 'zhipu').strip().lower()
+    if old_provider in ('volcengine', 'doubao', 'ark', 'huoshan'):
+        old_provider = 'volcano'
+    old_key = _ai_get('ai', 'api_key')
+    old_url = _ai_get('ai', 'base_url')
+    old_model = _ai_get('ai', 'model')
+    any_ai_on = False
+    for pkey in ('zhipu', 'volcano', 'qwen', 'deepseek', 'moonshot', 'openai'):
+        if str(_ai_get(f'ai_{pkey}', 'enabled')).lower() == 'true':
+            any_ai_on = True
+            break
+    target_cat = f'ai_{old_provider}' if old_provider in (
+        'zhipu', 'volcano', 'qwen', 'deepseek', 'moonshot', 'openai',
+    ) else 'ai_zhipu'
+    if old_key and not _ai_get(target_cat, 'api_key'):
+        _upsert_setting(cur, target_cat, 'api_key', old_key)
+    if old_url and not _ai_get(target_cat, 'base_url'):
+        _upsert_setting(cur, target_cat, 'base_url', old_url)
+    if old_model and not _ai_get(target_cat, 'model'):
+        _upsert_setting(cur, target_cat, 'model', old_model)
+    if old_key and not any_ai_on:
+        _upsert_setting(cur, target_cat, 'enabled', 'true')
+
+    for obsolete_key in ('provider', 'api_key', 'base_url', 'model'):
+        cur.execute(
+            'DELETE FROM system_setting WHERE category=%s AND key=%s',
+            ('ai', obsolete_key),
+        )
+
+    # 同步各厂商卡片文案
+    for item in DEFAULT_SETTINGS:
+        if not (str(item[0]) == 'ai' or str(item[0]).startswith('ai_')):
+            continue
+        cat, key, _val, label, desc, field_type, options, sort_order = item
+        cur.execute(
+            '''UPDATE system_setting
+               SET label=%s, description=%s, field_type=%s, options=%s, sort_order=%s
+               WHERE category=%s AND key=%s''',
+            (label, desc, field_type, options, sort_order, cat, key),
+        )
+
     # 仅当仍是旧 AI 副业关键词时才覆盖
     for cat, new_kw in [
         ('collector_douyin', '养老金,家庭保障,保险避坑,理赔案例,职场内耗,育儿焦虑,健康养生,中年危机,防骗防坑,人情世故'),
@@ -819,6 +880,13 @@ def init_db():
     conn.commit()
     conn.close()
     print(f'[DB] PostgreSQL initialized: {PG_HOST}:{PG_PORT}/{PG_DBNAME}')
+
+    try:
+        from modules.ai_providers import ensure_builtin_settings
+        ensure_builtin_settings()
+        print('[DB] AI LLM provider settings ensured')
+    except Exception as e:
+        print(f'[DB] Warning: ensure AI settings failed: {e}')
 
 
 def _upsert_setting(cur, category, key, value):

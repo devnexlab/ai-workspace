@@ -72,6 +72,10 @@ export default function SettingsModulePage() {
     return <NotifyChannelsPage mod={mod} />
   }
 
+  if (mod.type === 'ai_providers') {
+    return <AiProvidersPage mod={mod} />
+  }
+
   const handleSave = () => {
     setSaving(true)
     const cats = mod.categories || []
@@ -325,6 +329,318 @@ function NotifyChannelsPage({ mod }) {
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+function AiProvidersPage({ mod }) {
+  const { reloadModules } = useOutletContext() || {}
+  const [settings, setSettings] = useState({})
+  const [readiness, setReadiness] = useState({})
+  const [values, setValues] = useState({})
+  const [loading, setLoading] = useState(true)
+  const [savingKey, setSavingKey] = useState(null)
+  const [testingKey, setTestingKey] = useState(null)
+  const [activeKey, setActiveKey] = useState(null)
+  const [addOpen, setAddOpen] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [form] = Form.useForm()
+
+  const cards = mod.platforms || []
+
+  const load = () => {
+    setLoading(true)
+    Promise.all([settingsApi.get(), settingsApi.check()])
+      .then(([s, r]) => {
+        setSettings(s)
+        setReadiness(r)
+        setValues(flattenValues(s))
+        setActiveKey(prev => {
+          if (prev && cards.some(p => p.key === prev)) return prev
+          const enabled = cards.find(p => p.key !== 'common' && r?.[p.category]?.enabled)
+          return enabled?.key || cards[0]?.key || null
+        })
+      })
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => { load() }, [mod.key, cards.map(p => p.key).join(',')])
+
+  const saveCard = (card) => {
+    const cat = card.category
+    setSavingKey(card.key)
+    const all = groupValues(values)
+    const payload = { [cat]: all[cat] || {} }
+
+    if (card.key !== 'common') {
+      const enabling = String(payload[cat]?.enabled || '').toLowerCase() === 'true'
+      if (enabling) {
+        cards.forEach(c => {
+          if (c.key === 'common' || c.key === card.key) return
+          payload[c.category] = {
+            ...(all[c.category] || {}),
+            enabled: 'false',
+          }
+        })
+      }
+    }
+
+    settingsApi.update(payload)
+      .then(() => {
+        message.success(`${card.label} 已保存`)
+        load()
+      })
+      .catch(() => message.error('保存失败'))
+      .finally(() => setSavingKey(null))
+  }
+
+  const handleTest = (card) => {
+    if (card.key === 'common') return
+    setTestingKey(card.key)
+    const cat = card.category
+    const all = groupValues(values)
+    settingsApi.update({ [cat]: all[cat] || {} })
+      .then(() => settingsApi.testAi({ provider: card.key }))
+      .then((res) => {
+        message.success(`${res?.message || '连通成功'}（${res?.model || card.key}）`)
+        load()
+      })
+      .catch((err) => message.error(err?.error || err?.message || '测试失败'))
+      .finally(() => setTestingKey(null))
+  }
+
+  const handleAdd = () => {
+    form.validateFields().then(vals => {
+      setAdding(true)
+      settingsApi.createAiProvider({
+        key: vals.key,
+        label: vals.label,
+        desc: vals.desc || '',
+        color: vals.color || 'blue',
+        default_base_url: vals.default_base_url || '',
+        default_model: vals.default_model || '',
+        model_hint: vals.model_hint || '',
+      })
+        .then(res => {
+          message.success(res.message || '厂商已添加')
+          setAddOpen(false)
+          form.resetFields()
+          return reloadModules?.()
+        })
+        .then(() => {
+          setActiveKey(vals.key)
+          load()
+        })
+        .catch(err => message.error(err?.error || '添加失败'))
+        .finally(() => setAdding(false))
+    })
+  }
+
+  const handleDelete = (card) => {
+    settingsApi.deleteAiProvider(card.key)
+      .then(res => {
+        message.success(res.message || '已删除')
+        return reloadModules?.()
+      })
+      .then(() => {
+        setActiveKey(null)
+        load()
+      })
+      .catch(err => message.error(err?.error || '删除失败'))
+  }
+
+  if (loading) {
+    return <div style={{ textAlign: 'center', padding: 60 }}><Spin /></div>
+  }
+
+  const moduleReady = readiness[mod.key]
+  const current = cards.find(p => p.key === activeKey) || cards[0]
+  const isCommon = current?.key === 'common'
+
+  const visibleFields = (card) => {
+    const items = settings[card.category] || []
+    if (card.key === 'common') return items
+    return items.filter(item => !['auth_type', 'username', 'password'].includes(item.key))
+  }
+
+  const statusTag = (card) => {
+    if (card.key === 'common') return <Tag color="purple">共用</Tag>
+    const ready = readiness[card.category]
+    if (ready?.enabled && ready?.ready) return <Tag color="success">使用中</Tag>
+    if (ready?.enabled) return <Tag color="warning">待配齐</Tag>
+    if (ready?.message?.includes('已填')) return <Tag color="blue">已配置</Tag>
+    return <Tag color="default">未启用</Tag>
+  }
+
+  return (
+    <div>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, flexWrap: 'wrap' }}>
+        <div>
+          <div className="page-title">{mod.label}</div>
+          <div className="page-desc" style={{ marginBottom: 0 }}>{mod.desc}</div>
+          <Alert
+            style={{ marginTop: 12 }}
+            type="info"
+            showIcon
+            message={moduleReady?.message || '选择一家大模型并启用'}
+            description="填写 API Key 后启用即可。ChatGPT/GPT 请选「OpenAI / ChatGPT」，使用 platform.openai.com 的 sk- Key。"
+          />
+        </div>
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={() => {
+            form.resetFields()
+            form.setFieldsValue({ color: 'blue' })
+            setAddOpen(true)
+          }}
+        >
+          添加模型
+        </Button>
+      </div>
+
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+        <div style={{ width: 200, flexShrink: 0 }}>
+          {cards.map(p => {
+            const selected = current?.key === p.key
+            return (
+              <Card
+                key={p.key}
+                size="small"
+                hoverable
+                onClick={() => setActiveKey(p.key)}
+                style={{
+                  marginBottom: 8,
+                  borderColor: selected ? '#1677ff' : undefined,
+                  background: selected ? '#f0f5ff' : undefined,
+                  cursor: 'pointer',
+                }}
+              >
+                <div style={{ fontWeight: 600 }}>
+                  {p.label}
+                  {p.recommended && <Tag style={{ marginLeft: 6 }} color="green">推荐</Tag>}
+                  {!p.builtin && p.key !== 'common' && <Tag style={{ marginLeft: 6 }}>自定义</Tag>}
+                </div>
+                <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>{p.desc}</div>
+                <div style={{ marginTop: 8 }}>{statusTag(p)}</div>
+              </Card>
+            )
+          })}
+        </div>
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {current && (
+            <Card
+              title={
+                <Space>
+                  {current.label}
+                  <Tag>大模型</Tag>
+                  {current.recommended && <Tag color="green">推荐</Tag>}
+                </Space>
+              }
+              extra={
+                <Space>
+                  {!isCommon && (
+                    <Button
+                      icon={<ExperimentOutlined />}
+                      loading={testingKey === current.key}
+                      onClick={() => handleTest(current)}
+                    >
+                      测试连通
+                    </Button>
+                  )}
+                  {!isCommon && !current.builtin && (
+                    <Popconfirm
+                      title={`删除厂商「${current.label}」？`}
+                      description="将同时删除对应配置项，不可恢复"
+                      onConfirm={() => handleDelete(current)}
+                    >
+                      <Button danger icon={<DeleteOutlined />}>删除</Button>
+                    </Popconfirm>
+                  )}
+                  <Button
+                    type="primary"
+                    icon={<SaveOutlined />}
+                    loading={savingKey === current.key}
+                    onClick={() => saveCard(current)}
+                  >
+                    保存
+                  </Button>
+                </Space>
+              }
+            >
+              <p style={{ color: '#888', marginBottom: 16 }}>{current.desc}</p>
+              {!isCommon && current.key === 'volcano' && (
+                <Alert
+                  style={{ marginBottom: 16 }}
+                  type="warning"
+                  showIcon
+                  message="火山引擎需填推理接入点"
+                  description="API Key 用方舟 ARK_API_KEY；模型名称填控制台接入点 ID（ep-xxxxxxxx），不是模型展示名。"
+                />
+              )}
+              {!isCommon && current.key === 'openai' && (
+                <Alert
+                  style={{ marginBottom: 16 }}
+                  type="info"
+                  showIcon
+                  message="ChatGPT / GPT 官方接法"
+                  description="到 https://platform.openai.com/api-keys 创建 sk- 开头的 API Key（需开通付费/有余额）。"
+                />
+              )}
+              <Form layout="vertical">
+                {visibleFields(current).map(item => (
+                  <Form.Item key={item.key} label={item.label} extra={item.description}>
+                    {renderSettingField(item, values, setValues)}
+                  </Form.Item>
+                ))}
+                {!visibleFields(current).length && (
+                  <Alert type="warning" message="该厂商尚未初始化配置项，请刷新页面或重启后端。" />
+                )}
+              </Form>
+            </Card>
+          )}
+        </div>
+      </div>
+
+      <Modal
+        title="添加大模型厂商"
+        open={addOpen}
+        onOk={handleAdd}
+        confirmLoading={adding}
+        onCancel={() => setAddOpen(false)}
+        width={560}
+        destroyOnClose
+      >
+        <Form form={form} layout="vertical" style={{ marginTop: 8 }}>
+          <Form.Item
+            name="key"
+            label="标识"
+            rules={[
+              { required: true, message: '必填' },
+              { pattern: /^[a-z][a-z0-9_]{1,31}$/, message: '小写字母开头，仅 a-z/0-9/_，2-32 位' },
+            ]}
+            extra="如 myproxy、local_llm，创建后不可改"
+          >
+            <Input placeholder="myproxy" />
+          </Form.Item>
+          <Form.Item name="label" label="显示名称" rules={[{ required: true }]}>
+            <Input placeholder="我的中转" />
+          </Form.Item>
+          <Form.Item name="desc" label="简介">
+            <Input placeholder="可选" />
+          </Form.Item>
+          <Form.Item name="default_base_url" label="默认 API Base URL" extra="OpenAI 兼容根地址">
+            <Input placeholder="https://api.example.com/v1" />
+          </Form.Item>
+          <Form.Item name="default_model" label="默认模型名">
+            <Input placeholder="gpt-4o-mini" />
+          </Form.Item>
+          <Form.Item name="color" label="标签颜色">
+            <Select options={COLOR_OPTIONS} />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   )
 }

@@ -239,7 +239,8 @@ def update_settings_batch(settings_dict):
 
 
 def get_ai_config():
-    return get_settings_by_category('ai')
+    from modules.ai_providers import resolve_ai_config
+    return resolve_ai_config()
 
 
 def get_collector_config(platform):

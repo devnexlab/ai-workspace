@@ -8,6 +8,9 @@ export const settingsApi = {
   category: (cat) => api.get(`/settings/${cat}`),
   testCommercial: (providerKey) => api.post(`/commercial-data/test/${providerKey}`, {}),
   testNotify: (data = {}) => api.post('/settings/notify/test', data),
+  testAi: (data = {}) => api.post('/settings/ai/test', data),
+  createAiProvider: (data) => api.post('/settings/ai/providers', data),
+  deleteAiProvider: (key) => api.delete(`/settings/ai/providers/${key}`),
 }
 
 export const platformsApi = {

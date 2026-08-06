@@ -19,14 +19,13 @@ import requests
 from config import get_ai_config, get_setting
 
 
-# Default base URLs for each provider
+# Default base URLs for each provider（与 modules.ai_providers 保持一致）
 PROVIDER_URLS = {
     'zhipu': 'https://open.bigmodel.cn/api/paas/v4',
     'openai': 'https://api.openai.com/v1',
     'qwen': 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     'deepseek': 'https://api.deepseek.com/v1',
     'moonshot': 'https://api.moonshot.cn/v1',
-    # 火山方舟 OpenAI 兼容接口
     'volcano': 'https://ark.cn-beijing.volces.com/api/v3',
     'volcengine': 'https://ark.cn-beijing.volces.com/api/v3',
     'doubao': 'https://ark.cn-beijing.volces.com/api/v3',
@@ -88,39 +87,24 @@ def call_llm(prompt, system_prompt=None, temperature=None, max_tokens=None):
     api_key = config.get('api_key', '').strip()
 
     if not api_key:
-        raise Exception('AI API Key 未配置，请在系统设置中填写')
+        raise Exception('AI API Key 未配置，请在系统设置中填写并启用对应厂商')
 
     provider = (config.get('provider') or 'zhipu').strip().lower()
     provider = _PROVIDER_ALIASES.get(provider, provider)
 
-    provider_default_url = PROVIDER_URLS.get(provider, PROVIDER_URLS['zhipu'])
-    base_url = (config.get('base_url') or '').strip()
-    known_urls = {u.rstrip('/') for u in PROVIDER_URLS.values()}
-    # 未填，或仍是其他厂商默认地址时，跟随当前服务商
-    if (not base_url) or (
-        base_url.rstrip('/') in known_urls
-        and base_url.rstrip('/') != provider_default_url.rstrip('/')
-    ):
-        base_url = provider_default_url
+    base_url = (config.get('base_url') or '').strip() or PROVIDER_URLS.get(provider, '')
+    if not base_url:
+        raise Exception('请填写 API Base URL（系统设置 · 对应大模型卡片）')
 
     model = (config.get('model') or '').strip()
-    provider_default_model = PROVIDER_MODELS.get(provider) or ''
-    known_models = {m for m in PROVIDER_MODELS.values() if m}
     if not model:
-        model = provider_default_model
-    elif model in known_models:
-        # 仍是其他厂商的默认模型名时，换成当前厂商默认；火山需用户填接入点
-        if provider_default_model and model != provider_default_model:
-            model = provider_default_model
-        elif provider == 'volcano':
-            model = ''
+        model = PROVIDER_MODELS.get(provider) or ''
     if not model:
         if provider == 'volcano':
             raise Exception(
                 '火山引擎请填写「推理接入点 ID」作为模型名称（控制台创建接入点后形如 ep-xxxxxxxx）。'
-                'API Key 使用方舟 ARK_API_KEY。'
             )
-        model = 'glm-4-flash'
+        raise Exception('请填写模型名称')
 
     temp = float(temperature) if temperature else float(config.get('temperature', '0.7'))
     max_tok = int(max_tokens) if max_tokens else int(config.get('max_tokens', '2000'))
@@ -130,7 +114,6 @@ def call_llm(prompt, system_prompt=None, temperature=None, max_tokens=None):
         'Content-Type': 'application/json',
         'Authorization': f'Bearer {api_key}',
     }
-
     messages = []
     if system_prompt:
         messages.append({'role': 'system', 'content': system_prompt})
