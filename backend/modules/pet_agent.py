@@ -1,5 +1,6 @@
 """
 桌宠数据问答 Agent：规划 → 多源检索/工具 → 带引用作答。
+工具：金融实时（股票/资金）· 保险常识 · 自选股。
 """
 
 from __future__ import annotations
@@ -10,6 +11,8 @@ from typing import Any
 from config import get_db
 from modules.ai_writer import call_llm
 from modules.pet_rag import search_vectors
+from modules.pet_tools_finance import tool_finance_market
+from modules.pet_tools_insurance import tool_insurance_knowledge
 
 MODE_SOURCES = {
     'auto': ['knowledge', 'script', 'stock_brief'],
@@ -24,19 +27,33 @@ SOURCE_PATH = {
     'stock_brief': '/stocks',
     'watchlist': '/stocks/watchlist',
     'alert': '/stocks/watchlist',
+    'finance_tool': '/stocks',
+    'insurance_tool': '/knowledge',
 }
 
-# 内容/知识意图：默认不碰股票简报
-_CONTENT_KEYS = (
-    '口播', '文案', '开头', '知识库', '写一条', '写一', '话术', '脚本',
-    '重疾', '养老', '养老金', '保险', '理赔', '保单', '条款', '对比',
-    '避坑', '种草', '标题', '钩子', '收口', '根据知识',
+# 口播/文案创作意图
+_CONTENT_WRITE_KEYS = (
+    '口播', '文案', '开头', '写一条', '写一', '话术', '脚本',
+    '种草', '标题', '钩子', '收口', '根据知识库写',
 )
 
-_STOCK_KEYS = (
-    '持仓', '自选', '跌破', '成本', '预警', '股价', '股票', '涨跌',
-    '仓位', '目标价', '买入', '行情', '简报', '大盘', 'A股', '港股',
-    '个股', '涨停', '跌停', '板块',
+# 保险常识意图
+_INSURANCE_KEYS = (
+    '保险', '重疾', '医疗险', '寿险', '年金', '养老险', '养老金', '理赔',
+    '保单', '条款', '等待期', '犹豫期', '保额', '保费', '现金价值',
+    '核保', '受益人', '社保', '商保', '定寿', '终身寿', '避坑',
+)
+
+# 金融/股票实时（与自选股工具区分：偏市场数据）
+_FINANCE_KEYS = (
+    '北向', '南向', '沪股通', '深股通', '港股通', '资金净流入', '净流入',
+    '行业流入', '板块流入', '主力净流入', '资金流向', '成交净买',
+    '大盘', '沪深300', '上证', '深证', '行情', '涨跌幅', '板块',
+    '股票', 'A股', '港股', '个股', '涨停', '跌停', '金融', '股市',
+)
+
+_WATCHLIST_KEYS = (
+    '持仓', '自选', '跌破成本', '目标价', '预警', '仓位', '我的股票',
 )
 
 
@@ -49,25 +66,97 @@ def _has_any(text: str, keys: tuple[str, ...]) -> bool:
     return any(k in q for k in keys)
 
 
-def _resolve_sources(question: str, mode: str) -> tuple[list[str], str]:
-    """
-    按模式与意图选择检索源。
-    Returns: (sources, reason)
-    """
+def _resolve_intents(question: str, mode: str) -> dict[str, bool]:
+    """根据问题与模式决定启用哪些工具 / 检索源。"""
+    q = question or ''
+    write = _has_any(q, _CONTENT_WRITE_KEYS)
+    insurance = _has_any(q, _INSURANCE_KEYS) or mode == 'knowledge'
+    finance = _has_any(q, _FINANCE_KEYS) or mode == 'stock'
+    watch = _has_any(q, _WATCHLIST_KEYS)
+
+    if mode == 'script':
+        return {
+            'write': True,
+            'insurance': insurance or write,
+            'finance': False,
+            'watch': False,
+            'vector_knowledge': True,
+            'vector_script': True,
+            'vector_brief': False,
+        }
+
+    if mode == 'knowledge':
+        return {
+            'write': write,
+            'insurance': _has_any(q, _INSURANCE_KEYS),
+            'finance': False,
+            'watch': False,
+            'vector_knowledge': True,
+            'vector_script': True,
+            'vector_brief': False,
+        }
+
+    if mode == 'stock':
+        return {
+            'write': False,
+            'insurance': False,
+            'finance': True,
+            'watch': True,
+            'vector_knowledge': False,
+            'vector_script': False,
+            'vector_brief': True,
+        }
+
+    # auto
+    # 纯创作且无行情词：不开金融工具
+    if write and not finance:
+        finance = False
+    # 保险常识问法默认开保险工具；若同时写口播也开
+    if write and _has_any(q, _INSURANCE_KEYS):
+        insurance = True
+    # 「知识库」字样但不一定是保险
+    if '知识库' in q and not finance:
+        insurance = insurance or _has_any(q, _INSURANCE_KEYS)
+
+    return {
+        'write': write,
+        'insurance': insurance,
+        'finance': finance,
+        'watch': watch,
+        'vector_knowledge': (not finance) or insurance or write or (not finance and not watch),
+        'vector_script': write or insurance or (not finance and not watch),
+        'vector_brief': finance and not write,
+    }
+
+
+def _resolve_sources(intents: dict[str, bool], mode: str) -> tuple[list[str], str]:
     if mode != 'auto':
         return list(MODE_SOURCES.get(mode, MODE_SOURCES['auto'])), f'模式锁定 {mode}'
 
-    wants_content = _has_any(question, _CONTENT_KEYS)
-    wants_stock = _has_any(question, _STOCK_KEYS)
+    sources = []
+    if intents.get('vector_knowledge'):
+        sources.append('knowledge')
+    if intents.get('vector_script'):
+        sources.append('script')
+    if intents.get('vector_brief'):
+        sources.append('stock_brief')
 
-    if wants_content and not wants_stock:
-        return ['knowledge', 'script'], '识别为内容/知识问答，排除股票简报'
-    if wants_stock and not wants_content:
-        return ['stock_brief'], '识别为股票相关，检索简报'
-    if wants_stock and wants_content:
-        return ['knowledge', 'script', 'stock_brief'], '内容与股票意图并存'
-    # 默认优先知识库+文案，避免无关简报噪声
-    return ['knowledge', 'script'], '默认优先知识库与文案'
+    if not sources:
+        if intents.get('finance') or intents.get('watch'):
+            sources = ['stock_brief']
+        else:
+            sources = ['knowledge', 'script']
+
+    reasons = []
+    if intents.get('finance'):
+        reasons.append('金融实时')
+    if intents.get('insurance'):
+        reasons.append('保险常识')
+    if intents.get('watch'):
+        reasons.append('自选股')
+    if intents.get('write'):
+        reasons.append('内容创作')
+    return sources, ('识别：' + ' + '.join(reasons)) if reasons else '默认知识库/文案'
 
 
 def _cite_from_hit(hit: dict) -> dict:
@@ -170,26 +259,11 @@ def _tool_watchlist() -> tuple[list[dict], str]:
     return cites, body
 
 
-def _wants_stock_tool(question: str, mode: str) -> bool:
-    if mode == 'stock':
-        return True
-    if mode in ('knowledge', 'script'):
-        return False
-    # 内容意图下即使含「成本」等词也不开股票工具（如「保险成本」）
-    if _has_any(question, _CONTENT_KEYS) and not _has_any(question, (
-        '持仓', '自选', '股价', '股票', '跌破成本', '目标价', '行情', '简报',
-    )):
-        return False
-    return _has_any(question, (
-        '持仓', '自选', '跌破', '预警', '股价', '股票', '涨跌',
-        '仓位', '目标价', '行情',
-    ))
-
-
-def _build_context(hits: list[dict], tool_text: str) -> str:
+def _build_context(hits: list[dict], tool_blocks: list[str]) -> str:
     parts = []
-    if tool_text:
-        parts.append('【系统工具结果】\n' + tool_text)
+    for block in tool_blocks:
+        if block:
+            parts.append('【系统工具结果】\n' + block)
     for i, h in enumerate(hits, 1):
         parts.append(
             f"【资料{i} | {h.get('label')} | 相似度{h['score']:.2f} | {h.get('title')}】\n"
@@ -204,12 +278,6 @@ def run_pet_agent(
     mode: str = 'auto',
     history: list[dict] | None = None,
 ) -> dict[str, Any]:
-    """
-    执行一轮问答。
-
-    Returns:
-        answer, steps, cites, mode
-    """
     q = (question or '').strip()
     mode = mode if mode in MODE_SOURCES else 'auto'
     steps: list[dict] = []
@@ -231,73 +299,93 @@ def run_pet_agent(
     }.get(mode, mode)
     steps.append(_step(f'理解问题 · 模式「{mode_label}」'))
 
-    sources, route_reason = _resolve_sources(q, mode)
+    intents = _resolve_intents(q, mode)
+    sources, route_reason = _resolve_sources(intents, mode)
     steps.append(_step(f'路由 · {route_reason}'))
 
     hits: list[dict] = []
-    tool_text = ''
+    tool_blocks: list[str] = []
 
-    use_stock = _wants_stock_tool(q, mode)
-    if use_stock:
+    # —— 工具调用 ——
+    if intents.get('finance'):
+        steps.append(_step('工具调用 · 金融实时（北向 / 行业资金）'))
+        try:
+            c, text = tool_finance_market(q)
+            cites.extend(c)
+            tool_blocks.append(text)
+        except Exception as e:
+            tool_blocks.append(f'金融实时工具失败：{e}')
+
+    if intents.get('watch'):
         steps.append(_step('工具调用 · 读取自选股 / 预警'))
-        tool_cites, tool_text = _tool_watchlist()
-        cites.extend(tool_cites)
+        try:
+            c, text = _tool_watchlist()
+            cites.extend(c)
+            tool_blocks.append(text)
+        except Exception as e:
+            tool_blocks.append(f'自选股工具失败：{e}')
 
-    label_map = {
-        'knowledge': '知识库',
-        'script': '文案库',
-        'stock_brief': '股票简报',
-    }
-    src_names = ' / '.join(label_map.get(s, s) for s in sources)
-    steps.append(_step(f'向量检索 · {src_names}'))
-    hits = search_vectors(q, source_types=sources, top_k=6, min_score=0.30)
+    if intents.get('insurance'):
+        steps.append(_step('工具调用 · 保险常识'))
+        try:
+            c, text = tool_insurance_knowledge(q)
+            cites.extend(c)
+            tool_blocks.append(text)
+        except Exception as e:
+            tool_blocks.append(f'保险常识工具失败：{e}')
 
-    # 仅在股票意图且简报未命中时，补捞简报；内容意图绝不扩到股票
-    if (
-        mode == 'auto'
-        and use_stock
-        and 'stock_brief' in sources
-        and not any(h['source_type'] == 'stock_brief' for h in hits)
-    ):
-        extra = search_vectors(q, source_types=['stock_brief'], top_k=2, min_score=0.32)
-        hits.extend(extra)
+    # —— 向量检索（保险工具已含知识库召回时，auto 下可减少重复）——
+    skip_vector = bool(intents.get('insurance') and not intents.get('write') and not intents.get('finance'))
+    if not skip_vector and sources:
+        label_map = {
+            'knowledge': '知识库',
+            'script': '文案库',
+            'stock_brief': '股票简报',
+        }
+        src_names = ' / '.join(label_map.get(s, s) for s in sources)
+        steps.append(_step(f'向量检索 · {src_names}'))
+        min_score = 0.30
+        if intents.get('finance'):
+            # 金融问法主要靠工具；简报仅作补充且阈值更高
+            min_score = 0.35
+        hits = search_vectors(q, source_types=sources, top_k=5, min_score=min_score)
+        for h in hits:
+            cites.append(_cite_from_hit(h))
+    elif skip_vector:
+        steps.append(_step('向量检索 · 已由保险工具覆盖，跳过重复召回'))
 
-    # 内容意图：知识库+文案都空时，不要去搜股票；可再放宽阈值重试内容源
-    if mode == 'auto' and not hits and not tool_text:
-        if sources == ['knowledge', 'script']:
-            steps.append(_step('放宽阈值 · 仅知识库/文案重试'))
-            hits = search_vectors(q, source_types=sources, top_k=6, min_score=0.18)
-        elif not _has_any(q, _CONTENT_KEYS):
-            steps.append(_step('扩大检索范围 · 全库重试'))
-            hits = search_vectors(q, source_types=None, top_k=6, min_score=0.30)
-
-    for h in hits:
-        cites.append(_cite_from_hit(h))
+    if mode == 'auto' and not hits and not tool_blocks:
+        steps.append(_step('放宽检索 · 知识库/文案'))
+        hits = search_vectors(q, source_types=['knowledge', 'script'], top_k=6, min_score=0.18)
+        for h in hits:
+            cites.append(_cite_from_hit(h))
 
     steps.append(_step('汇总并标注引用'))
 
-    context = _build_context(hits, tool_text)
+    context = _build_context(hits, tool_blocks)
     hist_lines = []
     for m in (history or [])[-6:]:
         role = '用户' if m.get('role') == 'user' else '助手'
         hist_lines.append(f"{role}: {(m.get('content') or '')[:400]}")
     history_block = '\n'.join(hist_lines) if hist_lines else '（无）'
 
-    has_refs = bool(hits) or bool(tool_text)
+    has_refs = bool(hits) or bool(tool_blocks)
     system_prompt = (
         '你是「智仔」，智能运营台内的数据问答助手。'
-        '只根据提供的【资料】与【系统工具结果】回答，不要编造库中没有的数字或条款。'
-        '若资料与问题明显无关（例如问口播/养老金却给了股市新闻），必须忽略无关资料，'
-        '明确说明知识库或文案中暂无足够依据，不要复述无关新闻标题或行情。'
-        '不要在正文里罗列「引用列表」或新闻标题清单；系统会单独展示引用卡片。'
-        '若资料不足，说明不足并建议去知识库/文案页补充。'
-        '回答用简洁中文；涉及股票时声明不构成投资建议。'
+        '优先使用【系统工具结果】中的实时数据与保险常识；不要编造数字或条款。'
+        '问北向资金/行业流入时，只依据金融实时工具数据作答；不要拿无关新闻标题充数。'
+        '若工具写明北向「未披露」，必须如实说暂未披露，禁止把 0 或空值说成「净流入 0 亿元」。'
+        '行业资金有数据时可照常回答流入最多的行业。'
+        '问保险常识时，可综合内置常识与知识库召回；条款细节以用户知识库与产品合同为准。'
+        '若资料与问题无关，必须忽略并说明不足。'
+        '不要在正文里罗列引用清单；系统会单独展示引用卡片。'
+        '涉及股票/资金时声明不构成投资建议；涉及保险时声明不构成销售误导。'
         '不要输出 JSON。'
     )
     ref_hint = (
-        '若确实使用了相关资料，文末只需一句「详见下方引用」，不要自己列出处标题。'
+        '若确实使用了相关资料或工具，文末只需一句「详见下方引用」。'
         if has_refs else
-        '当前没有可用相关资料，请如实说明，不要编造引用。'
+        '当前没有可用相关资料，请如实说明，不要编造。'
     )
     prompt = (
         f'对话历史：\n{history_block}\n\n'
@@ -315,21 +403,18 @@ def run_pet_agent(
         )
         answer = (answer or '').strip()
     except Exception as e:
-        answer = (
-            f'AI 暂不可用（{e}）。根据检索结果摘录如下：\n\n'
-            + (tool_text[:800] if tool_text else '')
+        answer = f'AI 暂不可用（{e}）。根据工具/检索摘录如下：\n\n' + '\n\n'.join(
+            b[:800] for b in tool_blocks[:2]
         )
         if hits:
             answer += '\n\n' + '\n\n'.join(
                 f"· {h['title']}\n{(h['content'] or '')[:220]}" for h in hits[:3]
             )
-        if not hits and not tool_text:
+        if not hits and not tool_blocks:
             answer = (
-                f'未能完成回答：{e}。请先在系统设置配置可用的大模型，'
-                '并确认知识库/文案有相关数据。'
+                f'未能完成回答：{e}。请配置大模型，或稍后重试金融/保险工具。'
             )
 
-    # 引用去重；工具引用仅在真正使用股票工具时保留
     uniq: list[dict] = []
     seen: set[tuple] = set()
     for c in cites:
@@ -342,7 +427,7 @@ def run_pet_agent(
     return {
         'answer': answer,
         'steps': steps,
-        'cites': uniq[:8],
+        'cites': uniq[:10],
         'mode': mode,
     }
 
