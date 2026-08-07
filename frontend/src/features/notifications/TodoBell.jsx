@@ -92,7 +92,7 @@ export default function TodoBell() {
   return (
     <>
       <Tooltip title={badgeCount ? `${badgeCount} 条待办` : '暂无待办'}>
-        <Badge count={badgeCount} overflowCount={99} size="small" offset={[-4, 4]}>
+        <Badge count={badgeCount} overflowCount={99} size="small" offset={[-2, 4]}>
           <Button
             type="text"
             className="app-icon-btn"

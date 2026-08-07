@@ -3,14 +3,14 @@ import { Spin, message, Empty } from 'antd'
 import {
   FireOutlined, FileTextOutlined, VideoCameraOutlined, TeamOutlined,
   RocketOutlined, BulbOutlined, UserAddOutlined, UserOutlined,
-  CalendarOutlined, RiseOutlined, BookOutlined,
+  RiseOutlined, BookOutlined,
 } from '@ant-design/icons'
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip, PieChart, Pie, Cell,
 } from 'recharts'
 import { useNavigate } from 'react-router-dom'
-import { dashboardApi, publishApi } from '../../api'
+import { dashboardApi } from '../../api'
 import './Dashboard.css'
 
 const intentionLabels = { high: '高意向', medium: '中意向', low: '低意向', closed: '已成交' }
@@ -95,6 +95,23 @@ function platformColor(key, i = 0) {
   return PLATFORM_META[key]?.color || PLATFORM_FALLBACK[i % PLATFORM_FALLBACK.length]
 }
 
+/** 最大余数法：保证各占比整数之和为 100 */
+function allocatePercentages(values, total) {
+  if (!total || total <= 0) return values.map(() => 0)
+  const raw = values.map((v) => ((Number(v) || 0) / total) * 100)
+  const floors = raw.map((n) => Math.floor(n))
+  let remain = 100 - floors.reduce((a, b) => a + b, 0)
+  const order = raw
+    .map((n, i) => ({ i, frac: n - floors[i] }))
+    .sort((a, b) => b.frac - a.frac)
+  const result = [...floors]
+  for (let k = 0; k < order.length && remain > 0; k += 1) {
+    result[order[k].i] += 1
+    remain -= 1
+  }
+  return result
+}
+
 function ChartEmpty({ tip }) {
   return (
     <div className="dash-chart-empty">
@@ -165,23 +182,33 @@ function ListRow({ icon, iconTone, title, meta, tag, tagCls, onClick }) {
 export default function Dashboard() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [weekReview, setWeekReview] = useState(null)
   const navigate = useNavigate()
 
+  const loadDashboard = (quiet = false) => {
+    if (!quiet) setLoading(true)
+    return dashboardApi.get()
+      .then(d => setData(d))
+      .catch(() => { if (!quiet) message.error('加载仪表盘失败') })
+      .finally(() => setLoading(false))
+  }
+
   useEffect(() => {
-    dashboardApi.get().then(d => { setData(d); setLoading(false) })
-      .catch(() => { message.error('加载仪表盘失败'); setLoading(false) })
-    publishApi.analytics({ range: 'week' }).then(setWeekReview).catch(() => setWeekReview(null))
+    loadDashboard()
+    const timer = setInterval(() => loadDashboard(true), 5000)
+    return () => clearInterval(timer)
   }, [])
 
   const platformData = useMemo(() => {
     if (!data?.platformDist?.length) return []
-    return data.platformDist.map((p, i) => ({
+    const rows = data.platformDist.map((p, i) => ({
       name: platformLabel(p.platform),
       value: p.count || 0,
       color: platformColor(p.platform, i),
       platform: p.platform,
     })).filter((d) => d.value > 0)
+    const total = rows.reduce((s, d) => s + d.value, 0)
+    const pcts = allocatePercentages(rows.map((d) => d.value), total)
+    return rows.map((d, i) => ({ ...d, pct: pcts[i] }))
   }, [data])
 
   const platformTotal = useMemo(
@@ -236,25 +263,44 @@ export default function Dashboard() {
     ;(data?.customerIntentionDist || []).forEach((r) => {
       map[r.intention] = r.count || 0
     })
-    const total = Object.values(map).reduce((a, b) => a + b, 0) || data?.stats?.customers || 0
-    return ['high', 'medium', 'low', 'closed'].map((key) => {
+    const rows = ['high', 'medium', 'low', 'closed'].map((key) => {
       const meta = INTENTION_META[key]
-      const value = map[key] || 0
       return {
         key,
         label: meta.label,
         color: meta.color,
-        value,
-        total: total || 1,
-        pct: total ? Math.round((value / total) * 100) : 0,
+        value: map[key] || 0,
       }
     })
+    const total = rows.reduce((a, b) => a + b.value, 0) || data?.stats?.customers || 0
+    const pcts = allocatePercentages(rows.map((d) => d.value), total)
+    return rows.map((d, i) => ({
+      ...d,
+      total: total || 1,
+      pct: pcts[i],
+    }))
   }, [data])
 
   const trends = data?.trends || []
   const hasTrendSignal = trends.some(
     (t) => (t.hotTopics || 0) + (t.scripts || 0) > 0,
   )
+
+  const kpiTrends = useMemo(() => {
+    if (trends.length < 2) return {}
+    const cur = trends[trends.length - 1] || {}
+    const prev = trends[trends.length - 2] || {}
+    const rate = (a, b) => {
+      if (!b) return a ? 100 : 0
+      return Math.round(((a - b) / b) * 1000) / 10
+    }
+    return {
+      hotTopics: rate(cur.hotTopics || 0, prev.hotTopics || 0),
+      scripts: rate(cur.scripts || 0, prev.scripts || 0),
+      customers: rate(cur.customers || 0, prev.customers || 0),
+      publishDone: rate(cur.publishDone || 0, prev.publishDone || 0),
+    }
+  }, [trends])
 
   if (loading) {
     return (
@@ -275,12 +321,73 @@ export default function Dashboard() {
   const customers = recentCustomers || []
   const knowledge = recentKnowledge || []
 
+  const fmtTrend = (n) => {
+    if (n == null || Number.isNaN(n)) return null
+    const sign = n > 0 ? '+' : ''
+    return `${sign}${n}%`
+  }
+
   const kpis = [
-    { title: '内容热点', value: stats.hotTopics, unit: '条', sub: `今日 +${stats.hotTopicsToday}`, icon: <FireOutlined />, accent: '#5b5bd6', path: '/hot-topics' },
-    { title: '文案产出', value: stats.scripts, unit: '篇', sub: `草稿 ${stats.scriptsDraft}`, icon: <FileTextOutlined />, accent: '#00b884', path: '/scripts' },
-    { title: '视频生产', value: (stats.videosPending || 0) + (stats.videosDone || 0), unit: '个', sub: `完成 ${stats.videosDone}`, icon: <VideoCameraOutlined />, accent: '#ff9500', path: '/videos' },
-    { title: '客户跟进', value: stats.customers, unit: '位', sub: `今日 +${stats.customersNew}`, icon: <TeamOutlined />, accent: '#3b82f6', path: '/customers' },
-    { title: '待发布', value: stats.publishPending, unit: '条', sub: `已发 ${stats.publishDone}`, icon: <RocketOutlined />, accent: '#ff3b5c', path: '/publish' },
+    {
+      title: '今日热点',
+      value: stats.hotTopicsToday || stats.hotTopics,
+      unit: '条',
+      trend: fmtTrend(kpiTrends.hotTopics),
+      trendUp: (kpiTrends.hotTopics || 0) >= 0,
+      trendLabel: '环比昨日',
+      sub: `累计 ${stats.hotTopics}`,
+      icon: <FireOutlined />,
+      accent: '#5b5bd6',
+      path: '/hot-topics',
+    },
+    {
+      title: '文案产出',
+      value: stats.scripts,
+      unit: '篇',
+      trend: fmtTrend(kpiTrends.scripts),
+      trendUp: (kpiTrends.scripts || 0) >= 0,
+      trendLabel: '近7日',
+      sub: `草稿 ${stats.scriptsDraft}`,
+      icon: <FileTextOutlined />,
+      accent: '#00b884',
+      path: '/scripts',
+    },
+    {
+      title: '视频生产',
+      value: (stats.videosPending || 0) + (stats.videosDone || 0),
+      unit: '个',
+      trend: null,
+      trendUp: true,
+      trendLabel: '',
+      sub: `完成 ${stats.videosDone}`,
+      icon: <VideoCameraOutlined />,
+      accent: '#ff9500',
+      path: '/videos',
+    },
+    {
+      title: '客户跟进',
+      value: stats.customers,
+      unit: '位',
+      trend: fmtTrend(kpiTrends.customers),
+      trendUp: (kpiTrends.customers || 0) >= 0,
+      trendLabel: '近7日',
+      sub: `今日 +${stats.customersNew}`,
+      icon: <TeamOutlined />,
+      accent: '#3b82f6',
+      path: '/customers',
+    },
+    {
+      title: '待发布',
+      value: stats.publishPending,
+      unit: '条',
+      trend: null,
+      trendUp: true,
+      trendLabel: '',
+      sub: `已发 ${stats.publishDone}`,
+      icon: <RocketOutlined />,
+      accent: '#ff3b5c',
+      path: '/publish',
+    },
   ]
 
   const pipelinePaths = {
@@ -298,26 +405,36 @@ export default function Dashboard() {
     return { label: '新', cls: 'new' }
   }
 
+  const welcomeParts = []
+  if ((stats.hotTopicsToday || 0) > 0) welcomeParts.push(`今日新增热点 ${stats.hotTopicsToday} 条`)
+  if ((stats.customersNew || 0) > 0) welcomeParts.push(`新增客户 ${stats.customersNew} 位`)
+  if ((stats.knowledgeToday || 0) > 0) welcomeParts.push(`知识库新增 ${stats.knowledgeToday} 条`)
+  if (!welcomeParts.length) welcomeParts.push('今日暂无新增数据')
+
+  const todoBits = []
+  if ((stats.scriptsDraft || 0) > 0) todoBits.push(`${stats.scriptsDraft} 条文案待处理`)
+  if ((stats.videosPending || 0) > 0) todoBits.push(`${stats.videosPending} 个视频待制作`)
+  if ((stats.publishPending || 0) > 0) todoBits.push(`${stats.publishPending} 条待发布`)
+  if ((stats.pendingReminders || 0) > 0) todoBits.push(`${stats.pendingReminders} 条客户提醒`)
+  const todoTotal = (stats.scriptsDraft || 0)
+    + (stats.videosPending || 0)
+    + (stats.publishPending || 0)
+    + (stats.pendingReminders || 0)
+
+  let welcomeSummary = `今天是 ${formatDate()} · ${welcomeParts.join('，')}`
+  if (todoTotal > 0) {
+    welcomeSummary += ` · 待办合计 ${todoTotal} 项`
+    if (todoBits.length) welcomeSummary += `（${todoBits.join('，')}）`
+  } else {
+    welcomeSummary += ' · 暂无待办'
+  }
+
   return (
     <div className="dash">
       <header className="dash-welcome">
         <div className="dash-welcome-text">
           <h1>{greeting()} 👋</h1>
-          <p>
-            今天是 {formatDate()}
-            {weekReview ? ` · 本周已发布 ${weekReview.published || 0} 条内容` : ''}
-            {stats.customersNew ? `，今日新增客户 ${stats.customersNew}` : ''}
-          </p>
-        </div>
-        <div className="dash-welcome-actions">
-          <div className="dash-date">
-            <CalendarOutlined />
-            {formatDate()}
-          </div>
-          <button type="button" className="dash-chip" onClick={() => navigate('/hot-topics')}>内容情报</button>
-          <button type="button" className="dash-chip" onClick={() => navigate('/scripts')}>文案中心</button>
-          <button type="button" className="dash-chip" onClick={() => navigate('/videos')}>视频中心</button>
-          <button type="button" className="dash-chip primary" onClick={() => navigate('/publish')}>发布中心</button>
+          <p>{welcomeSummary}</p>
         </div>
       </header>
 
@@ -339,7 +456,14 @@ export default function Dashboard() {
               <span className="unit">{s.unit}</span>
             </div>
             <div className="dash-kpi-footer">
-              <span className="dash-kpi-sub">{s.sub}</span>
+              {s.trend ? (
+                <span className={`dash-kpi-trend ${s.trendUp ? 'up' : 'down'}`}>
+                  {s.trend}
+                  <span className="dash-kpi-trend-label">{s.trendLabel}</span>
+                </span>
+              ) : (
+                <span className="dash-kpi-sub">{s.sub}</span>
+              )}
               <Sparkline color={s.accent} path={SPARK_PATHS[i % SPARK_PATHS.length]} id={`spark-${i}`} />
             </div>
           </button>
@@ -430,8 +554,7 @@ export default function Dashboard() {
                   >
                     <span className="swatch" style={{ background: d.color }} />
                     <span className="name">{d.name}</span>
-                    <span className="val">{d.value}</span>
-                    <span className="pct">{platformTotal ? Math.round((d.value / platformTotal) * 100) : 0}%</span>
+                    <span className="val">{d.value}条 · {d.pct}%</span>
                   </button>
                 ))}
               </div>

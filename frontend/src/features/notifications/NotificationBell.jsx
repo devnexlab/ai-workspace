@@ -74,7 +74,7 @@ export default function NotificationBell() {
   return (
     <>
       <Tooltip title={badgeCount ? `${badgeCount} 条提醒` : '暂无提醒'}>
-        <Badge count={badgeCount} overflowCount={99} size="small" offset={[-4, 4]}>
+        <Badge count={badgeCount} overflowCount={99} size="small" offset={[-2, 4]}>
           <Button
             type="text"
             className="app-icon-btn"

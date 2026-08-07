@@ -18,14 +18,14 @@
 .dash-welcome {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: 16px;
   flex-wrap: wrap;
   animation: dashFadeDown 0.4s ease both;
+  width: 100%;
 }
 
 .dash-welcome-text {
-  flex: 1;
-  min-width: 200px;
+  min-width: 0;
 }
 
 .dash-welcome-text h1 {
@@ -41,6 +41,13 @@
   margin: 2px 0 0;
   font-size: 12px;
   color: var(--dash-muted);
+  line-height: 1.55;
+  max-width: 920px;
+}
+
+.dash-welcome-spacer {
+  flex: 1;
+  min-width: 8px;
 }
 
 .dash-welcome-actions {
@@ -48,9 +55,9 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  flex-shrink: 0;
 }
 
-.dash-date,
 .dash-chip {
   display: inline-flex;
   align-items: center;
@@ -64,14 +71,17 @@
   font-weight: 500;
   color: var(--dash-ink);
   white-space: nowrap;
-}
-
-.dash-chip {
   cursor: pointer;
   transition: all 0.2s ease;
+  font-family: inherit;
 }
 
-.dash-chip:hover {
+.dash-chip:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.dash-chip:hover:not(:disabled) {
   color: var(--dash-primary);
   border-color: var(--dash-primary);
   box-shadow: 0 0 0 3px rgba(91, 91, 214, 0.08);
@@ -83,7 +93,7 @@
   color: #fff;
 }
 
-.dash-chip.primary:hover {
+.dash-chip.primary:hover:not(:disabled) {
   background: #4a4ab8;
   color: #fff;
   box-shadow: 0 4px 12px rgba(91, 91, 214, 0.25);
@@ -169,6 +179,24 @@
 
 .dash-kpi-sub {
   font-size: 12px;
+  color: var(--dash-tertiary);
+}
+
+.dash-kpi-trend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.dash-kpi-trend.up { color: #00b884; }
+.dash-kpi-trend.down { color: #ff3b5c; }
+
+.dash-kpi-trend-label {
+  margin-left: 2px;
+  font-weight: 400;
   color: var(--dash-tertiary);
 }
 
@@ -385,17 +413,22 @@
 
 .dash-legend-item {
   display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) 32px 36px;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
   border: 0;
   background: transparent;
   cursor: pointer;
-  padding: 0;
+  padding: 3px 0;
   text-align: left;
   font-size: 12px;
   color: var(--dash-muted);
   width: 100%;
+  border-radius: 6px;
+}
+
+.dash-legend-item:hover {
+  background: var(--dash-soft);
 }
 
 .dash-legend-item .swatch {
@@ -410,17 +443,12 @@
   white-space: nowrap;
 }
 
-.dash-legend-item .val,
-.dash-legend-item .pct {
+.dash-legend-item .val {
   font-weight: 600;
   color: var(--dash-ink);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   text-align: right;
-}
-
-.dash-legend-item .pct {
-  color: var(--dash-tertiary);
-  font-weight: 500;
 }
 
 /* ===== 文案状态柱 ===== */

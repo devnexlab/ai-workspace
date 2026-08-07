@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect } from 'react'
-import { Layout, Menu } from 'antd'
+import { useState, useMemo } from 'react'
+import { Layout, Tooltip, Button } from 'antd'
 import {
   DashboardOutlined,
   FireOutlined,
@@ -12,8 +12,10 @@ import {
   StockOutlined,
   RobotOutlined,
   ApartmentOutlined,
-  AppstoreOutlined,
-  FundProjectionScreenOutlined,
+  RightOutlined,
+  QuestionCircleOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
 } from '@ant-design/icons'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { APP_NAME } from '../config'
@@ -22,36 +24,19 @@ import TodoBell from '../features/notifications/TodoBell'
 
 const { Header, Sider, Content } = Layout
 
-const pathGroupMap = {
-  '/hot-topics': 'content',
-  '/scripts': 'content',
-  '/videos': 'content',
-  '/publish': 'content',
-  '/customers': 'customer',
-  '/knowledge': 'ai',
-  '/agents': 'ai',
-  '/workflows': 'ai',
-  '/settings/ai': 'settings',
-  '/settings/collectors': 'settings',
-  '/settings/commercial': 'settings',
-  '/settings/publish': 'settings',
-  '/settings/media': 'settings',
-  '/settings/notify': 'settings',
-  '/settings/wechat-oa': 'settings',
-  '/settings/content': 'settings',
-}
+const BRAND_NAME = '智能运营台'
 
 const pageTitleMap = {
   '/': '运营仪表盘',
-  '/hot-topics': '内容情报',
-  '/scripts': '文案中心',
-  '/videos': '视频中心',
+  '/hot-topics': '热点情报',
+  '/scripts': '文案管理',
+  '/videos': '视频生产',
   '/publish': '发布中心',
-  '/customers': '客户管理',
+  '/customers': '客户列表',
   '/knowledge': '知识库',
-  '/agents': 'Agent 中心',
-  '/workflows': 'AI 助手',
-  '/stocks': '股票研究',
+  '/agents': 'AI Agent',
+  '/workflows': '工作流',
+  '/stocks': '市场概览',
   '/settings/ai': 'AI 大模型',
   '/settings/collectors': '采集平台',
   '/settings/commercial': '官方数据台',
@@ -62,54 +47,82 @@ const pageTitleMap = {
   '/settings/content': '内容运营',
 }
 
-const menuItems = [
-  { key: '/', icon: <DashboardOutlined />, label: '运营仪表盘' },
+const sectionLabelMap = {
+  '/': '总览',
+  '/hot-topics': '内容运营',
+  '/scripts': '内容运营',
+  '/videos': '内容运营',
+  '/publish': '内容运营',
+  '/customers': '客户管理',
+  '/knowledge': 'AI 智能',
+  '/agents': 'AI 智能',
+  '/workflows': 'AI 智能',
+  '/stocks': '股票研究',
+  '/settings/ai': '系统',
+  '/settings/collectors': '系统',
+  '/settings/commercial': '系统',
+  '/settings/publish': '系统',
+  '/settings/media': '系统',
+  '/settings/notify': '系统',
+  '/settings/wechat-oa': '系统',
+  '/settings/content': '系统',
+}
+
+const navGroups = [
   {
-    key: 'content',
-    icon: <FundProjectionScreenOutlined />,
+    label: '总览',
+    items: [
+      { key: '/', icon: <DashboardOutlined />, label: '运营仪表盘' },
+    ],
+  },
+  {
     label: '内容运营',
-    children: [
-      { key: '/hot-topics', icon: <FireOutlined />, label: '内容情报' },
-      { key: '/scripts', icon: <FileTextOutlined />, label: '文案中心' },
-      { key: '/videos', icon: <VideoCameraOutlined />, label: '视频中心' },
+    items: [
+      { key: '/hot-topics', icon: <FireOutlined />, label: '热点情报' },
+      { key: '/scripts', icon: <FileTextOutlined />, label: '文案管理' },
+      { key: '/videos', icon: <VideoCameraOutlined />, label: '视频生产' },
       { key: '/publish', icon: <RocketOutlined />, label: '发布中心' },
     ],
   },
   {
-    key: 'customer',
-    icon: <TeamOutlined />,
     label: '客户管理',
-    children: [
+    items: [
       { key: '/customers', icon: <TeamOutlined />, label: '客户列表' },
     ],
   },
   {
-    key: 'ai',
-    icon: <AppstoreOutlined />,
     label: 'AI 智能',
-    children: [
+    items: [
       { key: '/knowledge', icon: <BulbOutlined />, label: '知识库' },
-      { key: '/agents', icon: <RobotOutlined />, label: 'Agent 中心' },
-      { key: '/workflows', icon: <ApartmentOutlined />, label: 'AI 助手' },
+      { key: '/agents', icon: <RobotOutlined />, label: 'AI Agent' },
+      { key: '/workflows', icon: <ApartmentOutlined />, label: '工作流' },
     ],
   },
-  { key: '/stocks', icon: <StockOutlined />, label: '股票研究' },
   {
-    key: 'settings',
-    icon: <SettingOutlined />,
-    label: '系统设置',
-    children: [
-      { key: '/settings/ai', label: 'AI 大模型' },
-      { key: '/settings/collectors', label: '采集平台' },
-      { key: '/settings/commercial', label: '官方数据台' },
-      { key: '/settings/publish', label: '发布平台' },
-      { key: '/settings/media', label: '配音与视频' },
-      { key: '/settings/notify', label: '消息推送' },
-      { key: '/settings/wechat-oa', label: '微信服务号' },
-      { key: '/settings/content', label: '内容运营' },
+    label: '股票研究',
+    items: [
+      { key: '/stocks', icon: <StockOutlined />, label: '市场概览' },
+    ],
+  },
+  {
+    label: '系统',
+    items: [
+      { key: '/settings/ai', icon: <SettingOutlined />, label: 'AI 大模型' },
+      { key: '/settings/collectors', icon: <SettingOutlined />, label: '采集平台' },
+      { key: '/settings/commercial', icon: <SettingOutlined />, label: '官方数据台' },
+      { key: '/settings/publish', icon: <SettingOutlined />, label: '发布平台' },
+      { key: '/settings/media', icon: <SettingOutlined />, label: '配音与视频' },
+      { key: '/settings/notify', icon: <SettingOutlined />, label: '消息推送' },
+      { key: '/settings/wechat-oa', icon: <SettingOutlined />, label: '微信服务号' },
+      { key: '/settings/content', icon: <SettingOutlined />, label: '内容运营' },
     ],
   },
 ]
+
+function isNavActive(pathname, key) {
+  if (key === '/') return pathname === '/'
+  return pathname === key || pathname.startsWith(`${key}/`)
+}
 
 export default function MainLayout() {
   const [collapsed, setCollapsed] = useState(false)
@@ -126,18 +139,7 @@ export default function MainLayout() {
   }, [location.pathname])
 
   const pageTitle = pageTitleMap[selectedKey] || APP_NAME
-
-  const [openKeys, setOpenKeys] = useState(() => {
-    const group = pathGroupMap[location.pathname]
-    return group ? [group] : []
-  })
-
-  useEffect(() => {
-    const group = pathGroupMap[selectedKey] || pathGroupMap[location.pathname]
-    if (group) {
-      setOpenKeys(prev => (prev.includes(group) ? prev : [...prev, group]))
-    }
-  }, [location.pathname, selectedKey])
+  const sectionLabel = sectionLabelMap[selectedKey] || '总览'
 
   return (
     <Layout className="app-shell">
@@ -145,11 +147,10 @@ export default function MainLayout() {
         className="app-sider"
         collapsible
         collapsed={collapsed}
-        onCollapse={setCollapsed}
+        trigger={null}
         width={220}
         collapsedWidth={64}
         style={{
-          overflow: 'auto',
           height: '100vh',
           position: 'sticky',
           top: 0,
@@ -157,31 +158,82 @@ export default function MainLayout() {
         }}
       >
         <div className="app-brand">
-          <span className="app-brand-icon">AI</span>
-          {!collapsed && <span className="app-brand-text">{APP_NAME}</span>}
+          <span className="app-brand-icon">智</span>
+          {!collapsed && <span className="app-brand-text">{BRAND_NAME}</span>}
+          <button
+            type="button"
+            className="app-collapse-btn"
+            title={collapsed ? '展开侧边栏' : '折叠侧边栏'}
+            onClick={() => setCollapsed(v => !v)}
+          >
+            {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+          </button>
         </div>
-        <Menu
-          theme="dark"
-          mode="inline"
-          selectedKeys={[selectedKey]}
-          openKeys={openKeys}
-          onOpenChange={setOpenKeys}
-          items={menuItems}
-          onClick={({ key }) => {
-            if (key.startsWith('/')) navigate(key)
-          }}
-        />
+
+        <nav className="app-sider-nav">
+          {navGroups.map(group => (
+            <div key={group.label} className="app-nav-group">
+              {!collapsed && <div className="app-nav-group-label">{group.label}</div>}
+              {group.items.map(item => {
+                const active = isNavActive(location.pathname, item.key)
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className={`app-nav-item${active ? ' active' : ''}`}
+                    title={collapsed ? item.label : undefined}
+                    onClick={() => navigate(item.key)}
+                  >
+                    <span className="app-nav-icon">{item.icon}</span>
+                    {!collapsed && <span className="app-nav-text">{item.label}</span>}
+                  </button>
+                )
+              })}
+            </div>
+          ))}
+        </nav>
+
+        <div className="app-sider-footer">
+          <div className="app-user-card" title={collapsed ? '运营账号' : undefined}>
+            <div className="app-user-avatar">运</div>
+            {!collapsed && (
+              <div className="app-user-info">
+                <div className="app-user-name">运营账号</div>
+                <div className="app-user-plan">本地工作台</div>
+              </div>
+            )}
+          </div>
+        </div>
       </Sider>
-      <Layout>
+
+      <Layout className="app-main">
         <Header className="app-header">
           <div className="app-header-title">
-            <span className="crumb">{APP_NAME}</span>
-            <span className="sep">/</span>
-            <span>{pageTitle}</span>
+            <span className="crumb">{sectionLabel}</span>
+            <span className="sep"><RightOutlined /></span>
+            <span className="current">{pageTitle}</span>
           </div>
-          <div className="app-header-actions">
-            <TodoBell />
-            <NotificationBell />
+          <div className="app-header-right">
+            <div className="app-header-actions">
+              <NotificationBell />
+              <TodoBell />
+              <Tooltip
+                title={(
+                  <div style={{ maxWidth: 260, lineHeight: 1.55 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 4 }}>待办说明</div>
+                    <div>汇总运营待处理事项：待出片文案、待生成视频、待发布任务、待跟进客户。点击待办图标可查看明细并跳转处理。</div>
+                  </div>
+                )}
+                placement="bottomRight"
+              >
+                <Button
+                  type="text"
+                  className="app-icon-btn"
+                  aria-label="待办帮助"
+                  icon={<QuestionCircleOutlined />}
+                />
+              </Tooltip>
+            </div>
           </div>
         </Header>
         <Content className="app-content">
