@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>原型 · 桌宠数据问答（向量 + Agent）</title>
+  <style>
+    :root {
+      --primary: #5b5bd6;
+      --primary-soft: #eef0ff;
+      --sidebar: #1a1a2e;
+      --page: #fafafa;
+      --text: #1e1e2e;
+      --muted: #6b6b80;
+      --tertiary: #9b9bb0;
+      --border: #ededf0;
+      --success: #00b884;
+      --warning: #ff9500;
+      --error: #ff3b5c;
+      --info: #3b82f6;
+      --font: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      --pet-size: 72px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font);
+      background: #e8e8ee;
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px 48px;
+    }
+    .banner {
+      width: min(1180px, 100%);
+      margin-bottom: 14px;
+      padding: 12px 16px;
+      background: #fff8e6;
+      border: 1px solid #f0d78c;
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.55;
+      color: #5c4a12;
+    }
+    .banner strong { color: #3d3108; }
+
+    .shell {
+      width: min(1180px, 100%);
+      height: 760px;
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 12px 40px rgba(26,26,46,.12);
+      background: var(--page);
+      position: relative;
+    }
+    .sider { background: var(--sidebar); color: #c8c8d4; padding: 16px 12px; }
+    .brand {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px 18px;
+      border-bottom: 1px solid rgba(255,255,255,.06);
+      margin-bottom: 14px;
+    }
+    .brand-mark {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: var(--primary); color: #fff;
+      display: grid; place-items: center; font-weight: 700; font-size: 14px;
+    }
+    .brand-name { color: #fff; font-size: 14px; font-weight: 600; }
+    .nav-label { font-size: 11px; color: #6b6b80; padding: 0 10px 6px; margin-top: 8px; }
+    .nav-item { padding: 8px 10px; border-radius: 6px; font-size: 13px; margin-bottom: 2px; }
+    .nav-item.active { background: rgba(91,91,214,.22); color: #fff; }
+    .main { display: flex; flex-direction: column; min-width: 0; position: relative; }
+    .header {
+      height: 52px; background: #fff; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; padding: 0 24px; gap: 8px; font-size: 13px;
+    }
+    .crumb { color: var(--muted); }
+    .sep { color: #c5c5d0; font-size: 10px; }
+    .current { font-weight: 600; }
+    .content {
+      flex: 1; padding: 20px 24px; overflow: auto;
+      background:
+        radial-gradient(ellipse at 20% 0%, #f0f1ff 0%, transparent 50%),
+        var(--page);
+    }
+    .fake-page h1 { font-size: 20px; font-weight: 650; margin-bottom: 6px; }
+    .fake-page p { font-size: 13px; color: var(--muted); margin-bottom: 16px; max-width: 560px; }
+    .fake-cards {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;
+    }
+    .fake-card {
+      background: #fff; border: 1px solid var(--border); border-radius: 10px;
+      padding: 16px; min-height: 120px;
+    }
+    .fake-card .t { font-size: 13px; font-weight: 650; margin-bottom: 6px; }
+    .fake-card .d { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+    /* ===== 桌宠 ===== */
+    .pet-wrap {
+      position: absolute;
+      right: 20px;
+      bottom: 20px;
+      z-index: 40;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 10px;
+    }
+    .pet-tip {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: var(--text);
+      box-shadow: 0 8px 24px rgba(26,26,46,.1);
+      max-width: 200px;
+      line-height: 1.45;
+      animation: tipIn .35s ease;
+    }
+    .pet-tip::after {
+      content: '';
+      position: absolute;
+      /* simple without positioning parent tricks */
+    }
+    @keyframes tipIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .pet {
+      width: var(--pet-size);
+      height: var(--pet-size);
+      border: 0;
+      border-radius: 50%;
+      cursor: pointer;
+      background: linear-gradient(145deg, #7d7dff, #5b5bd6 55%, #4a4ab8);
+      box-shadow:
+        0 10px 28px rgba(91,91,214,.35),
+        inset 0 -6px 12px rgba(0,0,0,.12);
+      position: relative;
+      display: grid;
+      place-items: center;
+      transition: transform .2s ease, box-shadow .2s ease;
+      animation: petFloat 3.2s ease-in-out infinite;
+    }
+    .pet:hover {
+      transform: translateY(-2px) scale(1.04);
+      box-shadow: 0 14px 32px rgba(91,91,214,.42);
+    }
+    .pet.open {
+      animation: none;
+      box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--primary);
+    }
+    @keyframes petFloat {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-6px); }
+    }
+    .pet-face {
+      width: 44px; height: 44px;
+      position: relative;
+    }
+    .pet-eye {
+      position: absolute; top: 14px;
+      width: 7px; height: 9px; background: #1a1a2e; border-radius: 50%;
+      animation: blink 4.5s infinite;
+    }
+    .pet-eye.l { left: 9px; }
+    .pet-eye.r { right: 9px; }
+    .pet-mouth {
+      position: absolute; left: 50%; bottom: 10px;
+      width: 14px; height: 7px;
+      border: 2px solid #1a1a2e; border-top: 0;
+      border-radius: 0 0 10px 10px;
+      transform: translateX(-50%);
+    }
+    .pet-blush {
+      position: absolute; top: 22px; width: 8px; height: 5px;
+      background: rgba(255,120,150,.45); border-radius: 50%;
+    }
+    .pet-blush.l { left: 2px; }
+    .pet-blush.r { right: 2px; }
+    @keyframes blink {
+      0%, 92%, 100% { transform: scaleY(1); }
+      95% { transform: scaleY(0.1); }
+    }
+    .pet-badge {
+      position: absolute; top: -2px; right: -2px;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: var(--error); color: #fff;
+      font-size: 10px; font-weight: 700;
+      display: grid; place-items: center;
+      border: 2px solid #fff;
+    }
+
+    /* ===== 对话面板 ===== */
+    .chat {
+      width: min(400px, calc(100vw - 48px));
+      height: 560px;
+      max-height: calc(100% - 100px);
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: 0 16px 48px rgba(26,26,46,.18);
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+      transform-origin: bottom right;
+      animation: panelIn .25s ease;
+    }
+    .chat.open { display: flex; }
+    @keyframes panelIn {
+      from { opacity: 0; transform: translateY(12px) scale(.96); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .chat-head {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, #fbfbff, #fff);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .chat-avatar {
+      width: 36px; height: 36px; border-radius: 50%;
+      background: linear-gradient(145deg, #7d7dff, #5b5bd6);
+      display: grid; place-items: center; flex-shrink: 0;
+    }
+    .chat-avatar .mini-face { transform: scale(.55); }
+    .chat-head-text { flex: 1; min-width: 0; }
+    .chat-head-text h3 { font-size: 14px; font-weight: 650; }
+    .chat-head-text p { font-size: 11px; color: var(--muted); margin-top: 1px; }
+    .chat-head-actions { display: flex; gap: 4px; }
+    .icon-btn {
+      width: 28px; height: 28px; border: 0; border-radius: 6px;
+      background: transparent; cursor: pointer; color: var(--muted);
+      font-size: 14px;
+    }
+    .icon-btn:hover { background: #f3f3f7; color: var(--text); }
+
+    .chat-modes {
+      display: flex; gap: 6px; padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      overflow-x: auto;
+      background: #fcfcfd;
+    }
+    .mode {
+      flex-shrink: 0;
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 999px;
+      padding: 4px 10px;
+      font-size: 11px;
+      color: var(--muted);
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .mode.active {
+      background: var(--primary-soft);
+      border-color: #cfd2f5;
+      color: var(--primary);
+      font-weight: 600;
+    }
+
+    .chat-body {
+      flex: 1; overflow-y: auto; padding: 14px 12px;
+      background: #f7f7fb;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .msg {
+      display: flex; gap: 8px; align-items: flex-start;
+      max-width: 100%;
+    }
+    .msg.user { flex-direction: row-reverse; }
+    .msg-bubble {
+      max-width: 86%;
+      padding: 10px 12px;
+      border-radius: 12px;
+      font-size: 13px;
+      line-height: 1.55;
+      background: #fff;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .msg.user .msg-bubble {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+    .msg.bot .msg-bubble { border-bottom-left-radius: 4px; }
+
+    .agent-steps {
+      margin-top: 8px;
+      padding: 8px 10px;
+      background: #f3f4ff;
+      border-radius: 8px;
+      font-size: 11px;
+      color: #4a4a7a;
+      line-height: 1.55;
+    }
+    .agent-steps .step {
+      display: flex; gap: 6px; align-items: flex-start;
+      margin-bottom: 4px;
+    }
+    .agent-steps .step:last-child { margin-bottom: 0; }
+    .agent-steps .dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--primary); margin-top: 5px; flex-shrink: 0;
+    }
+    .agent-steps .dot.ok { background: var(--success); }
+    .agent-steps .dot.run {
+      background: var(--warning);
+      animation: pulse 1s ease infinite;
+    }
+    @keyframes pulse {
+      0%,100% { opacity: 1; }
+      50% { opacity: .4; }
+    }
+
+    .cites {
+      margin-top: 8px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .cite {
+      display: flex; gap: 8px; align-items: flex-start;
+      padding: 7px 9px;
+      background: #fafafa;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      cursor: pointer;
+      text-align: left;
+      font-family: inherit;
+      width: 100%;
+    }
+    .cite:hover { border-color: #cfd2f5; background: #f8f8ff; }
+    .cite-score {
+      font-size: 10px; font-weight: 700; color: var(--primary);
+      background: var(--primary-soft);
+      padding: 2px 6px; border-radius: 4px; flex-shrink: 0;
+    }
+    .cite-body { min-width: 0; }
+    .cite-title { font-size: 12px; font-weight: 600; color: var(--text); }
+    .cite-meta { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+    .typing {
+      display: inline-flex; gap: 3px; align-items: center; padding: 4px 2px;
+    }
+    .typing i {
+      width: 5px; height: 5px; border-radius: 50%; background: var(--tertiary);
+      animation: bounce 1.2s ease infinite;
+    }
+    .typing i:nth-child(2) { animation-delay: .15s; }
+    .typing i:nth-child(3) { animation-delay: .3s; }
+    @keyframes bounce {
+      0%, 60%, 100% { transform: translateY(0); opacity: .4; }
+      30% { transform: translateY(-4px); opacity: 1; }
+    }
+
+    .chat-foot {
+      border-top: 1px solid var(--border);
+      padding: 10px 12px 12px;
+      background: #fff;
+    }
+    .suggests {
+      display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;
+    }
+    .sug {
+      border: 1px solid var(--border);
+      background: #fafafa;
+      border-radius: 8px;
+      padding: 5px 9px;
+      font-size: 11px;
+      color: var(--muted);
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .sug:hover { color: var(--primary); border-color: #cfd2f5; background: var(--primary-soft); }
+    .composer {
+      display: flex; gap: 8px; align-items: flex-end;
+    }
+    .composer textarea {
+      flex: 1; min-height: 40px; max-height: 88px;
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 10px 12px; font-size: 13px; font-family: inherit;
+      resize: none; line-height: 1.4;
+    }
+    .composer textarea:focus {
+      outline: none; border-color: #cfd2f5;
+      box-shadow: 0 0 0 3px rgba(91,91,214,.12);
+    }
+    .send {
+      height: 40px; padding: 0 14px; border: 0; border-radius: 10px;
+      background: var(--primary); color: #fff; font-size: 13px;
+      font-weight: 600; cursor: pointer; font-family: inherit;
+    }
+    .send:disabled { opacity: .5; cursor: default; }
+    .foot-note {
+      margin-top: 6px; font-size: 10px; color: var(--tertiary); line-height: 1.4;
+    }
+
+    .legend {
+      width: min(1180px, 100%);
+      margin-top: 16px;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 12px;
+    }
+    .legend-card {
+      background: #fff; border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 16px; font-size: 13px; color: var(--muted); line-height: 1.55;
+    }
+    .legend-card h4 { font-size: 13px; color: var(--text); margin-bottom: 6px; }
+    .tag {
+      display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 4px;
+      background: var(--primary-soft); color: var(--primary); font-weight: 600; margin-left: 4px;
+    }
+
+    @media (max-width: 900px) {
+      .fake-cards, .legend { grid-template-columns: 1fr; }
+      .shell { height: 700px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="banner">
+    <strong>原型（未改正式代码）：</strong>
+    不进侧栏「AI 智能」。任意页面右下角桌宠 → 点开对话。
+    示意<strong>向量检索 + 多步 Agent</strong>：规划 → 检索知识库/文案/股票 → 引用回答。
+    点桌宠打开面板，可点快捷问法或自己输入（演示会走模拟 Agent 流程）。
+  </div>
+
+  <div class="shell">
+    <aside class="sider">
+      <div class="brand"><div class="brand-mark">智</div><div class="brand-name">智能运营台</div></div>
+      <div class="nav-label">总览</div>
+      <div class="nav-item active">运营仪表盘</div>
+      <div class="nav-label">内容 / 股票</div>
+      <div class="nav-item">文案管理</div>
+      <div class="nav-item">知识库</div>
+      <div class="nav-item">自选股</div>
+      <div class="nav-label">AI 智能</div>
+      <div class="nav-item">AI Agent</div>
+      <div class="nav-item">AI助手</div>
+    </aside>
+
+    <div class="main">
+      <header class="header">
+        <span class="crumb">总览</span><span class="sep">›</span>
+        <span class="current">运营仪表盘</span>
+      </header>
+      <div class="content">
+        <div class="fake-page">
+          <h1>早上好</h1>
+          <p>这是任意业务页的示意背景。桌宠浮在右下角，不占侧栏菜单；全站各页共用同一入口。</p>
+          <div class="fake-cards">
+            <div class="fake-card"><div class="t">今日热点</div><div class="d">业务内容占位，桌宠不挡主操作。</div></div>
+            <div class="fake-card"><div class="t">文案 / 知识库</div><div class="d">问答时会向量召回这些资料。</div></div>
+            <div class="fake-card"><div class="t">自选股</div><div class="d">可追问持仓与策略相关问题。</div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 桌宠 + 对话 -->
+      <div class="pet-wrap">
+        <div class="chat" id="chat">
+          <div class="chat-head">
+            <div class="chat-avatar">
+              <div class="pet-face mini-face" style="width:44px;height:44px">
+                <span class="pet-eye l"></span><span class="pet-eye r"></span>
+                <span class="pet-blush l"></span><span class="pet-blush r"></span>
+                <span class="pet-mouth"></span>
+              </div>
+            </div>
+            <div class="chat-head-text">
+              <h3>智仔 · 数据问答</h3>
+              <p>向量检索 · Agent 编排 · 引用来源</p>
+            </div>
+            <div class="chat-head-actions">
+              <button class="icon-btn" type="button" title="新会话" id="btn-clear">↺</button>
+              <button class="icon-btn" type="button" title="关闭" id="btn-close">✕</button>
+            </div>
+          </div>
+
+          <div class="chat-modes">
+            <button class="mode active" type="button" data-mode="auto">智能 Agent</button>
+            <button class="mode" type="button" data-mode="knowledge">偏知识库</button>
+            <button class="mode" type="button" data-mode="script">偏文案</button>
+            <button class="mode" type="button" data-mode="stock">偏股票</button>
+          </div>
+
+          <div class="chat-body" id="chat-body"></div>
+
+          <div class="chat-foot">
+            <div class="suggests" id="suggests">
+              <button class="sug" type="button">重疾险对比要点有哪些？</button>
+              <button class="sug" type="button">根据知识库写一条养老金口播开头</button>
+              <button class="sug" type="button">我的持仓里谁跌破成本了？</button>
+            </div>
+            <div class="composer">
+              <textarea id="input" rows="1" placeholder="问系统里的知识、文案、股票…"></textarea>
+              <button class="send" type="button" id="btn-send">发送</button>
+            </div>
+            <div class="foot-note">原型演示：回答为模拟。落地后走向量库召回 + Agent 多工具调用，并展示真实引用。</div>
+          </div>
+        </div>
+
+        <div class="pet-tip" id="pet-tip">点我，用系统数据问一问～</div>
+        <button class="pet" type="button" id="pet" title="智仔 · 数据问答" aria-label="打开数据问答">
+          <span class="pet-badge" id="pet-badge">1</span>
+          <span class="pet-face">
+            <span class="pet-eye l"></span>
+            <span class="pet-eye r"></span>
+            <span class="pet-blush l"></span>
+            <span class="pet-blush r"></span>
+            <span class="pet-mouth"></span>
+          </span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div class="legend-card">
+      <h4>入口<span class="tag">桌宠</span></h4>
+      右下角浮动，不进侧栏。可轻微上下浮动；打开后面板锚定在宠物上方。
+    </div>
+    <div class="legend-card">
+      <h4>对话里看得见的「复杂能力」</h4>
+      Agent 步骤条（规划 / 向量检索 / 汇总）、相似度分数、可点击引用来源卡片。
+    </div>
+    <div class="legend-card">
+      <h4>落地时技术方向</h4>
+      向量库（如 pgvector）索引知识库/文案/股票简报；Agent 选工具检索；多轮带历史；流式输出。
+    </div>
+  </div>
+
+  <script>
+    const chat = document.getElementById('chat')
+    const pet = document.getElementById('pet')
+    const tip = document.getElementById('pet-tip')
+    const badge = document.getElementById('pet-badge')
+    const body = document.getElementById('chat-body')
+    const input = document.getElementById('input')
+    const btnSend = document.getElementById('btn-send')
+    let busy = false
+    let mode = 'auto'
+
+    const DEMO = {
+      '重疾险对比要点有哪些？': {
+        steps: [
+          { text: '理解问题：重疾险条款对比', state: 'ok' },
+          { text: '向量检索 · 知识库 top3（pgvector）', state: 'ok' },
+          { text: '交叉核对 · 相关文案素材', state: 'ok' },
+          { text: '汇总并标注引用', state: 'ok' },
+        ],
+        answer: '根据知识库里的条款对照材料，对比时建议抓住这几块：\n\n1. 重疾定义是否采用最新行业规范\n2. 轻症/中症赔付次数与间隔\n3. 身故/全残是否共用保额\n4. 等待期、免责与健康告知口径\n\n下面是召回的依据条目（相似度示意）：',
+        cites: [
+          { score: '0.91', title: '重疾险条款对照（2024）', meta: '知识库 · 保险 · 42页摘要' },
+          { score: '0.84', title: '轻症赔付次数怎么讲给客户', meta: '知识库 · 话术要点' },
+          { score: '0.79', title: '口播：重疾避坑 3 问', meta: '文案 · 已通过' },
+        ],
+      },
+      '根据知识库写一条养老金口播开头': {
+        steps: [
+          { text: '规划：口播开头 + 品牌语气', state: 'ok' },
+          { text: '向量检索 · 文案库「养老金」', state: 'ok' },
+          { text: '检索 · 知识库养老相关段落', state: 'ok' },
+          { text: '生成并约束不编造数据', state: 'ok' },
+        ],
+        answer: '试写一条开头（基于库内素材改写，非原创瞎编）：\n\n「很多人以为养老金够花，真正算过账户才发现缺口不小。今天用三分钟，把『能领多少、差多少、怎么补』说清楚——」\n\n可再接你们文案池里的收口金句。依据：',
+        cites: [
+          { score: '0.88', title: '养老金避坑 3 问', meta: '文案 · 568字' },
+          { score: '0.81', title: '养老金替代率说明', meta: '知识库 · 理财科普' },
+        ],
+      },
+      '我的持仓里谁跌破成本了？': {
+        steps: [
+          { text: '识别意图：持仓风控查询', state: 'ok' },
+          { text: '工具调用 · 读取自选股/持仓', state: 'ok' },
+          { text: '对比现价与成本 / 目标价', state: 'ok' },
+          { text: '结合预警记录作答', state: 'ok' },
+        ],
+        answer: '按当前自选「持仓」快照（示意）：\n\n· 紫光国微(002049)：现价低于成本，已触发跌破成本预警\n· 紫金矿业(601899)：现价低于成本；另有目标价触及记录\n\n建议到「自选股」核对最新行情。不构成投资建议。',
+        cites: [
+          { score: '工具', title: '自选股 · 持仓列表', meta: '系统数据 · 实时/收盘价' },
+          { score: '工具', title: '股价预警记录', meta: 'stock_alert · pending' },
+        ],
+      },
+    }
+
+    function appendWelcome() {
+      body.innerHTML = ''
+      addBot(
+        '你好，我是智仔。可以问知识库、文案、股票持仓等系统数据。我会先检索再回答，并标出引用。',
+        null,
+        null,
+        true
+      )
+    }
+
+    function addUser(text) {
+      const el = document.createElement('div')
+      el.className = 'msg user'
+      el.innerHTML = `<div class="msg-bubble"></div>`
+      el.querySelector('.msg-bubble').textContent = text
+      body.appendChild(el)
+      body.scrollTop = body.scrollHeight
+    }
+
+    function addBot(text, steps, cites, instant) {
+      const el = document.createElement('div')
+      el.className = 'msg bot'
+      const bubble = document.createElement('div')
+      bubble.className = 'msg-bubble'
+      el.appendChild(bubble)
+      body.appendChild(el)
+
+      if (instant) {
+        bubble.textContent = text
+        body.scrollTop = body.scrollHeight
+        return
+      }
+
+      if (steps && steps.length) {
+        const box = document.createElement('div')
+        box.className = 'agent-steps'
+        box.innerHTML = steps.map(s =>
+          `<div class="step"><span class="dot ${s.state}"></span><span>${s.text}</span></div>`
+        ).join('')
+        bubble.appendChild(box)
+      }
+
+      const typing = document.createElement('div')
+      typing.className = 'typing'
+      typing.innerHTML = '<i></i><i></i><i></i>'
+      bubble.appendChild(typing)
+      body.scrollTop = body.scrollHeight
+
+      setTimeout(() => {
+        typing.remove()
+        const p = document.createElement('div')
+        p.style.whiteSpace = 'pre-wrap'
+        p.textContent = text
+        bubble.appendChild(p)
+
+        if (cites && cites.length) {
+          const wrap = document.createElement('div')
+          wrap.className = 'cites'
+          cites.forEach(c => {
+            const btn = document.createElement('button')
+            btn.type = 'button'
+            btn.className = 'cite'
+            btn.innerHTML = `<span class="cite-score">${c.score}</span><span class="cite-body"><div class="cite-title">${c.title}</div><div class="cite-meta">${c.meta}</div></span>`
+            wrap.appendChild(btn)
+          })
+          bubble.appendChild(wrap)
+        }
+        body.scrollTop = body.scrollHeight
+        busy = false
+        btnSend.disabled = false
+      }, 900 + Math.random() * 400)
+    }
+
+    function ask(q) {
+      const text = (q || '').trim()
+      if (!text || busy) return
+      busy = true
+      btnSend.disabled = true
+      tip.style.display = 'none'
+      badge.style.display = 'none'
+      addUser(text)
+      input.value = ''
+
+      const demo = DEMO[text] || {
+        steps: [
+          { text: `模式：${modeLabel(mode)}`, state: 'ok' },
+          { text: '向量检索相关片段…', state: 'ok' },
+          { text: 'Agent 汇总回答', state: 'ok' },
+        ],
+        answer: `（演示）已按「${modeLabel(mode)}」检索系统数据。正式版会返回真实召回片段与可跳转引用。\n\n你的问题：「${text}」`,
+        cites: [
+          { score: '0.76', title: '相关知识条目（示意）', meta: '知识库' },
+          { score: '0.71', title: '相关文案（示意）', meta: '文案管理' },
+        ],
+      }
+      addBot(demo.answer, demo.steps, demo.cites, false)
+    }
+
+    function modeLabel(m) {
+      return ({ auto: '智能 Agent', knowledge: '偏知识库', script: '偏文案', stock: '偏股票' })[m] || m
+    }
+
+    function toggleChat(force) {
+      const open = force != null ? force : !chat.classList.contains('open')
+      chat.classList.toggle('open', open)
+      pet.classList.toggle('open', open)
+      if (open) {
+        tip.style.display = 'none'
+        badge.style.display = 'none'
+        input.focus()
+      }
+    }
+
+    pet.addEventListener('click', () => toggleChat())
+    document.getElementById('btn-close').addEventListener('click', () => toggleChat(false))
+    document.getElementById('btn-clear').addEventListener('click', () => {
+      appendWelcome()
+    })
+    btnSend.addEventListener('click', () => ask(input.value))
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        ask(input.value)
+      }
+    })
+    document.querySelectorAll('.sug').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (!chat.classList.contains('open')) toggleChat(true)
+        ask(btn.textContent)
+      })
+    })
+    document.querySelectorAll('.mode').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.mode').forEach(b => b.classList.remove('active'))
+        btn.classList.add('active')
+        mode = btn.dataset.mode
+      })
+    })
+
+    appendWelcome()
+    // 3s 后自动提示一次
+    setTimeout(() => {
+      if (!chat.classList.contains('open')) tip.style.display = 'block'
+    }, 600)
+  </script>
+</body>
+</html>

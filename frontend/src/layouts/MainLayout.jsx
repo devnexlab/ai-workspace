@@ -24,6 +24,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { APP_NAME } from '../config'
 import NotificationBell from '../features/notifications/NotificationBell'
 import TodoBell from '../features/notifications/TodoBell'
+import PetChat from '../features/pet/PetChat'
 
 const { Header, Sider, Content } = Layout
 
@@ -230,6 +231,7 @@ export default function MainLayout() {
           <Outlet />
         </Content>
       </Layout>
+      <PetChat />
     </Layout>
   )
 }

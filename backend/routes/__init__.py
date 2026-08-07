@@ -29,6 +29,7 @@ from .stocks.stocks import bp as stocks_bp
 from .stocks.stock_briefing import bp as stock_briefing_bp
 from .agents.agents import bp as agents_bp
 from .agents.workflows import bp as workflows_bp
+from .agents.pet_chat import bp as pet_chat_bp
 
 ALL_BLUEPRINTS = [
     dashboard_bp,
@@ -48,6 +49,7 @@ ALL_BLUEPRINTS = [
     stock_briefing_bp,
     agents_bp,
     workflows_bp,
+    pet_chat_bp,
 ]
 
 

@@ -367,6 +367,37 @@ CREATE TABLE IF NOT EXISTS stock_daily_briefing (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 桌宠问答：向量分片（embedding 存 JSON 浮点数组，兼容无 pgvector 环境）
+CREATE TABLE IF NOT EXISTS rag_chunk (
+    id SERIAL PRIMARY KEY,
+    source_type TEXT NOT NULL,
+    source_id INTEGER NOT NULL,
+    chunk_index INTEGER DEFAULT 0,
+    title TEXT DEFAULT '',
+    content TEXT DEFAULT '',
+    meta_json TEXT DEFAULT '',
+    embedding_json TEXT DEFAULT '',
+    embedding_model TEXT DEFAULT '',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (source_type, source_id, chunk_index)
+);
+
+CREATE TABLE IF NOT EXISTS pet_chat_session (
+    id SERIAL PRIMARY KEY,
+    title TEXT DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS pet_chat_message (
+    id SERIAL PRIMARY KEY,
+    session_id INTEGER NOT NULL REFERENCES pet_chat_session(id) ON DELETE CASCADE,
+    role TEXT NOT NULL,
+    content TEXT DEFAULT '',
+    meta_json TEXT DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Script V1.2 enhancements (columns added via migration)
 -- Added as separate ALTER for existing tables
 """
