@@ -379,7 +379,7 @@ function VideoIntelPanel() {
             percent={Math.min(100, r.engagement_rate || 0)}
             size="small"
             showInfo={false}
-            strokeColor="#5b6eff"
+            strokeColor="#5b5bd6"
           />
         </div>
       ),

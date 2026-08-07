@@ -42,15 +42,15 @@ const pathGroupMap = {
 }
 
 const pageTitleMap = {
-  '/': '总览',
-  '/hot-topics': '内容情报（股票 / 视频号）',
+  '/': '运营仪表盘',
+  '/hot-topics': '内容情报',
   '/scripts': '文案中心',
   '/videos': '视频中心',
   '/publish': '发布中心',
   '/customers': '客户管理',
-  '/knowledge': 'AI 知识库',
+  '/knowledge': '知识库',
   '/agents': 'Agent 中心',
-  '/workflows': 'AI助手',
+  '/workflows': 'AI 助手',
   '/stocks': '股票研究',
   '/settings/ai': 'AI 大模型',
   '/settings/collectors': '采集平台',
@@ -63,7 +63,7 @@ const pageTitleMap = {
 }
 
 const menuItems = [
-  { key: '/', icon: <DashboardOutlined />, label: '总览' },
+  { key: '/', icon: <DashboardOutlined />, label: '运营仪表盘' },
   {
     key: 'content',
     icon: <FundProjectionScreenOutlined />,
@@ -88,9 +88,9 @@ const menuItems = [
     icon: <AppstoreOutlined />,
     label: 'AI 智能',
     children: [
-      { key: '/knowledge', icon: <BulbOutlined />, label: 'AI 知识库' },
+      { key: '/knowledge', icon: <BulbOutlined />, label: '知识库' },
       { key: '/agents', icon: <RobotOutlined />, label: 'Agent 中心' },
-      { key: '/workflows', icon: <ApartmentOutlined />, label: 'AI助手' },
+      { key: '/workflows', icon: <ApartmentOutlined />, label: 'AI 助手' },
     ],
   },
   { key: '/stocks', icon: <StockOutlined />, label: '股票研究' },
@@ -147,6 +147,7 @@ export default function MainLayout() {
         collapsed={collapsed}
         onCollapse={setCollapsed}
         width={220}
+        collapsedWidth={64}
         style={{
           overflow: 'auto',
           height: '100vh',
@@ -155,8 +156,9 @@ export default function MainLayout() {
           left: 0,
         }}
       >
-        <div className="app-brand" style={{ fontSize: collapsed ? 14 : 15 }}>
-          {collapsed ? 'AI' : APP_NAME}
+        <div className="app-brand">
+          <span className="app-brand-icon">AI</span>
+          {!collapsed && <span className="app-brand-text">{APP_NAME}</span>}
         </div>
         <Menu
           theme="dark"

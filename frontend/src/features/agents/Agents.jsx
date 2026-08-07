@@ -152,7 +152,7 @@ export default function Agents() {
 
   return (
     <div>
-      <div className="page-title">AI Agent 中心</div>
+      <div className="page-title">Agent 中心</div>
       <div className="page-desc">
         创建助手并填写系统提示词。执行时按提示词完成客户跟进 / 采写拍 / 发布等重复工作，结果在「AI助手」中使用。
       </div>

@@ -212,7 +212,7 @@ export default function KnowledgeBase() {
 
   return (
     <div>
-      <div className="page-title">AI知识库</div>
+      <div className="page-title">知识库</div>
       <div className="page-desc">
         沉淀话术、资料与经验，供写文案和客户跟进时调用。
       </div>

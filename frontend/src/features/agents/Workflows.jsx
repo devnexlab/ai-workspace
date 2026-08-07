@@ -155,7 +155,7 @@ export default function Workflows() {
                     style={{
                       textAlign: 'left',
                       cursor: 'pointer',
-                      border: selected ? '1.5px solid #3b82f6' : '1px solid #e2e8f0',
+                      border: selected ? '1.5px solid #5b5bd6' : '1px solid #ededf0',
                       background: selected ? 'rgba(59,130,246,0.06)' : '#fff',
                       borderRadius: 14,
                       padding: '14px 16px',
@@ -169,8 +169,8 @@ export default function Workflows() {
                         borderRadius: 10,
                         display: 'grid',
                         placeItems: 'center',
-                        background: selected ? '#3b82f6' : '#f1f5f9',
-                        color: selected ? '#fff' : '#64748b',
+                        background: selected ? '#5b5bd6' : '#fafafa',
+                        color: selected ? '#fff' : '#6b6b80',
                       }}
                       >
                         {m.icon || <RobotOutlined />}
@@ -194,11 +194,11 @@ export default function Workflows() {
                     size="small"
                     items={[{
                       key: 'prompt',
-                      label: <span style={{ color: '#64748b', fontSize: 13 }}>查看系统提示词</span>,
+                      label: <span style={{ color: '#6b6b80', fontSize: 13 }}>查看系统提示词</span>,
                       children: (
                         <div style={{
                           background: '#f8fafc',
-                          border: '1px solid #e2e8f0',
+                          border: '1px solid #ededf0',
                           borderRadius: 10,
                           padding: 12,
                           fontSize: 13,
@@ -230,17 +230,17 @@ export default function Workflows() {
                         style={{
                           height: '100%',
                           borderRadius: 14,
-                          borderColor: runningKey === t.id ? '#93c5fd' : '#e2e8f0',
+                          borderColor: runningKey === t.id ? '#93c5fd' : '#ededf0',
                         }}
                       >
-                        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 8, color: '#0f172a' }}>
+                        <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 8, color: '#1e1e2e' }}>
                           {t.title}
                           {t.runnable === false ? (
                             <Tag style={{ marginLeft: 8 }}>暂不可执行</Tag>
                           ) : null}
                         </div>
                         <div style={{
-                          color: '#64748b',
+                          color: '#6b6b80',
                           fontSize: 13,
                           lineHeight: 1.6,
                           marginBottom: 14,

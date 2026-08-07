@@ -74,23 +74,14 @@ export default function NotificationBell() {
   return (
     <>
       <Tooltip title={badgeCount ? `${badgeCount} 条提醒` : '暂无提醒'}>
-        <Badge count={badgeCount} overflowCount={99} size="small" offset={[-2, 2]}>
+        <Badge count={badgeCount} overflowCount={99} size="small" offset={[-4, 4]}>
           <Button
             type="text"
+            className="app-icon-btn"
             onClick={() => setOpen(true)}
             aria-label="打开提醒"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              height: 36,
-              padding: '0 10px',
-              borderRadius: 18,
-            }}
-          >
-            <BellOutlined style={{ fontSize: 18 }} />
-            <span style={{ fontSize: 13, color: '#475569', fontWeight: 600 }}>提醒</span>
-          </Button>
+            icon={<BellOutlined />}
+          />
         </Badge>
       </Tooltip>
 

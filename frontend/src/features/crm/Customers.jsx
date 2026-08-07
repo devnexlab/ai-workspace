@@ -536,7 +536,7 @@ export default function Customers() {
           <div style={{ fontWeight: 600 }}>{v}</div>
           <div style={{ fontSize: 12, color: '#666' }}>{r.content}</div>
           {r.suggested_action && (
-            <div style={{ fontSize: 12, color: '#5b6eff', marginTop: 4 }}>建议：{r.suggested_action}</div>
+            <div style={{ fontSize: 12, color: '#5b5bd6', marginTop: 4 }}>建议：{r.suggested_action}</div>
           )}
         </div>
       ),
@@ -600,7 +600,7 @@ export default function Customers() {
                 hoverable
                 onClick={() => handleStageFilter(s.value)}
                 style={{
-                  borderColor: active ? '#5b6eff' : undefined,
+                  borderColor: active ? '#5b5bd6' : undefined,
                   background: active ? '#f0f3ff' : undefined,
                   cursor: 'pointer',
                   textAlign: 'center',
@@ -616,7 +616,7 @@ export default function Customers() {
             <Statistic
               title={<span><BellOutlined /> 待办提醒</span>}
               value={pendingCount}
-              valueStyle={{ fontSize: 22, color: overdueCount ? '#ff4d4f' : '#5b6eff' }}
+              valueStyle={{ fontSize: 22, color: overdueCount ? '#ff4d4f' : '#5b5bd6' }}
               suffix={overdueCount ? <span style={{ fontSize: 12, color: '#ff4d4f' }}>({overdueCount}逾期)</span> : null}
             />
           </Card>
@@ -1201,7 +1201,7 @@ export default function Customers() {
               return (
                 <Card
                   size="small"
-                  title={<Space><ThunderboltOutlined style={{ color: '#5b6eff' }} />客户管理助手 · 下一步</Space>}
+                  title={<Space><ThunderboltOutlined style={{ color: '#5b5bd6' }} />客户管理助手 · 下一步</Space>}
                   style={{ marginBottom: 12, borderColor: '#c5cbff' }}
                   extra={
                     <Button type="link" size="small" loading={assistantRunning} onClick={handleRunAssistant}>
@@ -1309,7 +1309,7 @@ export default function Customers() {
                         description={
                           <>
                             <div>{r.content}</div>
-                            <div style={{ color: '#5b6eff' }}>{r.suggested_action}</div>
+                            <div style={{ color: '#5b5bd6' }}>{r.suggested_action}</div>
                             <div style={{ fontSize: 12, color: '#999' }}>{formatDate(r.remind_date)}</div>
                           </>
                         }

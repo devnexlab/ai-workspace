@@ -92,23 +92,14 @@ export default function TodoBell() {
   return (
     <>
       <Tooltip title={badgeCount ? `${badgeCount} 条待办` : '暂无待办'}>
-        <Badge count={badgeCount} overflowCount={99} size="small" offset={[-2, 2]}>
+        <Badge count={badgeCount} overflowCount={99} size="small" offset={[-4, 4]}>
           <Button
             type="text"
+            className="app-icon-btn"
             onClick={() => setOpen(true)}
             aria-label="打开待办"
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              height: 36,
-              padding: '0 10px',
-              borderRadius: 18,
-            }}
-          >
-            <CheckSquareOutlined style={{ fontSize: 18 }} />
-            <span style={{ fontSize: 13, color: '#475569', fontWeight: 600 }}>待办</span>
-          </Button>
+            icon={<CheckSquareOutlined />}
+          />
         </Badge>
       </Tooltip>
 

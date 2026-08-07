@@ -283,7 +283,7 @@ export default function Scripts() {
           {
             title: '文案总数',
             value: data.total,
-            color: '#0f172a',
+            color: '#1e1e2e',
           },
           {
             title: '今日泛流量',
@@ -314,7 +314,7 @@ export default function Scripts() {
               styles={{ body: { padding: '16px 12px', textAlign: 'center', minHeight: 96 } }}
               style={{ cursor: item.onClick ? 'pointer' : 'default' }}
             >
-              <div style={{ fontSize: 13, color: '#64748b', marginBottom: 8 }}>{item.title}</div>
+              <div style={{ fontSize: 13, color: '#6b6b80', marginBottom: 8 }}>{item.title}</div>
               <div style={{ fontSize: 28, fontWeight: 700, color: item.color, lineHeight: 1.2 }}>
                 {item.value}
                 {item.suffix ? (
@@ -339,7 +339,7 @@ export default function Scripts() {
             marginBottom: 16,
             padding: '10px 14px',
             background: '#f8fafc',
-            border: '1px solid #e2e8f0',
+            border: '1px solid #ededf0',
             borderRadius: 12,
             fontSize: 13,
             color: '#475569',
