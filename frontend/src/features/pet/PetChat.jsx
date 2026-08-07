@@ -20,6 +20,26 @@ const SUGGESTS = [
 const WELCOME =
   '你好，我是智仔。可以问知识库、文案、股票持仓等系统数据。我会先检索再回答，并标出引用。'
 
+const SKIN_KEY = 'pet_chat_skin'
+
+const SKINS = [
+  { key: 'violet', label: '紫罗兰', fab: 'linear-gradient(145deg, #7d7dff, #5b5bd6 55%, #4a4ab8)', primary: '#5b5bd6', soft: '#eef0ff', glow: 'rgba(91,91,214,.35)' },
+  { key: 'teal', label: '青石', fab: 'linear-gradient(145deg, #4fd1c5, #0d9488 55%, #0f766e)', primary: '#0d9488', soft: '#e6f7f5', glow: 'rgba(13,148,136,.35)' },
+  { key: 'coral', label: '珊瑚', fab: 'linear-gradient(145deg, #fb923c, #ea580c 55%, #c2410c)', primary: '#ea580c', soft: '#fff4ed', glow: 'rgba(234,88,12,.35)' },
+  { key: 'sky', label: '晴空', fab: 'linear-gradient(145deg, #60a5fa, #2563eb 55%, #1d4ed8)', primary: '#2563eb', soft: '#eff6ff', glow: 'rgba(37,99,235,.35)' },
+  { key: 'slate', label: '墨灰', fab: 'linear-gradient(145deg, #94a3b8, #475569 55%, #334155)', primary: '#475569', soft: '#f1f5f9', glow: 'rgba(71,85,105,.35)' },
+]
+
+function loadSkin() {
+  try {
+    const k = localStorage.getItem(SKIN_KEY)
+    if (SKINS.some((s) => s.key === k)) return k
+  } catch {
+    /* ignore */
+  }
+  return 'violet'
+}
+
 function PetFace({ mini = false }) {
   return (
     <span className={`pet-face${mini ? ' mini-face' : ''}`}>
@@ -37,6 +57,8 @@ export default function PetChat() {
   const [open, setOpen] = useState(false)
   const [showTip, setShowTip] = useState(true)
   const [showBadge, setShowBadge] = useState(true)
+  const [showSkins, setShowSkins] = useState(false)
+  const [skin, setSkin] = useState(loadSkin)
   const [mode, setMode] = useState('auto')
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -47,10 +69,20 @@ export default function PetChat() {
   const bodyRef = useRef(null)
   const textareaRef = useRef(null)
 
+  const skinMeta = SKINS.find((s) => s.key === skin) || SKINS[0]
+
   useEffect(() => {
     if (!bodyRef.current) return
     bodyRef.current.scrollTop = bodyRef.current.scrollHeight
   }, [messages, open])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SKIN_KEY, skin)
+    } catch {
+      /* ignore */
+    }
+  }, [skin])
 
   const toggleOpen = () => {
     setOpen((v) => {
@@ -58,6 +90,8 @@ export default function PetChat() {
       if (next) {
         setShowTip(false)
         setShowBadge(false)
+      } else {
+        setShowSkins(false)
       }
       return next
     })
@@ -66,6 +100,11 @@ export default function PetChat() {
   const clearChat = () => {
     setSessionId(null)
     setMessages([{ id: `w-${Date.now()}`, role: 'bot', content: WELCOME }])
+  }
+
+  const pickSkin = (key) => {
+    setSkin(key)
+    setShowSkins(false)
   }
 
   const send = async (text) => {
@@ -137,8 +176,15 @@ export default function PetChat() {
     if (cite?.path) navigate(cite.path)
   }
 
+  const wrapStyle = {
+    '--pet-primary': skinMeta.primary,
+    '--pet-soft': skinMeta.soft,
+    '--pet-fab': skinMeta.fab,
+    '--pet-glow': skinMeta.glow,
+  }
+
   return (
-    <div className="pet-wrap">
+    <div className="pet-wrap" style={wrapStyle} data-skin={skin}>
       <div className={`pet-chat${open ? ' open' : ''}`} id="pet-chat-panel">
         <div className="pet-chat-head">
           <div className="pet-chat-avatar">
@@ -149,6 +195,15 @@ export default function PetChat() {
             <p>向量检索 · Agent 编排 · 引用来源</p>
           </div>
           <div className="pet-chat-head-actions">
+            <button
+              className={`pet-icon-btn${showSkins ? ' active' : ''}`}
+              type="button"
+              title="外观"
+              aria-label="自定义桌宠外观"
+              onClick={() => setShowSkins((v) => !v)}
+            >
+              ◐
+            </button>
             <button
               className="pet-icon-btn"
               type="button"
@@ -161,12 +216,32 @@ export default function PetChat() {
               className="pet-icon-btn"
               type="button"
               title="关闭"
-              onClick={() => setOpen(false)}
+              onClick={() => {
+                setShowSkins(false)
+                setOpen(false)
+              }}
             >
               ✕
             </button>
           </div>
         </div>
+
+        {showSkins && (
+          <div className="pet-skins" role="listbox" aria-label="桌宠外观">
+            <span className="pet-skins-label">外观</span>
+            {SKINS.map((s) => (
+              <button
+                key={s.key}
+                type="button"
+                className={`pet-skin-swatch${skin === s.key ? ' active' : ''}`}
+                title={s.label}
+                aria-label={s.label}
+                style={{ background: s.fab }}
+                onClick={() => pickSkin(s.key)}
+              />
+            ))}
+          </div>
+        )}
 
         <div className="pet-chat-modes">
           {MODES.map((m) => (

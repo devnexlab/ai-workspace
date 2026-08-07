@@ -4,6 +4,21 @@
 
 ---
 
+## 2026-08-07 · 智仔桌宠数据问答
+
+1. **全站桌宠**：右下角「智仔」浮动入口（不进侧栏），对话面板含模式切换、Agent 步骤、引用卡片  
+2. **向量 + Agent**：`rag_chunk` 索引知识库 / 文案 / 股票简报；优先厂商 embeddings，否则本地哈希向量；内容意图排除无关简报  
+3. **API**：`POST /api/pet-chat`、`POST /api/pet-chat/reindex`、`GET /api/pet-chat/status`；会话写入 `pet_chat_session` / `pet_chat_message`  
+4. **文档**：`README` / `FEATURES` 补充入口与充实知识库说明  
+
+### 相关文件
+
+- `backend/modules/{embeddings,pet_rag,pet_agent}.py`、`routes/agents/pet_chat.py`、`database.py`
+- `frontend/src/features/pet/*`、`layouts/MainLayout.jsx`
+- `docs/prototypes/pet-data-chat.html`、`docs/FEATURES.md`、`README.md`
+
+---
+
 ## 2026-08-05 · 官方/商业数据台
 
 1. **设置 · 官方数据台**：巨量算数 / 蝉妈妈 / 新榜 / 自定义，只配 API（Base URL、Key、路径、字段映射）

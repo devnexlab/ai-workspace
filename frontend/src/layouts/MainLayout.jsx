@@ -185,11 +185,11 @@ export default function MainLayout() {
         </nav>
 
         <div className="app-sider-footer">
-          <div className="app-user-card" title={collapsed ? '运营账号' : undefined}>
-            <div className="app-user-avatar">运</div>
+          <div className="app-user-card" title={collapsed ? '顾问' : undefined}>
+            <div className="app-user-avatar">顾</div>
             {!collapsed && (
               <div className="app-user-info">
-                <div className="app-user-name">运营账号</div>
+                <div className="app-user-name">顾问</div>
                 <div className="app-user-plan">本地工作台</div>
               </div>
             )}

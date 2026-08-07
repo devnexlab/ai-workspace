@@ -639,7 +639,7 @@ export default function HotTopics() {
               <span>
                 <FireOutlined />
                 {' '}
-                视频号蹭热点
+                热点选题
               </span>
             ),
             children: <VideoIntelPanel />,

@@ -428,6 +428,8 @@ git pull
 docker compose up -d --build
 ```
 
+拉取含 **智仔数据问答** 等改动后：重启后端即可（启动时 `init_db` 会自动建 `rag_chunk` / 会话表，**无需手写 SQL**）。生产环境前端需重新构建（上例 `docker compose up -d --build` 已包含）。首次提问会按知识库/文案自动建向量索引，数据量大时首问可能稍慢；也可调用 `POST /api/pet-chat/reindex` 预热。
+
 ### 9.2 备份数据库
 
 ```bash

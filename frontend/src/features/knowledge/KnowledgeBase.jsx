@@ -6,7 +6,7 @@ import {
 } from 'antd'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined,
-  ReloadOutlined, RobotOutlined, BookOutlined, TagsOutlined,
+  ReloadOutlined, RobotOutlined, BookOutlined,
   FileTextOutlined, UploadOutlined,
 } from '@ant-design/icons'
 import { knowledgeApi } from '../../api'
@@ -218,24 +218,19 @@ export default function KnowledgeBase() {
       </div>
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={6}>
+        <Col span={8}>
           <Card size="small">
             <Statistic title="知识总数" value={totalCount} prefix={<BookOutlined />} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col span={8}>
           <Card size="small">
             <Statistic title="笔记" value={noteCount} valueStyle={{ color: '#1890ff' }} />
           </Card>
         </Col>
-        <Col span={6}>
+        <Col span={8}>
           <Card size="small">
             <Statistic title="学习" value={studyCount} valueStyle={{ color: '#13c2c2' }} />
-          </Card>
-        </Col>
-        <Col span={6}>
-          <Card size="small">
-            <Statistic title="分类数" value={categories.length} prefix={<TagsOutlined />} />
           </Card>
         </Col>
       </Row>
