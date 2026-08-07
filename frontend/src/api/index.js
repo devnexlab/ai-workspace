@@ -11,7 +11,7 @@ export {
   materialsApi,
   publishApi,
 } from './content'
-export { customersApi, followsApi, remindersApi } from './crm'
+export { customersApi, followsApi, remindersApi, leadsApi } from './crm'
 export { knowledgeApi } from './knowledge'
 export { stocksApi } from './stocks'
 export { agentsApi, workflowsApi } from './agents'

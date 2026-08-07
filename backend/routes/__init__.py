@@ -23,6 +23,7 @@ from .video.videos import bp as videos_bp
 from .publish.publish import bp as publish_bp
 from .crm.customers import bp as customers_bp
 from .crm.follows import bp as follows_bp
+from .crm.leads import bp as leads_bp
 from .knowledge.knowledge import bp as knowledge_bp
 from .stocks.stocks import bp as stocks_bp
 from .stocks.stock_briefing import bp as stock_briefing_bp
@@ -41,6 +42,7 @@ ALL_BLUEPRINTS = [
     publish_bp,
     customers_bp,
     follows_bp,
+    leads_bp,
     knowledge_bp,
     stocks_bp,
     stock_briefing_bp,

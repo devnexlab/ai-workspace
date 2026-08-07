@@ -31,7 +31,7 @@ export default function NotificationBell() {
 
   const load = useCallback(() => {
     setLoading(true)
-    remindersApi.list({ status: 'pending' })
+    remindersApi.list({ status: 'pending', scope: 'all' })
       .then(res => setItems(res.list || []))
       .catch(() => setItems([]))
       .finally(() => setLoading(false))
@@ -144,7 +144,7 @@ export default function NotificationBell() {
                           style={{ cursor: 'pointer' }}
                           onClick={() => {
                             setOpen(false)
-                            navigate(r.type === 'stock_alert' ? '/stocks' : '/customers?tab=reminders')
+                            navigate(r.type === 'stock_alert' ? '/stocks/watchlist' : '/customers?tab=reminders')
                           }}
                         >{r.title || '未命名提醒'}</span>
                         <Tag color={tp.color}>{tp.label}</Tag>

@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>原型 B · 仪表盘嵌入「进行中」</title>
+  <style>
+    :root {
+      --primary: #5b5bd6;
+      --primary-soft: #eef0ff;
+      --sidebar: #1a1a2e;
+      --page: #fafafa;
+      --text: #1e1e2e;
+      --muted: #6b6b80;
+      --tertiary: #9b9bb0;
+      --border: #ededf0;
+      --success: #00b884;
+      --warning: #ff9500;
+      --error: #ff3b5c;
+      --font: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font);
+      background: #e8e8ee;
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px 48px;
+    }
+    .banner {
+      width: min(1180px, 100%);
+      margin-bottom: 14px;
+      padding: 12px 16px;
+      background: #e8f7f1;
+      border: 1px solid #b8e4d2;
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.55;
+      color: #1a5c44;
+    }
+    .banner a { color: #0d8a62; font-weight: 600; }
+    .shell {
+      width: min(1180px, 100%);
+      height: 780px;
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 12px 40px rgba(26,26,46,.12);
+      background: var(--page);
+    }
+    .sider { background: var(--sidebar); color: #c8c8d4; padding: 16px 12px; }
+    .brand {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px 18px;
+      border-bottom: 1px solid rgba(255,255,255,.06);
+      margin-bottom: 14px;
+    }
+    .brand-mark {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: var(--primary); color: #fff;
+      display: grid; place-items: center; font-weight: 700; font-size: 14px;
+    }
+    .brand-name { color: #fff; font-size: 14px; font-weight: 600; }
+    .nav-label { font-size: 11px; color: #6b6b80; padding: 0 10px 6px; }
+    .nav-item { padding: 8px 10px; border-radius: 6px; font-size: 13px; margin-bottom: 2px; }
+    .nav-item.active { background: rgba(91,91,214,.22); color: #fff; }
+    .nav-item.muted { opacity: .4; }
+    .main { display: flex; flex-direction: column; min-width: 0; }
+    .header {
+      height: 52px; background: #fff; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; padding: 0 24px; gap: 8px; font-size: 13px;
+    }
+    .crumb { color: var(--muted); }
+    .sep { color: #c5c5d0; font-size: 10px; }
+    .current { font-weight: 600; }
+    .content {
+      flex: 1; padding: 18px 24px; overflow: auto; min-height: 0;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .welcome h1 { font-size: 20px; font-weight: 650; }
+    .welcome p { margin-top: 4px; font-size: 13px; color: var(--muted); }
+    .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .kpi {
+      background: #fff; border: 1px solid var(--border); border-radius: 10px;
+      padding: 12px 14px;
+    }
+    .kpi .label { font-size: 12px; color: var(--muted); }
+    .kpi .value { font-size: 22px; font-weight: 700; margin-top: 2px; }
+    .mid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 12px; }
+    .card {
+      background: #fff; border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 16px;
+    }
+    .card-h {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 10px;
+    }
+    .card-h h3 { font-size: 14px; font-weight: 650; }
+    .card-h a { font-size: 12px; color: var(--primary); text-decoration: none; }
+    .fake {
+      height: 90px; border-radius: 8px; border: 1px dashed #e2e2ea;
+      background: #f7f7fb; display: grid; place-items: center;
+      font-size: 12px; color: var(--tertiary);
+    }
+
+    .live-block {
+      background: #fff; border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 16px;
+    }
+    .live-h {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 12px;
+    }
+    .live-h h3 {
+      font-size: 14px; font-weight: 650;
+      display: flex; align-items: center; gap: 8px;
+    }
+    .pulse {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 11px; color: var(--success); font-weight: 600;
+    }
+    .pulse i { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+    .rows { display: flex; flex-direction: column; gap: 8px; }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fcfcfd;
+      align-items: center;
+    }
+    .row .t { font-size: 13px; font-weight: 600; }
+    .row .s { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .badge {
+      font-size: 11px; padding: 2px 8px; border-radius: 4px; font-weight: 600;
+    }
+    .badge.run { background: var(--primary-soft); color: var(--primary); }
+    .badge.wait { background: #fff3e6; color: #b86500; }
+    .badge.fail { background: #ffe8ee; color: var(--error); }
+    .mini-bar {
+      height: 4px; background: #eeeef3; border-radius: 999px; margin-top: 8px; overflow: hidden;
+    }
+    .mini-bar > i { display: block; height: 100%; background: var(--primary); }
+    .mini-bar > i.a { width: 64%; }
+    .mini-bar > i.b { width: 38%; }
+    .note {
+      margin-top: 10px; font-size: 12px; color: var(--tertiary); line-height: 1.5;
+    }
+    @media (max-width: 960px) {
+      .kpis, .mid { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="banner">
+    <strong>方案 B · 仪表盘嵌入（已改内容）</strong>
+    侧栏不单开「实时动态」。仪表盘底部放「进行中」精简条：合成 / 发布会话 / 选股 / 告警。
+    对比：<a href="./activity-page.html">方案 A · 独立页</a>
+  </div>
+
+  <div class="shell">
+    <aside class="sider">
+      <div class="brand"><div class="brand-mark">智</div><div class="brand-name">智能运营台</div></div>
+      <div class="nav-label">总览</div>
+      <div class="nav-item active">运营仪表盘</div>
+      <div class="nav-item muted">实时动态（不单开）</div>
+      <div class="nav-label" style="margin-top:14px">内容运营</div>
+      <div class="nav-item">视频生产</div>
+      <div class="nav-item">发布中心</div>
+    </aside>
+
+    <div class="main">
+      <header class="header">
+        <span class="crumb">总览</span><span class="sep">›</span>
+        <span class="current">运营仪表盘</span>
+      </header>
+      <div class="content">
+        <div class="welcome">
+          <h1>早上好</h1>
+          <p>仪表盘原有 KPI / 图表保持不变，底部增加「进行中」实时区。</p>
+        </div>
+
+        <div class="kpis">
+          <div class="kpi"><div class="label">今日热点</div><div class="value">12</div></div>
+          <div class="kpi"><div class="label">待出片</div><div class="value">4</div></div>
+          <div class="kpi"><div class="label">待发布</div><div class="value">3</div></div>
+          <div class="kpi"><div class="label">跟进提醒</div><div class="value">2</div></div>
+        </div>
+
+        <div class="mid">
+          <div class="card">
+            <div class="card-h"><h3>7 日趋势</h3><a href="#">详情</a></div>
+            <div class="fake">现有图表占位</div>
+          </div>
+          <div class="card">
+            <div class="card-h"><h3>最近文案</h3><a href="#">全部</a></div>
+            <div class="fake">现有列表占位</div>
+          </div>
+        </div>
+
+        <section class="live-block">
+          <div class="live-h">
+            <h3>进行中 <span class="pulse"><i></i>随仪表盘 5s 刷新</span></h3>
+            <a href="./activity-page.html">展开全部</a>
+          </div>
+          <div class="rows">
+            <div class="row">
+              <div>
+                <div class="t">视频合成 · 中年危机怎么聊</div>
+                <div class="s">字幕生成中 · 1分42秒</div>
+                <div class="mini-bar"><i class="a"></i></div>
+              </div>
+              <span class="badge run">合成中</span>
+            </div>
+            <div class="row">
+              <div>
+                <div class="t">发布会话 · 抖音</div>
+                <div class="s">待人工确认 · 已检测到创作者页</div>
+              </div>
+              <span class="badge wait">待确认</span>
+            </div>
+            <div class="row">
+              <div>
+                <div class="t">全市场选股扫描</div>
+                <div class="s">1860 / 5200</div>
+                <div class="mini-bar"><i class="b"></i></div>
+              </div>
+              <span class="badge run">扫描中</span>
+            </div>
+            <div class="row">
+              <div>
+                <div class="t">股价预警 · 贵州茅台</div>
+                <div class="s">跌破 1480 · 刚刚</div>
+              </div>
+              <span class="badge fail">告警</span>
+            </div>
+          </div>
+          <div class="note">
+            无任务时此区块可折叠/隐藏，避免空态占版面。内容只来自现有轮询接口，不做历史流水。
+          </div>
+        </section>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

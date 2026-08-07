@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>原型 A · 实时动态（进行中任务）</title>
+  <style>
+    :root {
+      --primary: #5b5bd6;
+      --primary-soft: #eef0ff;
+      --sidebar: #1a1a2e;
+      --page: #fafafa;
+      --text: #1e1e2e;
+      --muted: #6b6b80;
+      --tertiary: #9b9bb0;
+      --border: #ededf0;
+      --success: #00b884;
+      --warning: #ff9500;
+      --error: #ff3b5c;
+      --info: #3b82f6;
+      --font: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font);
+      background: #e8e8ee;
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px 48px;
+    }
+    .banner {
+      width: min(1180px, 100%);
+      margin-bottom: 14px;
+      padding: 12px 16px;
+      background: #eef0ff;
+      border: 1px solid #d4d6f5;
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.55;
+      color: #3a3a6a;
+    }
+    .banner a { color: var(--primary); font-weight: 600; }
+    .shell {
+      width: min(1180px, 100%);
+      height: 780px;
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 12px 40px rgba(26,26,46,.12);
+      background: var(--page);
+    }
+    .sider { background: var(--sidebar); color: #c8c8d4; padding: 16px 12px; }
+    .brand {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px 18px;
+      border-bottom: 1px solid rgba(255,255,255,.06);
+      margin-bottom: 14px;
+    }
+    .brand-mark {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: var(--primary); color: #fff;
+      display: grid; place-items: center; font-weight: 700; font-size: 14px;
+    }
+    .brand-name { color: #fff; font-size: 14px; font-weight: 600; }
+    .nav-label { font-size: 11px; color: #6b6b80; padding: 0 10px 6px; }
+    .nav-item { padding: 8px 10px; border-radius: 6px; font-size: 13px; margin-bottom: 2px; }
+    .nav-item.active { background: rgba(91,91,214,.22); color: #fff; }
+    .main { display: flex; flex-direction: column; min-width: 0; }
+    .header {
+      height: 52px; background: #fff; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; padding: 0 24px; gap: 8px; font-size: 13px;
+    }
+    .crumb { color: var(--muted); }
+    .sep { color: #c5c5d0; font-size: 10px; }
+    .current { font-weight: 600; }
+    .content {
+      flex: 1; padding: 18px 24px; overflow: auto; min-height: 0;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .page-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+    .page-head h1 { font-size: 20px; font-weight: 650; letter-spacing: -.02em; }
+    .page-head p { margin-top: 4px; font-size: 13px; color: var(--muted); max-width: 640px; }
+    .live {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--success); font-weight: 600;
+      padding: 6px 10px; background: #e8f7f1; border-radius: 999px;
+      white-space: nowrap;
+    }
+    .live i {
+      width: 7px; height: 7px; border-radius: 50%; background: var(--success);
+      animation: pulse 1.4s ease infinite;
+    }
+    @keyframes pulse {
+      0%,100% { box-shadow: 0 0 0 3px rgba(0,184,132,.2); }
+      50% { box-shadow: 0 0 0 6px rgba(0,184,132,.08); }
+    }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+    .sum {
+      background: #fff; border: 1px solid var(--border); border-radius: 10px;
+      padding: 12px 14px;
+    }
+    .sum .k { font-size: 12px; color: var(--muted); }
+    .sum .v { font-size: 22px; font-weight: 700; margin-top: 2px; letter-spacing: -.02em; }
+    .sum .v.err { color: var(--error); }
+    .sum .v.warn { color: var(--warning); }
+    .grid {
+      display: grid;
+      grid-template-columns: 1.15fr 1fr;
+      gap: 12px;
+      align-items: start;
+    }
+    .card {
+      background: #fff; border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 16px;
+    }
+    .card-h {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 12px;
+    }
+    .card-h h3 { font-size: 14px; font-weight: 650; }
+    .card-h .poll { font-size: 11px; color: var(--tertiary); }
+    .job {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 8px;
+      background: #fcfcfd;
+    }
+    .job:last-child { margin-bottom: 0; }
+    .job-top {
+      display: flex; justify-content: space-between; gap: 8px; align-items: flex-start;
+      margin-bottom: 8px;
+    }
+    .job-title { font-size: 13px; font-weight: 650; }
+    .job-sub { font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+    .badge {
+      font-size: 11px; padding: 2px 8px; border-radius: 4px; white-space: nowrap;
+      font-weight: 600;
+    }
+    .badge.run { background: var(--primary-soft); color: var(--primary); }
+    .badge.wait { background: #fff3e6; color: #b86500; }
+    .badge.fail { background: #ffe8ee; color: var(--error); }
+    .badge.ok { background: #e8f7f1; color: #0d8a62; }
+    .bar {
+      height: 6px; background: #eeeef3; border-radius: 999px; overflow: hidden;
+      margin: 8px 0 6px;
+    }
+    .bar > i {
+      display: block; height: 100%; border-radius: 999px;
+      background: linear-gradient(90deg, var(--primary), #7d7dff);
+      width: 0;
+    }
+    .bar > i.w64 { width: 64%; }
+    .bar > i.w38 { width: 38%; }
+    .bar > i.w82 { width: 82%; }
+    .job-meta {
+      display: flex; justify-content: space-between; gap: 8px;
+      font-size: 11px; color: var(--tertiary);
+    }
+    .empty {
+      font-size: 13px; color: var(--tertiary); padding: 18px 8px; text-align: center;
+    }
+    .alert-row {
+      display: grid;
+      grid-template-columns: 10px 1fr auto;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid #f3f3f6;
+      align-items: start;
+    }
+    .alert-row:last-child { border-bottom: 0; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; }
+    .dot.err { background: var(--error); }
+    .dot.warn { background: var(--warning); }
+    .dot.info { background: var(--info); }
+    .a-title { font-size: 13px; font-weight: 600; }
+    .a-meta { font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+    .a-time { font-size: 11px; color: var(--tertiary); white-space: nowrap; }
+    .src {
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--tertiary);
+      line-height: 1.55;
+      padding: 10px 12px;
+      background: #f7f7fa;
+      border-radius: 8px;
+    }
+    .src code {
+      font-size: 11px; background: #fff; border: 1px solid var(--border);
+      padding: 1px 5px; border-radius: 4px; color: var(--text);
+    }
+    @media (max-width: 960px) {
+      .summary, .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="banner">
+    <strong>方案 A · 独立页（已改内容）</strong>
+    不再放历史流水。只汇总项目里<strong>正在跑、需要轮询</strong>的状态：视频合成、发布浏览器会话、股票筛选、股价/提醒告警。
+    对比：<a href="./activity-dashboard-embed.html">方案 B · 仪表盘嵌入</a>
+  </div>
+
+  <div class="shell">
+    <aside class="sider">
+      <div class="brand"><div class="brand-mark">智</div><div class="brand-name">智能运营台</div></div>
+      <div class="nav-label">总览</div>
+      <div class="nav-item">运营仪表盘</div>
+      <div class="nav-item active">实时动态</div>
+      <div class="nav-label" style="margin-top:14px">内容 / 股票</div>
+      <div class="nav-item">视频生产</div>
+      <div class="nav-item">发布中心</div>
+      <div class="nav-item">市场概览</div>
+    </aside>
+
+    <div class="main">
+      <header class="header">
+        <span class="crumb">总览</span><span class="sep">›</span>
+        <span class="current">实时动态</span>
+      </header>
+
+      <div class="content">
+        <div class="page-head">
+          <div>
+            <h1>实时动态</h1>
+            <p>进行中的任务与刚触发的告警。空闲时整页很干净；有任务时在这里盯进度，不必切多个页面。</p>
+          </div>
+          <div class="live"><i></i>每 3–5 秒刷新</div>
+        </div>
+
+        <div class="summary">
+          <div class="sum"><div class="k">视频合成中</div><div class="v">2</div></div>
+          <div class="sum"><div class="k">发布会话进行中</div><div class="v warn">1</div></div>
+          <div class="sum"><div class="k">选股扫描中</div><div class="v">1</div></div>
+          <div class="sum"><div class="k">新告警未读</div><div class="v err">3</div></div>
+        </div>
+
+        <div class="grid">
+          <div class="card">
+            <div class="card-h">
+              <h3>进行中的任务</h3>
+              <span class="poll">来自 Videos / Publish / Stocks 现有轮询</span>
+            </div>
+
+            <div class="job">
+              <div class="job-top">
+                <div>
+                  <div class="job-title">视频合成 · 中年危机怎么聊</div>
+                  <div class="job-sub">阶段：配音完成 → 字幕生成中 · 已耗时 1分42秒</div>
+                </div>
+                <span class="badge run">合成中</span>
+              </div>
+              <div class="bar"><i class="w64"></i></div>
+              <div class="job-meta"><span>轮询间隔 ~3s</span><span>跳转视频生产 →</span></div>
+            </div>
+
+            <div class="job">
+              <div class="job-top">
+                <div>
+                  <div class="job-title">视频合成 · 养老金避坑 3 问</div>
+                  <div class="job-sub">阶段：导出成片 · 已耗时 3分08秒</div>
+                </div>
+                <span class="badge run">导出中</span>
+              </div>
+              <div class="bar"><i class="w82"></i></div>
+              <div class="job-meta"><span>轮询间隔 ~3s</span><span>跳转视频生产 →</span></div>
+            </div>
+
+            <div class="job">
+              <div class="job-top">
+                <div>
+                  <div class="job-title">发布会话 · 抖音创作者</div>
+                  <div class="job-sub">状态：待人工确认 · 已检测到创作者页 URL</div>
+                </div>
+                <span class="badge wait">待确认</span>
+              </div>
+              <div class="job-meta"><span>会话轮询 ~10s</span><span>跳转发布中心 →</span></div>
+            </div>
+
+            <div class="job">
+              <div class="job-top">
+                <div>
+                  <div class="job-title">全市场选股扫描</div>
+                  <div class="job-sub">扫描中 1860 / 5200 · 策略：低估值 + 动量</div>
+                </div>
+                <span class="badge run">扫描中</span>
+              </div>
+              <div class="bar"><i class="w38"></i></div>
+              <div class="job-meta"><span>轮询间隔 ~2.5s</span><span>跳转市场概览 →</span></div>
+            </div>
+          </div>
+
+          <div>
+            <div class="card" style="margin-bottom:12px">
+              <div class="card-h">
+                <h3>即时告警</h3>
+                <span class="poll">通知铃 / 股价预警</span>
+              </div>
+              <div class="alert-row">
+                <div class="dot err"></div>
+                <div>
+                  <div class="a-title">股价预警触发</div>
+                  <div class="a-meta">贵州茅台 · 现价跌破设定线 1480</div>
+                </div>
+                <div class="a-time">刚刚</div>
+              </div>
+              <div class="alert-row">
+                <div class="dot warn"></div>
+                <div>
+                  <div class="a-title">发布会话需要登录</div>
+                  <div class="a-meta">小红书 Cookie / 登录态失效</div>
+                </div>
+                <div class="a-time">2 分钟前</div>
+              </div>
+              <div class="alert-row">
+                <div class="dot err"></div>
+                <div>
+                  <div class="a-title">视频合成失败</div>
+                  <div class="a-meta">家庭保障清单 · FFmpeg 导出错误</div>
+                </div>
+                <div class="a-time">6 分钟前</div>
+              </div>
+              <div class="alert-row">
+                <div class="dot info"></div>
+                <div>
+                  <div class="a-title">客户提醒到期</div>
+                  <div class="a-meta">张女士 · 今日回访</div>
+                </div>
+                <div class="a-time">今天 12:00</div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-h"><h3>空闲态示意</h3></div>
+              <div class="empty">当前没有进行中的任务<br/>有新任务或告警时会出现在上方</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="src">
+          项目里适合放这里的真实数据源：
+          <code>Videos</code> 合成进度（2–5s）·
+          <code>Publish</code> Playwright 会话（10s）·
+          <code>Stocks</code> 选股扫描（2.5s）·
+          <code>NotificationBell</code> 股价预警/提醒（60s）·
+          仪表盘已在飞的失败视频/待发布（5s）。
+          不适合：热点历史、文案列表、Agent 运行完成日志、日更结果回看。
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

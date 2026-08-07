@@ -2,14 +2,17 @@ import { useState, useMemo } from 'react'
 import { Layout, Tooltip, Button } from 'antd'
 import {
   DashboardOutlined,
+  ThunderboltOutlined,
   FireOutlined,
   FileTextOutlined,
   VideoCameraOutlined,
   RocketOutlined,
   TeamOutlined,
+  UserAddOutlined,
   SettingOutlined,
   BulbOutlined,
   StockOutlined,
+  LineChartOutlined,
   RobotOutlined,
   ApartmentOutlined,
   RightOutlined,
@@ -28,44 +31,36 @@ const BRAND_NAME = '智能运营台'
 
 const pageTitleMap = {
   '/': '运营仪表盘',
+  '/live': '实时动态',
   '/hot-topics': '热点情报',
   '/scripts': '文案管理',
   '/videos': '视频生产',
   '/publish': '发布中心',
   '/customers': '客户列表',
+  '/leads': '线索池',
   '/knowledge': '知识库',
   '/agents': 'AI Agent',
-  '/workflows': '工作流',
+  '/workflows': 'AI助手',
   '/stocks': '市场概览',
-  '/settings/ai': 'AI 大模型',
-  '/settings/collectors': '采集平台',
-  '/settings/commercial': '官方数据台',
-  '/settings/publish': '发布平台',
-  '/settings/media': '配音与视频',
-  '/settings/notify': '消息推送',
-  '/settings/wechat-oa': '微信服务号',
-  '/settings/content': '内容运营',
+  '/stocks/watchlist': '自选股',
+  '/settings': '系统设置',
 }
 
 const sectionLabelMap = {
   '/': '总览',
+  '/live': '总览',
   '/hot-topics': '内容运营',
   '/scripts': '内容运营',
   '/videos': '内容运营',
   '/publish': '内容运营',
   '/customers': '客户管理',
+  '/leads': '客户管理',
   '/knowledge': 'AI 智能',
   '/agents': 'AI 智能',
   '/workflows': 'AI 智能',
   '/stocks': '股票研究',
-  '/settings/ai': '系统',
-  '/settings/collectors': '系统',
-  '/settings/commercial': '系统',
-  '/settings/publish': '系统',
-  '/settings/media': '系统',
-  '/settings/notify': '系统',
-  '/settings/wechat-oa': '系统',
-  '/settings/content': '系统',
+  '/stocks/watchlist': '股票研究',
+  '/settings': '系统',
 }
 
 const navGroups = [
@@ -73,6 +68,7 @@ const navGroups = [
     label: '总览',
     items: [
       { key: '/', icon: <DashboardOutlined />, label: '运营仪表盘' },
+      { key: '/live', icon: <ThunderboltOutlined />, label: '实时动态' },
     ],
   },
   {
@@ -88,6 +84,7 @@ const navGroups = [
     label: '客户管理',
     items: [
       { key: '/customers', icon: <TeamOutlined />, label: '客户列表' },
+      { key: '/leads', icon: <UserAddOutlined />, label: '线索池' },
     ],
   },
   {
@@ -95,32 +92,29 @@ const navGroups = [
     items: [
       { key: '/knowledge', icon: <BulbOutlined />, label: '知识库' },
       { key: '/agents', icon: <RobotOutlined />, label: 'AI Agent' },
-      { key: '/workflows', icon: <ApartmentOutlined />, label: '工作流' },
+      { key: '/workflows', icon: <ApartmentOutlined />, label: 'AI助手' },
     ],
   },
   {
     label: '股票研究',
     items: [
       { key: '/stocks', icon: <StockOutlined />, label: '市场概览' },
+      { key: '/stocks/watchlist', icon: <LineChartOutlined />, label: '自选股' },
     ],
   },
   {
     label: '系统',
     items: [
-      { key: '/settings/ai', icon: <SettingOutlined />, label: 'AI 大模型' },
-      { key: '/settings/collectors', icon: <SettingOutlined />, label: '采集平台' },
-      { key: '/settings/commercial', icon: <SettingOutlined />, label: '官方数据台' },
-      { key: '/settings/publish', icon: <SettingOutlined />, label: '发布平台' },
-      { key: '/settings/media', icon: <SettingOutlined />, label: '配音与视频' },
-      { key: '/settings/notify', icon: <SettingOutlined />, label: '消息推送' },
-      { key: '/settings/wechat-oa', icon: <SettingOutlined />, label: '微信服务号' },
-      { key: '/settings/content', icon: <SettingOutlined />, label: '内容运营' },
+      { key: '/settings', icon: <SettingOutlined />, label: '系统设置' },
     ],
   },
 ]
 
 function isNavActive(pathname, key) {
   if (key === '/') return pathname === '/'
+  if (key === '/settings') return pathname.startsWith('/settings')
+  // /stocks 与 /stocks/watchlist 互不抢高亮
+  if (key === '/stocks') return pathname === '/stocks' || pathname === '/stocks/'
   return pathname === key || pathname.startsWith(`${key}/`)
 }
 
@@ -130,11 +124,7 @@ export default function MainLayout() {
   const location = useLocation()
 
   const selectedKey = useMemo(() => {
-    if (location.pathname.startsWith('/settings')) {
-      const parts = location.pathname.split('/').filter(Boolean)
-      if (parts.length >= 2) return `/${parts[0]}/${parts[1]}`
-      return '/settings/ai'
-    }
+    if (location.pathname.startsWith('/settings')) return '/settings'
     return location.pathname
   }, [location.pathname])
 

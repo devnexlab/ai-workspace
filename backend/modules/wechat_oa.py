@@ -32,64 +32,16 @@ def get_oa_profile() -> dict:
 
 
 def create_lead(data: dict) -> dict:
-    """服务号 H5 留资 → 写入 customer，并尽量通知运营。"""
-    nickname = (data.get('nickname') or data.get('name') or '').strip()
-    phone = (data.get('phone') or '').strip()
-    wechat = (data.get('wechat') or '').strip()
-    remark = (data.get('remark') or '').strip()
-    preferred = (data.get('preferred_time') or '').strip()
+    """服务号 H5 留资 → 写入线索池，并尽量通知运营。"""
+    from modules.leads import create_lead_row
 
-    if not nickname:
-        raise ValueError('请填写称呼')
-    if not phone and not wechat:
-        raise ValueError('请至少填写手机或微信号之一')
-
-    note_parts = ['【微信服务号留资】']
-    if preferred:
-        note_parts.append(f'期望联系时间：{preferred}')
-    if remark:
-        note_parts.append(remark)
-    full_remark = '\n'.join(note_parts)
-
-    from config import get_db
-
-    conn = get_db()
-    try:
-        cur = conn.execute(
-            '''INSERT INTO customer
-               (nickname, phone, wechat, source_channel, tags, intention,
-                lifecycle_stage, remark)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
-            (
-                nickname,
-                phone,
-                wechat,
-                '微信服务号',
-                '服务号留资',
-                'medium',
-                'appointment',
-                full_remark,
-            ),
-        )
-        lead_id = cur.lastrowid
-        conn.commit()
-    finally:
-        conn.close()
-
-    # 通知运营（已有推送通道）
-    try:
-        from modules.wechat_notify import send_wechat
-        title = f'新留资：{nickname}'
-        content = (
-            f'来源：微信服务号\n'
-            f'称呼：{nickname}\n'
-            f'手机：{phone or "-"}\n'
-            f'微信：{wechat or "-"}\n'
-            f'期望时间：{preferred or "-"}\n'
-            f'备注：{remark or "-"}'
-        )
-        send_wechat(title, content, force=True)
-    except Exception as e:
-        print(f'[wechat_oa] notify failed: {e}')
-
-    return {'id': lead_id, 'nickname': nickname, 'message': '已提交，我们会尽快联系你'}
+    payload = {
+        'nickname': data.get('nickname') or data.get('name'),
+        'phone': data.get('phone'),
+        'wechat': data.get('wechat'),
+        'remark': data.get('remark'),
+        'preferred_time': data.get('preferred_time'),
+        'source': 'wechat_oa',
+        'status': 'pending_contact',
+    }
+    return create_lead_row(payload, notify=True)

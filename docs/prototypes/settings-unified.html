@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>原型 · 统一系统设置（优化）</title>
+  <style>
+    :root {
+      --primary: #5b5bd6;
+      --primary-soft: #eef0ff;
+      --sidebar: #1a1a2e;
+      --sidebar-text: #c8c8d4;
+      --sidebar-muted: #6b6b80;
+      --page: #fafafa;
+      --text: #1e1e2e;
+      --text-secondary: #6b6b80;
+      --border: #ededf0;
+      --card: #ffffff;
+      --radius: 8px;
+      --font: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font);
+      background: #e8e8ee;
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px 48px;
+    }
+    .proto-banner {
+      width: min(1180px, 100%);
+      margin-bottom: 16px;
+      padding: 14px 18px;
+      background: #fff8e6;
+      border: 1px solid #f0d78c;
+      border-radius: var(--radius);
+      font-size: 13px;
+      line-height: 1.55;
+      color: #5c4a12;
+    }
+    .proto-banner strong { color: #3d3108; }
+    .shell {
+      width: min(1180px, 100%);
+      height: 740px;
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 12px 40px rgba(26, 26, 46, 0.12);
+      background: var(--page);
+    }
+    .sider {
+      background: var(--sidebar);
+      color: var(--sidebar-text);
+      padding: 16px 12px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px 20px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      margin-bottom: 16px;
+    }
+    .brand-mark {
+      width: 28px; height: 28px;
+      border-radius: 8px;
+      background: var(--primary);
+      color: #fff;
+      font-weight: 700;
+      font-size: 14px;
+      display: grid;
+      place-items: center;
+    }
+    .brand-name { font-size: 14px; font-weight: 600; color: #fff; }
+    .nav-label {
+      font-size: 11px;
+      color: var(--sidebar-muted);
+      padding: 0 10px 6px;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+    .nav-item.active {
+      background: rgba(91, 91, 214, 0.22);
+      color: #fff;
+    }
+    .main { display: flex; flex-direction: column; min-width: 0; }
+    .header {
+      height: 52px;
+      background: #fff;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      gap: 8px;
+      font-size: 13px;
+    }
+    .crumb { color: var(--text-secondary); }
+    .sep { color: #c5c5d0; font-size: 10px; }
+    .current { color: var(--text); font-weight: 600; }
+    .content {
+      flex: 1;
+      padding: 18px 24px 20px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      min-height: 0;
+    }
+    .page-head h1 {
+      font-size: 20px;
+      font-weight: 650;
+      letter-spacing: -0.02em;
+    }
+    .page-head p {
+      margin-top: 4px;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
+    /* 设置主体：左模块 + 右内容，无多余外框阴影 */
+    .settings-frame {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 168px 1fr;
+      gap: 0;
+      min-height: 0;
+      background: transparent;
+    }
+    .settings-tabs {
+      padding: 4px 10px 4px 0;
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+    }
+    .tab {
+      width: 100%;
+      text-align: left;
+      border: 0;
+      background: transparent;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      font-family: inherit;
+    }
+    .tab:hover { background: #f0f0f4; color: var(--text); }
+    .tab.active {
+      background: var(--primary-soft);
+      color: var(--primary);
+      font-weight: 600;
+    }
+    .settings-panel {
+      padding: 0 0 0 20px;
+      overflow-y: auto;
+      min-width: 0;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .panel-title { font-size: 16px; font-weight: 650; }
+    .panel-desc {
+      margin-top: 4px;
+      font-size: 13px;
+      color: var(--text-secondary);
+      line-height: 1.45;
+      max-width: 560px;
+    }
+    .btn {
+      height: 34px;
+      padding: 0 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #fff;
+      font-size: 13px;
+      cursor: pointer;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+    .btn-primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
+    }
+
+    /* 平台：横向紧凑切换，避免三栏 */
+    .plat-switch {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .plat-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 13px;
+      color: var(--text);
+      transition: border-color .15s, background .15s;
+    }
+    .plat-pill:hover { border-color: #d0d0da; }
+    .plat-pill.active {
+      border-color: var(--primary);
+      background: var(--primary-soft);
+      color: var(--primary);
+      font-weight: 600;
+    }
+    .plat-pill .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #c5c5d0;
+      flex-shrink: 0;
+    }
+    .plat-pill .dot.on { background: #2f9e5f; }
+    .plat-pill .dot.off { background: #e0a04a; }
+    .plat-meta {
+      font-size: 12px;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      margin-bottom: 14px;
+      padding: 10px 12px;
+      background: #f7f7fa;
+      border-radius: 8px;
+    }
+    .plat-meta .chips {
+      display: inline-flex;
+      gap: 6px;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+    .chip {
+      font-size: 11px;
+      padding: 1px 7px;
+      border-radius: 4px;
+      background: #ebebf0;
+      color: #555;
+    }
+    .chip.ok { background: #e8f7ee; color: #1d7a45; }
+    .chip.warn { background: #fff3e6; color: #b86500; }
+
+    .plat-form {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px 20px;
+    }
+    .plat-form-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .plat-form-top h3 { font-size: 15px; font-weight: 650; }
+    .field { margin-bottom: 14px; }
+    .field label {
+      display: block;
+      font-size: 12px;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+    }
+    .field input, .field select, .field textarea {
+      width: 100%;
+      max-width: 100%;
+      height: 34px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0 10px;
+      font-size: 13px;
+      background: #fff;
+      color: var(--text);
+      font-family: inherit;
+    }
+    .field textarea { height: 72px; padding: 8px 10px; resize: vertical; }
+    .row-switch {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .row-switch label { margin: 0; font-size: 13px; color: var(--text); }
+    .warn-text {
+      font-size: 12px;
+      color: #c0392b;
+      line-height: 1.5;
+      margin: 0 0 14px;
+    }
+    .note {
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      background: #fff;
+    }
+    .card h3 { font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+    .actions { display: flex; gap: 8px; margin-top: 8px; }
+
+    .compare {
+      width: min(1180px, 100%);
+      margin-top: 16px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .compare-card {
+      background: #fff;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      font-size: 13px;
+      line-height: 1.55;
+      color: var(--text-secondary);
+    }
+    .compare-card h4 {
+      font-size: 13px;
+      color: var(--text);
+      margin-bottom: 6px;
+    }
+    .tag {
+      display: inline-block;
+      font-size: 11px;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: var(--primary-soft);
+      color: var(--primary);
+      font-weight: 600;
+      margin-left: 6px;
+    }
+    @media (max-width: 900px) {
+      .compare { grid-template-columns: 1fr; }
+      .settings-frame { grid-template-columns: 1fr; }
+      .settings-tabs {
+        display: flex;
+        gap: 4px;
+        overflow-x: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+        padding: 0 0 10px;
+      }
+      .tab { white-space: nowrap; width: auto; }
+      .settings-panel { padding-left: 0; padding-top: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="proto-banner">
+    <strong>布局已调整：</strong>
+    去掉中间「大卡片列表」那一列，避免三栏挤在一起。
+    平台改成顶部<strong>紧凑胶囊切换</strong>，下方表单铺满；模块仍用左侧 Tab（方案 A）。
+    刷新本页即可对比。确认后我再改正式代码。
+  </div>
+
+  <div class="shell">
+    <aside class="sider">
+      <div class="brand">
+        <div class="brand-mark">智</div>
+        <div class="brand-name">智能运营台</div>
+      </div>
+      <div class="nav-label">系统</div>
+      <div class="nav-item active"><span>⚙</span>系统设置</div>
+    </aside>
+
+    <div class="main">
+      <header class="header">
+        <span class="crumb">系统</span>
+        <span class="sep">›</span>
+        <span class="current">系统设置</span>
+      </header>
+
+      <div class="content">
+        <div class="page-head">
+          <h1>系统设置</h1>
+          <p>集中管理 AI、采集、发布、媒体与消息等配置。</p>
+        </div>
+
+        <div class="settings-frame">
+          <nav class="settings-tabs" id="tabs"></nav>
+          <section class="settings-panel" id="panel"></section>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="compare">
+    <div class="compare-card">
+      <h4>之前（丑在哪）</h4>
+      模块 Tab + 平台大卡片 + 表单 = <strong>三列竖导航</strong>叠在一起，中间卡片又高又挤，表单被压窄。
+    </div>
+    <div class="compare-card">
+      <h4>现在<span class="tag">推荐</span></h4>
+      模块 Tab 仍在左；平台改成顶部胶囊；表单全宽。层级清楚，操作不变：先选模块，再选平台，再填表。
+    </div>
+  </div>
+
+  <script>
+    const collectorsBody = `
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">采集平台</div>
+          <div class="panel-desc">平台登录态采集默认关闭（易封号）。日常选题请用内容情报「全网热榜」。</div>
+        </div>
+        <button class="btn btn-primary">+ 添加平台</button>
+      </div>
+
+      <div class="plat-switch" id="plat-switch">
+        <button type="button" class="plat-pill active" data-plat="douyin">
+          <span class="dot off"></span>抖音
+        </button>
+        <button type="button" class="plat-pill" data-plat="xhs">
+          <span class="dot off"></span>小红书
+        </button>
+      </div>
+
+      <div class="plat-meta" id="plat-meta">
+        泛流量大；采集/自动发布有封号风险，默认关闭采集，发布请用人工确认模式
+        <span class="chips"><span class="chip ok">Cookies 已填</span><span class="chip warn">已关闭</span></span>
+      </div>
+
+      <div class="plat-form">
+        <div class="plat-form-top">
+          <h3 id="plat-form-title">抖音 采集</h3>
+          <button class="btn btn-primary">保存</button>
+        </div>
+        <div class="row-switch">
+          <label>启用抖音采集</label>
+          <span class="chip warn">关闭</span>
+        </div>
+        <div class="warn-text">【高风险·不推荐】登录态采集可能封号。浏览器打开 douyin.com → F12 → Network → 复制 Cookie</div>
+        <div class="field"><label>抖音 Cookies</label><textarea>【高风险·不推荐】登录态采集可能封号。浏览器打开 douyin.com -> F12 -> Network -> 复制 Cookie</textarea></div>
+        <div class="field"><label>采集关键词</label><input value="养老金, 家庭保障, 保险避坑, 理赔实例, 职场内耗, 育儿焦虑…" /></div>
+        <p class="note">正式实现：把现有左侧平台卡片改成顶部切换即可，表单逻辑复用。</p>
+      </div>`
+
+    const platInfo = {
+      douyin: {
+        title: '抖音 采集',
+        meta: '泛流量大；采集/自动发布有封号风险，默认关闭采集，发布请用人工确认模式',
+      },
+      xhs: {
+        title: '小红书 采集',
+        meta: '种草岗；采集/自动发布有封号风险，默认关闭采集，发布请用人工确认模式',
+      },
+    }
+
+    const modules = [
+      {
+        key: 'ai',
+        label: 'AI 大模型',
+        body: `
+          <div class="panel-title">AI 大模型</div>
+          <div class="panel-desc" style="margin-bottom:14px">可配置多家大模型；供应商同样用顶部胶囊切换。</div>
+          <div class="plat-switch">
+            <button type="button" class="plat-pill active"><span class="dot on"></span>OpenAI</button>
+            <button type="button" class="plat-pill"><span class="dot off"></span>通义千问</button>
+          </div>
+          <div class="plat-form">
+            <div class="field"><label>API Key</label><input type="password" value="sk-••••••••••••" /></div>
+            <div class="actions"><button class="btn">测试连接</button><button class="btn btn-primary">保存</button></div>
+          </div>`
+      },
+      { key: 'collectors', label: '采集平台', body: collectorsBody },
+      {
+        key: 'commercial',
+        label: '官方数据台',
+        body: `<div class="panel-title">官方数据台</div><div class="panel-desc" style="margin:8px 0 14px">顶部选服务商，下方全宽表单。</div><div class="card"><p class="note">布局同采集平台。</p></div>`
+      },
+      {
+        key: 'publish',
+        label: '发布平台',
+        body: `<div class="panel-title">发布平台</div><div class="panel-desc" style="margin:8px 0 14px">顶部选渠道，下方全宽表单。</div><div class="card"><p class="note">布局同采集平台。</p></div>`
+      },
+      {
+        key: 'media',
+        label: '配音与视频',
+        body: `<div class="panel-title">配音与视频</div><div class="panel-desc" style="margin:8px 0 14px">普通表单，无平台切换。</div><div class="card"><p class="note">TTS / 视频参数。</p></div>`
+      },
+      {
+        key: 'notify',
+        label: '消息推送',
+        body: `<div class="panel-title">消息推送</div><div class="panel-desc" style="margin:8px 0 14px">顶部选渠道，下方全宽表单。</div><div class="card"><p class="note">布局同采集平台。</p></div>`
+      },
+      {
+        key: 'wechat-oa',
+        label: '微信服务号',
+        body: `<div class="panel-title">微信服务号</div><div class="panel-desc" style="margin:8px 0 14px">普通表单。</div><div class="card"><p class="note">AppID / 菜单等。</p></div>`
+      },
+      {
+        key: 'content',
+        label: '内容运营',
+        body: `<div class="panel-title">内容运营</div><div class="panel-desc" style="margin:8px 0 14px">普通表单。</div><div class="card"><p class="note">每日计划与策略。</p></div>`
+      },
+    ]
+
+    const tabsEl = document.getElementById('tabs')
+    const panelEl = document.getElementById('panel')
+    let active = 'collectors'
+
+    function bindPlatformPills() {
+      const switchEl = panelEl.querySelector('#plat-switch')
+      if (!switchEl) return
+      switchEl.querySelectorAll('.plat-pill').forEach(btn => {
+        btn.addEventListener('click', () => {
+          switchEl.querySelectorAll('.plat-pill').forEach(b => b.classList.remove('active'))
+          btn.classList.add('active')
+          const info = platInfo[btn.dataset.plat]
+          if (!info) return
+          const title = panelEl.querySelector('#plat-form-title')
+          const meta = panelEl.querySelector('#plat-meta')
+          if (title) title.textContent = info.title
+          if (meta) {
+            meta.innerHTML = `${info.meta}<span class="chips"><span class="chip ok">Cookies 已填</span><span class="chip warn">已关闭</span></span>`
+          }
+        })
+      })
+    }
+
+    function render() {
+      tabsEl.innerHTML = modules.map(m =>
+        `<button class="tab${m.key === active ? ' active' : ''}" data-key="${m.key}">${m.label}</button>`
+      ).join('')
+      panelEl.innerHTML = modules.find(x => x.key === active).body
+      tabsEl.querySelectorAll('.tab').forEach(btn => {
+        btn.addEventListener('click', () => {
+          active = btn.dataset.key
+          render()
+        })
+      })
+      bindPlatformPills()
+    }
+    render()
+  </script>
+</body>
+</html>

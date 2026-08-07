@@ -151,7 +151,7 @@ export default function Customers() {
 
   const loadReminders = useCallback((f = reminderFilter) => {
     setReminderLoading(true)
-    const params = { status: f.status || 'pending' }
+    const params = { status: f.status || 'pending', scope: 'crm' }
     if (f.due) params.due = f.due
     if (f.owner) params.owner = f.owner
     remindersApi.list(params)

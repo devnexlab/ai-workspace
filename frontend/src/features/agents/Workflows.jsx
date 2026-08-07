@@ -117,7 +117,7 @@ export default function Workflows() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
         <div>
-          <div className="page-title">AI 助手</div>
+          <div className="page-title">AI助手</div>
           <div className="page-desc" style={{ marginBottom: 0 }}>
             选一个助手，点任务卡片即可执行。适合客户跟进、内容运营和发布这类重复操作。
           </div>

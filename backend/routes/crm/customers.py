@@ -543,14 +543,21 @@ def update_reminder(rid):
 
 @bp.route('/api/reminders', methods=['GET'])
 def list_all_reminders():
-    """List reminders；可按 status / owner / due(到期) 筛选。"""
+    """List reminders；可按 status / owner / due / scope 筛选。
+    scope=crm（默认）排除股价预警；scope=stock 仅股价；scope=all 全部。
+    """
     conn = _db()
     status = request.args.get('status', 'pending')
     owner = request.args.get('owner', '')
     due = request.args.get('due', '')  # today | overdue | upcoming
+    scope = (request.args.get('scope') or 'crm').strip().lower()
 
     where = ['r.status = %s']
     params = [status]
+    if scope == 'stock':
+        where.append("r.type = 'stock_alert'")
+    elif scope != 'all':
+        where.append("COALESCE(r.type, '') <> 'stock_alert'")
     if owner:
         where.append('c.owner = %s')
         params.append(owner)

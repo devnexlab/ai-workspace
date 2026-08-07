@@ -28,6 +28,11 @@ def _build_trends(conn, days=7):
         WHERE created_at::date >= CURRENT_DATE - INTERVAL '6 days'
         GROUP BY d
     """)
+    videos = _daily_map(conn, """
+        SELECT created_at::date AS d, COUNT(*) AS c FROM video_task
+        WHERE created_at::date >= CURRENT_DATE - INTERVAL '6 days'
+        GROUP BY d
+    """)
     customers = _daily_map(conn, """
         SELECT created_at::date AS d, COUNT(*) AS c FROM customer
         WHERE created_at::date >= CURRENT_DATE - INTERVAL '6 days'
@@ -50,6 +55,7 @@ def _build_trends(conn, days=7):
             'label': f'{d.month}/{d.day}',
             'hotTopics': hot.get(key, 0),
             'scripts': scripts.get(key, 0),
+            'videos': videos.get(key, 0),
             'customers': customers.get(key, 0),
             'publishDone': publish.get(key, 0),
         })
@@ -113,7 +119,8 @@ def get_dashboard():
     ).fetchone()['c']
 
     pending_reminders = conn.execute(
-        "SELECT COUNT(*) as c FROM reminder WHERE status = 'pending' AND remind_date <= CURRENT_DATE"
+        "SELECT COUNT(*) as c FROM reminder WHERE status = 'pending' AND remind_date <= CURRENT_DATE "
+        "AND COALESCE(type, '') <> 'stock_alert'"
     ).fetchone()['c']
 
     # --- Platform distribution ---
@@ -174,7 +181,8 @@ def get_dashboard():
     upcoming_reminders = conn.execute(
         "SELECT r.id, r.title, r.type, r.remind_date, c.nickname as customer_name "
         "FROM reminder r LEFT JOIN customer c ON r.customer_id = c.id "
-        "WHERE r.status = 'pending' ORDER BY r.remind_date ASC LIMIT 5"
+        "WHERE r.status = 'pending' AND COALESCE(r.type, '') <> 'stock_alert' "
+        "ORDER BY r.remind_date ASC LIMIT 5"
     ).fetchall()
 
     # --- 今日工作台（当前待办切片）---
@@ -199,11 +207,13 @@ def get_dashboard():
         "SELECT r.id, r.title, r.type, r.remind_date, c.nickname as customer_name "
         "FROM reminder r LEFT JOIN customer c ON r.customer_id = c.id "
         "WHERE r.status = 'pending' AND r.remind_date <= CURRENT_DATE "
+        "AND COALESCE(r.type, '') <> 'stock_alert' "
         "ORDER BY r.remind_date ASC LIMIT 5"
     ).fetchall()
 
     overdue_reminders = conn.execute(
-        "SELECT COUNT(*) as c FROM reminder WHERE status='pending' AND remind_date < CURRENT_DATE"
+        "SELECT COUNT(*) as c FROM reminder WHERE status='pending' AND remind_date < CURRENT_DATE "
+        "AND COALESCE(type, '') <> 'stock_alert'"
     ).fetchone()['c']
     failed_videos = conn.execute(
         "SELECT COUNT(*) as c FROM video_task WHERE "

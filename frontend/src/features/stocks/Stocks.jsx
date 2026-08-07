@@ -328,8 +328,15 @@ function KLineChart({ bars = [] }) {
   )
 }
 
-export default function Stocks() {
-  const [activeTab, setActiveTab] = useState('watchlist')
+export default function Stocks({ section = 'market' }) {
+  const isWatchlistSection = section === 'watchlist'
+  const defaultTab = isWatchlistSection ? 'watchlist' : 'universe'
+  const [activeTab, setActiveTab] = useState(defaultTab)
+
+  // 路由切换时重置到对应默认 Tab
+  useEffect(() => {
+    setActiveTab(isWatchlistSection ? 'watchlist' : 'universe')
+  }, [isWatchlistSection])
 
   // === Tab 1: 自选股管理 ===
   const [watchlist, setWatchlist] = useState([])
@@ -1761,13 +1768,26 @@ export default function Stocks() {
     },
   ]
 
+  const marketTabKeys = ['universe', 'screening', 'strategy']
+  const watchlistTabKeys = ['watchlist', 'review']
+  const visibleTabItems = tabItems.filter(item =>
+    (isWatchlistSection ? watchlistTabKeys : marketTabKeys).includes(item.key)
+  )
+
   return (
     <div className="stocks-page">
-      <div className="page-title">股票研究</div>
+      <div className="page-title">{isWatchlistSection ? '自选股' : '市场概览'}</div>
       <div className="page-desc">
-        自选跟踪、全市场浏览、技术筛选与 AI 策略复盘，辅助研究判断（不构成投资建议）。
+        {isWatchlistSection
+          ? '跟踪关注 / 观察 / 持仓标的，并结合 AI 复盘辅助判断（不构成投资建议）。'
+          : '浏览全市场、技术筛选与 AI 策略，辅助研究判断（不构成投资建议）。'}
       </div>
-      <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} size="large" />
+      <Tabs
+        activeKey={visibleTabItems.some(t => t.key === activeTab) ? activeTab : defaultTab}
+        onChange={setActiveTab}
+        items={visibleTabItems}
+        size="large"
+      />
 
       <Modal
         title={`K线/指标 - ${indicatorsName ? `${indicatorsName}(${indicatorsCode})` : indicatorsCode}`}

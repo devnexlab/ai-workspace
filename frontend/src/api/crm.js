@@ -34,3 +34,14 @@ export const remindersApi = {
   update: (id, data) => api.put(`/reminders/${id}`, data),
   scan: () => api.post('/reminders/scan'),
 }
+
+export const leadsApi = {
+  meta: () => api.get('/leads/meta'),
+  list: (params) => api.get('/leads', { params }),
+  get: (id) => api.get(`/leads/${id}`),
+  create: (data) => api.post('/leads', data),
+  update: (id, data) => api.put(`/leads/${id}`, data),
+  convert: (id) => api.post(`/leads/${id}/convert`),
+  batchConvert: (ids) => api.post('/leads/batch-convert', { ids }),
+  delete: (id) => api.delete(`/leads/${id}`),
+}

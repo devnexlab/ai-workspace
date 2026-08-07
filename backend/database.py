@@ -133,6 +133,23 @@ CREATE TABLE IF NOT EXISTS customer (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Lead pool (进线线索，未转客户前)
+CREATE TABLE IF NOT EXISTS lead (
+    id SERIAL PRIMARY KEY,
+    nickname TEXT NOT NULL,
+    phone TEXT DEFAULT '',
+    wechat TEXT DEFAULT '',
+    source TEXT NOT NULL DEFAULT 'manual',
+    related_content TEXT DEFAULT '',
+    preferred_time TEXT DEFAULT '',
+    remark TEXT DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending_contact',
+    customer_id INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (customer_id) REFERENCES customer(id) ON DELETE SET NULL
+);
+
 -- Follow-up records
 CREATE TABLE IF NOT EXISTS follow_record (
     id SERIAL PRIMARY KEY,

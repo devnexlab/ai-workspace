@@ -2,11 +2,13 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import MainLayout from './layouts/MainLayout'
 
 import Dashboard from './features/dashboard/Dashboard'
+import LiveActivity from './features/live/LiveActivity'
 import HotTopics from './features/content/HotTopics'
 import Scripts from './features/content/Scripts'
 import Videos from './features/content/Videos'
 import Publish from './features/content/Publish'
 import Customers from './features/crm/Customers'
+import Leads from './features/crm/Leads'
 import KnowledgeBase from './features/knowledge/KnowledgeBase'
 import Stocks from './features/stocks/Stocks'
 import Agents from './features/agents/Agents'
@@ -26,13 +28,16 @@ export default function App() {
 
         <Route path="/" element={<MainLayout />}>
           <Route index element={<Dashboard />} />
+          <Route path="live" element={<LiveActivity />} />
           <Route path="hot-topics" element={<HotTopics />} />
           <Route path="scripts" element={<Scripts />} />
           <Route path="videos" element={<Videos />} />
           <Route path="publish" element={<Publish />} />
           <Route path="customers" element={<Customers />} />
+          <Route path="leads" element={<Leads />} />
           <Route path="knowledge" element={<KnowledgeBase />} />
-          <Route path="stocks" element={<Stocks />} />
+          <Route path="stocks" element={<Stocks section="market" />} />
+          <Route path="stocks/watchlist" element={<Stocks section="watchlist" />} />
           <Route path="agents" element={<Agents />} />
           <Route path="workflows" element={<Workflows />} />
           <Route path="settings" element={<SettingsLayout />}>

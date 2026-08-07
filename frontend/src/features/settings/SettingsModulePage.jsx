@@ -244,39 +244,38 @@ function NotifyChannelsPage({ mod }) {
           type="info"
           showIcon
           message={moduleReady?.message || '推荐启用企业微信群机器人（免费）'}
-          description="左侧选渠道卡片；启用一个渠道即可。企微：建群 → 添加群机器人 → 粘贴 Webhook → 保存并发送测试。"
+          description="上方选择推送渠道；启用一个渠道即可。企微：建群 → 添加群机器人 → 粘贴 Webhook → 保存并发送测试。"
         />
       </div>
 
-      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-        <div style={{ width: 200, flexShrink: 0 }}>
-          {channels.map(p => {
-            const selected = current?.key === p.key
-            return (
-              <Card
-                key={p.key}
-                size="small"
-                hoverable
-                onClick={() => setActiveKey(p.key)}
-                style={{
-                  marginBottom: 8,
-                  borderColor: selected ? '#1677ff' : undefined,
-                  background: selected ? '#f0f5ff' : undefined,
-                  cursor: 'pointer',
-                }}
-              >
-                <div style={{ fontWeight: 600 }}>
-                  {p.label}
-                  {p.recommended && <Tag style={{ marginLeft: 6 }} color="green">推荐</Tag>}
-                </div>
-                <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>{p.desc}</div>
-                <div style={{ marginTop: 8 }}>{statusTag(p)}</div>
-              </Card>
-            )
-          })}
-        </div>
+      <div className="settings-plat-switch">
+        {channels.map(p => {
+          const selected = current?.key === p.key
+          const ready = readiness[p.category]
+          const on = !!(ready?.enabled && ready?.ready)
+          return (
+            <button
+              key={p.key}
+              type="button"
+              className={`settings-plat-pill${selected ? ' active' : ''}`}
+              onClick={() => setActiveKey(p.key)}
+            >
+              <span className={`dot ${on ? 'on' : 'off'}`} />
+              {p.label}
+              {p.recommended ? ' · 推荐' : ''}
+            </button>
+          )
+        })}
+      </div>
 
-        <div style={{ flex: 1, minWidth: 0 }}>
+      {current && (
+        <div className="settings-plat-meta">
+          <span className="meta-text">{current.desc}</span>
+          {statusTag(current)}
+        </div>
+      )}
+
+      <div>
           {current && (
             <Card
               title={
@@ -308,7 +307,6 @@ function NotifyChannelsPage({ mod }) {
                 </Space>
               }
             >
-              <p style={{ color: '#888', marginBottom: 16 }}>{current.desc}</p>
               {!isRules && current.key === 'wecom' && (
                 <Alert
                   style={{ marginBottom: 16 }}
@@ -332,7 +330,6 @@ function NotifyChannelsPage({ mod }) {
               </Form>
             </Card>
           )}
-        </div>
       </div>
     </div>
   )
@@ -403,7 +400,7 @@ function WechatOaSettingsPage({ mod }) {
             <li>在微信公众平台注册并认证「服务号」</li>
             <li>本页填写品牌文案，打开「启用」，填客户能打开的「对外访问地址」</li>
             <li>公众平台 → 自定义菜单：介绍页 / 预约沟通，粘贴下方链接</li>
-            <li>客户提交预约后，会出现在「客户管理」，并尽量走消息推送通知你</li>
+            <li>客户提交预约后，会出现在「线索池」，并尽量走消息推送通知你；转客户后再进客户列表</li>
           </ol>
         }
       />
@@ -621,36 +618,35 @@ function AiProvidersPage({ mod }) {
         </Button>
       </div>
 
-      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-        <div style={{ width: 200, flexShrink: 0 }}>
-          {cards.map(p => {
-            const selected = current?.key === p.key
-            return (
-              <Card
-                key={p.key}
-                size="small"
-                hoverable
-                onClick={() => setActiveKey(p.key)}
-                style={{
-                  marginBottom: 8,
-                  borderColor: selected ? '#1677ff' : undefined,
-                  background: selected ? '#f0f5ff' : undefined,
-                  cursor: 'pointer',
-                }}
-              >
-                <div style={{ fontWeight: 600 }}>
-                  {p.label}
-                  {p.recommended && <Tag style={{ marginLeft: 6 }} color="green">推荐</Tag>}
-                  {!p.builtin && p.key !== 'common' && <Tag style={{ marginLeft: 6 }}>自定义</Tag>}
-                </div>
-                <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>{p.desc}</div>
-                <div style={{ marginTop: 8 }}>{statusTag(p)}</div>
-              </Card>
-            )
-          })}
-        </div>
+      <div className="settings-plat-switch">
+        {cards.map(p => {
+          const selected = current?.key === p.key
+          const ready = readiness[p.category]
+          const on = !!(ready?.enabled && ready?.ready)
+          return (
+            <button
+              key={p.key}
+              type="button"
+              className={`settings-plat-pill${selected ? ' active' : ''}`}
+              onClick={() => setActiveKey(p.key)}
+            >
+              <span className={`dot ${on ? 'on' : 'off'}`} />
+              {p.label}
+              {p.recommended ? ' · 推荐' : ''}
+            </button>
+          )
+        })}
+      </div>
 
-        <div style={{ flex: 1, minWidth: 0 }}>
+      {current && (
+        <div className="settings-plat-meta">
+          <span className="meta-text">{current.desc}</span>
+          {statusTag(current)}
+        </div>
+      )}
+
+      <div>
+        <div style={{ minWidth: 0 }}>
           {current && (
             <Card
               title={
@@ -691,7 +687,6 @@ function AiProvidersPage({ mod }) {
                 </Space>
               }
             >
-              <p style={{ color: '#888', marginBottom: 16 }}>{current.desc}</p>
               {!isCommon && current.key === 'volcano' && (
                 <Alert
                   style={{ marginBottom: 16 }}
@@ -940,41 +935,39 @@ function PlatformsPage({ mod }) {
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-        <div style={{ width: 200, flexShrink: 0 }}>
-          {platforms.map(p => {
-            const ready = readiness[p.category]
-            const selected = current?.key === p.key
-            return (
-              <Card
-                key={p.key}
-                size="small"
-                hoverable
-                onClick={() => setActiveKey(p.key)}
-                style={{
-                  marginBottom: 8,
-                  borderColor: selected ? '#1677ff' : undefined,
-                  background: selected ? '#f0f5ff' : undefined,
-                  cursor: 'pointer',
-                }}
-              >
-                <div style={{ fontWeight: 600 }}>
-                  {p.label}
-                  {!p.builtin && <Tag style={{ marginLeft: 6 }} color="processing">自定义</Tag>}
-                </div>
-                <div style={{ fontSize: 12, color: '#888', marginTop: 4 }}>{p.desc}</div>
-                <div style={{ marginTop: 8 }}>
-                  {statusTag(ready)}
-                </div>
-              </Card>
-            )
-          })}
-          {!platforms.length && (
-            <Alert type="info" message="暂无平台，点击右上角添加" />
-          )}
-        </div>
+      <div className="settings-plat-switch">
+        {platforms.map(p => {
+          const ready = readiness[p.category]
+          const selected = current?.key === p.key
+          const on = isCommercial
+            ? !!(ready?.ready && ready?.enabled)
+            : !!ready?.ready
+          return (
+            <button
+              key={p.key}
+              type="button"
+              className={`settings-plat-pill${selected ? ' active' : ''}`}
+              onClick={() => setActiveKey(p.key)}
+            >
+              <span className={`dot ${on ? 'on' : 'off'}`} />
+              {p.label}
+            </button>
+          )
+        })}
+      </div>
 
-        <div style={{ flex: 1, minWidth: 0 }}>
+      {!platforms.length && (
+        <Alert type="info" message="暂无平台，点击右上角添加" style={{ marginBottom: 14 }} />
+      )}
+
+      {current && (
+        <div className="settings-plat-meta">
+          <span className="meta-text">{current.desc}</span>
+          {statusTag(readiness[current.category])}
+        </div>
+      )}
+
+      <div>
           {current && (
             <Card
               title={
@@ -1009,13 +1002,13 @@ function PlatformsPage({ mod }) {
                     icon={<SaveOutlined />}
                     loading={savingKey === current.key}
                     onClick={() => savePlatform(current)}
+                    title="保存"
                   >
-                    保存本{isCommercial ? '数据源' : '平台'}
+                    保存
                   </Button>
                 </Space>
               }
             >
-              <p style={{ color: '#888', marginBottom: 16 }}>{current.desc}</p>
               {!isCommercial && !current.builtin && (
                 <Alert
                   style={{ marginBottom: 16 }}
@@ -1040,7 +1033,6 @@ function PlatformsPage({ mod }) {
               </Form>
             </Card>
           )}
-        </div>
       </div>
 
       {!isCommercial && (

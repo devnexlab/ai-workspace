@@ -62,13 +62,29 @@ const TREND_COLORS = {
 
 const PLATFORM_FALLBACK = ['#5b5bd6', '#00b884', '#ff9500', '#3b82f6', '#ff3b5c', '#9b5de5', '#00bbf9', '#f15bb5']
 
-const SPARK_PATHS = [
-  'M0,20 L10,18 L20,14 L30,16 L40,10 L50,8 L60,4',
-  'M0,18 L10,15 L20,20 L30,14 L40,10 L50,12 L60,6',
-  'M0,22 L10,20 L20,16 L30,18 L40,10 L50,8 L60,4',
-  'M0,16 L10,18 L20,14 L30,16 L40,12 L50,14 L60,10',
-  'M0,8 L10,10 L20,6 L30,12 L40,14 L50,16 L60,18',
-]
+const SPARK_W = 60
+const SPARK_H = 28
+const SPARK_PAD = 3
+
+/** 把数值序列转成 sparkline path；全 0 时画底部平线 */
+function buildSparkPath(values, width = SPARK_W, height = SPARK_H, pad = SPARK_PAD) {
+  const nums = (values || []).map(v => Number(v) || 0)
+  if (nums.length < 2) {
+    const y = height - pad
+    return `M0,${y} L${width},${y}`
+  }
+  const min = Math.min(...nums)
+  const max = Math.max(...nums)
+  const span = max - min
+  const yOf = (v) => {
+    if (span <= 0) return height - pad
+    return pad + (1 - (v - min) / span) * (height - pad * 2)
+  }
+  const step = width / (nums.length - 1)
+  return nums
+    .map((v, i) => `${i === 0 ? 'M' : 'L'}${(i * step).toFixed(1)},${yOf(v).toFixed(1)}`)
+    .join(' ')
+}
 
 function greeting() {
   const h = new Date().getHours()
@@ -136,17 +152,27 @@ function ChartTooltip({ active, payload, label }) {
   )
 }
 
-function Sparkline({ color, path, id }) {
+function Sparkline({ color, values, id }) {
+  const path = buildSparkPath(values)
+  const hasSignal = (values || []).some(v => Number(v) > 0)
   return (
-    <svg className="dash-kpi-spark" viewBox="0 0 60 28" aria-hidden>
+    <svg className="dash-kpi-spark" viewBox={`0 0 ${SPARK_W} ${SPARK_H}`} aria-hidden>
       <defs>
         <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
+          <stop offset="0%" stopColor={color} stopOpacity={hasSignal ? 0.3 : 0.08} />
           <stop offset="100%" stopColor={color} stopOpacity="0" />
         </linearGradient>
       </defs>
-      <path d={`${path} L60,28 L0,28 Z`} fill={`url(#${id})`} />
-      <path d={path} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" />
+      <path d={`${path} L${SPARK_W},${SPARK_H} L0,${SPARK_H} Z`} fill={`url(#${id})`} />
+      <path
+        d={path}
+        fill="none"
+        stroke={color}
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+        strokeLinecap="round"
+        opacity={hasSignal ? 1 : 0.35}
+      />
     </svg>
   )
 }
@@ -297,10 +323,19 @@ export default function Dashboard() {
     return {
       hotTopics: rate(cur.hotTopics || 0, prev.hotTopics || 0),
       scripts: rate(cur.scripts || 0, prev.scripts || 0),
+      videos: rate(cur.videos || 0, prev.videos || 0),
       customers: rate(cur.customers || 0, prev.customers || 0),
       publishDone: rate(cur.publishDone || 0, prev.publishDone || 0),
     }
   }, [trends])
+
+  const sparkSeries = useMemo(() => ({
+    hotTopics: trends.map(t => t.hotTopics || 0),
+    scripts: trends.map(t => t.scripts || 0),
+    videos: trends.map(t => t.videos || 0),
+    customers: trends.map(t => t.customers || 0),
+    publishDone: trends.map(t => t.publishDone || 0),
+  }), [trends])
 
   if (loading) {
     return (
@@ -339,6 +374,7 @@ export default function Dashboard() {
       icon: <FireOutlined />,
       accent: '#5b5bd6',
       path: '/hot-topics',
+      spark: sparkSeries.hotTopics,
     },
     {
       title: '文案产出',
@@ -351,18 +387,20 @@ export default function Dashboard() {
       icon: <FileTextOutlined />,
       accent: '#00b884',
       path: '/scripts',
+      spark: sparkSeries.scripts,
     },
     {
       title: '视频生产',
       value: (stats.videosPending || 0) + (stats.videosDone || 0),
       unit: '个',
-      trend: null,
-      trendUp: true,
-      trendLabel: '',
+      trend: fmtTrend(kpiTrends.videos),
+      trendUp: (kpiTrends.videos || 0) >= 0,
+      trendLabel: '近7日',
       sub: `完成 ${stats.videosDone}`,
       icon: <VideoCameraOutlined />,
       accent: '#ff9500',
       path: '/videos',
+      spark: sparkSeries.videos,
     },
     {
       title: '客户跟进',
@@ -375,18 +413,20 @@ export default function Dashboard() {
       icon: <TeamOutlined />,
       accent: '#3b82f6',
       path: '/customers',
+      spark: sparkSeries.customers,
     },
     {
       title: '待发布',
       value: stats.publishPending,
       unit: '条',
-      trend: null,
-      trendUp: true,
-      trendLabel: '',
+      trend: fmtTrend(kpiTrends.publishDone),
+      trendUp: (kpiTrends.publishDone || 0) >= 0,
+      trendLabel: '近7日已发',
       sub: `已发 ${stats.publishDone}`,
       icon: <RocketOutlined />,
       accent: '#ff3b5c',
       path: '/publish',
+      spark: sparkSeries.publishDone,
     },
   ]
 
@@ -464,7 +504,7 @@ export default function Dashboard() {
               ) : (
                 <span className="dash-kpi-sub">{s.sub}</span>
               )}
-              <Sparkline color={s.accent} path={SPARK_PATHS[i % SPARK_PATHS.length]} id={`spark-${i}`} />
+              <Sparkline color={s.accent} values={s.spark} id={`spark-${i}`} />
             </div>
           </button>
         ))}
