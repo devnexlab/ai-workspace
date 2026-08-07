@@ -25,6 +25,7 @@ from .crm.customers import bp as customers_bp
 from .crm.follows import bp as follows_bp
 from .knowledge.knowledge import bp as knowledge_bp
 from .stocks.stocks import bp as stocks_bp
+from .stocks.stock_briefing import bp as stock_briefing_bp
 from .agents.agents import bp as agents_bp
 from .agents.workflows import bp as workflows_bp
 
@@ -42,6 +43,7 @@ ALL_BLUEPRINTS = [
     follows_bp,
     knowledge_bp,
     stocks_bp,
+    stock_briefing_bp,
     agents_bp,
     workflows_bp,
 ]

@@ -338,6 +338,18 @@ CREATE TABLE IF NOT EXISTS workflow (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 股票情报：当日财经资讯 + 股市简报 + AI 分析
+CREATE TABLE IF NOT EXISTS stock_daily_briefing (
+    id SERIAL PRIMARY KEY,
+    brief_date DATE NOT NULL UNIQUE,
+    news_json TEXT DEFAULT '[]',
+    brief_md TEXT DEFAULT '',
+    ai_analysis_md TEXT DEFAULT '',
+    source_message TEXT DEFAULT '',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Script V1.2 enhancements (columns added via migration)
 -- Added as separate ALTER for existing tables
 """
@@ -482,6 +494,12 @@ DEFAULT_SETTINGS = [
     ('system', 'daily_run_hour', '8', '日更执行整点', '0-23，例如 8 表示每天 8:00-8:10 窗口执行', 'text', None, 7),
     ('system', 'daily_last_run', '', '上次日更时间', '系统自动写入，勿手改', 'text', None, 8),
     ('system', 'daily_last_run_date', '', '上次日更日期', '系统自动写入，用于防同日重复', 'text', None, 9),
+    ('system', 'stock_briefing_auto', 'false', '早间自动获取财经新闻',
+     '开启后按整点抓取财经资讯并推送到「内容情报 · 股票」页面，可再手动做 AI 总结', 'select', '["true","false"]', 10),
+    ('system', 'stock_briefing_hour', '8', '财经新闻获取整点',
+     '0-23；整点后约 10 分钟窗口执行，把新闻推送到股票情报页', 'text', None, 11),
+    ('system', 'stock_briefing_last_run', '', '上次获取财经新闻时间', '系统自动写入，勿手改', 'text', None, 12),
+    ('system', 'stock_briefing_last_date', '', '上次获取财经新闻日期', '系统自动写入，防同日重复', 'text', None, 13),
 
     # ---- Stock screening ----
     ('stock', 'max_stocks', '300', '初筛扫描上限', '0=全市场(很慢)；建议先 200~500，缓存热了再加大', 'text', None, 1),
@@ -715,6 +733,22 @@ def init_db():
     # 强制校正品牌内容运营关键设置（修正旧默认值）
     _upsert_setting(cur, 'system', 'fixed_ending',
                     '祁实说实话，替你的保单说话，给你最放心的选择。关注我，来找我。')
+
+    # 股票情报：更新文案，去掉微信推送开关
+    for item in DEFAULT_SETTINGS:
+        if str(item[0]) != 'system' or not str(item[1]).startswith('stock_briefing_'):
+            continue
+        cat, key, _val, label, desc, field_type, options, sort_order = item
+        cur.execute(
+            '''UPDATE system_setting
+               SET label=%s, description=%s, field_type=%s, options=%s, sort_order=%s
+               WHERE category=%s AND key=%s''',
+            (label, desc, field_type, options, sort_order, cat, key),
+        )
+    cur.execute(
+        'DELETE FROM system_setting WHERE category=%s AND key=%s',
+        ('system', 'stock_briefing_push'),
+    )
     _upsert_setting(cur, 'ai', 'default_audience',
                     '20-80岁泛流量用户，口播易懂，强共鸣强分享，适合视频号/抖音/小红书')
     _upsert_setting(cur, 'ai', 'default_tone', 'casual')

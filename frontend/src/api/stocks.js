@@ -25,4 +25,11 @@ export const stocksApi = {
   deleteStrategy: (id) => api.delete(`/stocks/strategies/${id}`),
   review: (data) => api.post('/stocks/review', data, { timeout: API_LONG_TIMEOUT }),
   note: (data) => api.post('/stocks/note', data),
+
+  /** 内容情报 · 股票：新闻 → 股市简报 → AI 分析（分开） */
+  stockNews: (params) => api.get('/stock-news', { params }),
+  refreshStockNews: (data) => api.post('/stock-news/refresh', data || {}, { timeout: API_LONG_TIMEOUT * 5 }),
+  stockBriefingToday: () => api.get('/stock-briefing/today'),
+  buildStockBriefing: (data) => api.post('/stock-briefing/build', data || {}, { timeout: API_LONG_TIMEOUT * 3 }),
+  analyzeStockBriefing: (data) => api.post('/stock-briefing/analyze', data || {}, { timeout: API_LONG_TIMEOUT * 3 }),
 }

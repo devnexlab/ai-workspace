@@ -43,7 +43,7 @@ const pathGroupMap = {
 
 const pageTitleMap = {
   '/': '总览',
-  '/hot-topics': '内容情报',
+  '/hot-topics': '内容情报（股票 / 视频号）',
   '/scripts': '文案中心',
   '/videos': '视频中心',
   '/publish': '发布中心',

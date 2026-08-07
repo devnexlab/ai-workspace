@@ -205,7 +205,28 @@ def list_topics():
     source_type = request.args.get('source_type', '')
     content_kind = request.args.get('content_kind', '')
     q = request.args.get('q', '')
-    sort = request.args.get('sort', 'time')  # time | engagement | score
+    board = (request.args.get('board') or '').strip().lower()  # ride | viral
+    sort = request.args.get('sort', 'time')  # time | engagement | likes | shares | score
+
+    # 视频号板块预设：可蹭热点 / 爆款文案
+    hint = ''
+    if board == 'ride':
+        source_type = source_type or 'hotspot'
+        if sort == 'time':
+            sort = 'engagement'
+    elif board == 'viral':
+        # 优先官方数据台；若库中无 commercial，回退热点并提示
+        if not source_type:
+            commercial_count = conn.execute(
+                "SELECT COUNT(*) as c FROM hot_topic WHERE source_type='commercial'"
+            ).fetchone()['c']
+            if commercial_count and int(commercial_count) > 0:
+                source_type = 'commercial'
+            else:
+                source_type = 'hotspot'
+                hint = '暂无官方数据台数据，已回退全网热榜按互动排序；可到「设置·官方数据台」配置后拉取'
+        if sort == 'time':
+            sort = 'engagement'
 
     where = []
     params = []
@@ -230,7 +251,9 @@ def list_topics():
 
     where_clause = ('WHERE ' + ' AND '.join(where)) if where else ''
     order = {
-        'engagement': 'engagement_score DESC NULLS LAST, likes DESC, created_at DESC',
+        'engagement': 'engagement_score DESC NULLS LAST, likes DESC, shares DESC, created_at DESC',
+        'likes': 'likes DESC NULLS LAST, engagement_score DESC, created_at DESC',
+        'shares': 'shares DESC NULLS LAST, likes DESC, created_at DESC',
         'score': 'ai_score DESC NULLS LAST, engagement_score DESC, created_at DESC',
         'time': 'created_at DESC, id DESC',
     }.get(sort, 'created_at DESC, id DESC')
@@ -264,6 +287,9 @@ def list_topics():
         'total': total,
         'stats': stats,
         'ageStats': age_stats,
+        'board': board or None,
+        'sort': sort,
+        'hint': hint,
     })
 
 
