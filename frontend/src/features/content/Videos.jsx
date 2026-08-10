@@ -204,6 +204,8 @@ export default function Videos() {
   }, [searchParams])
 
   const failedStepOf = (r) => {
+    // 进行中的任务不算失败，避免重试后仍显示「失败」文案和重试按钮
+    const composing = r.video_status === 'processing' || r.export_status === 'processing'
     if (r.voice_status === 'failed') return { step: 'voice', name: '配音' }
     if (r.subtitle_status === 'failed') return { step: 'subtitle', name: '字幕' }
     // 仅「单独卡住」才算失败：配音已完成，字幕仍 processing，且不是一键全流程多人并行
@@ -217,6 +219,7 @@ export default function Videos() {
     ) {
       return { step: 'subtitle', name: '字幕' }
     }
+    if (composing) return null
     if ((r.video_status === 'failed' || r.export_status === 'failed') && r.subtitle_status !== 'done') {
       return { step: 'subtitle', name: '字幕' }
     }
@@ -329,6 +332,29 @@ export default function Videos() {
         if (res.status === 'processing' || res.task_id) {
           message.info(res.message || `${stepName}已开始后台执行，请等待完成`)
           setExecuting(null)
+          // 乐观更新：立刻切到「制作中」，不要等轮询才清掉失败文案
+          setData(prev => ({
+            ...prev,
+            list: (prev.list || []).map(item => {
+              if (item.id !== id) return item
+              if (step === 'all') {
+                return {
+                  ...item,
+                  voice_status: 'processing',
+                  subtitle_status: 'processing',
+                  video_status: 'processing',
+                  export_status: 'processing',
+                  error_msg: '',
+                }
+              }
+              return {
+                ...item,
+                video_status: 'processing',
+                export_status: 'processing',
+                error_msg: '',
+              }
+            }),
+          }))
           startPolling(id)
           return
         }
@@ -337,6 +363,7 @@ export default function Videos() {
       loadData()
     }).catch(err => {
       message.error(err?.error || `${stepName}失败`)
+      loadData()
     }).finally(() => {
       setExecuting(null)
     })
@@ -518,24 +545,35 @@ export default function Videos() {
     },
     {
       title: '进度', key: 'progress', width: 180,
-      render: (_, r) => (
-        <Space size={2} wrap={false}>
-          {[
-            ['配音', r.voice_status],
-            ['字幕', r.subtitle_status],
-            ['合成', r.video_status],
-          ].map(([label, st]) => (
-            <Tooltip key={label} title={`${label}：${statusLabels[st] || st}`}>
-              <Tag
-                color={statusColors[st]}
-                style={{ marginInlineEnd: 0, paddingInline: 6, fontSize: 12, lineHeight: '20px' }}
-              >
-                {label}
-              </Tag>
-            </Tooltip>
-          ))}
-        </Space>
-      ),
+      render: (_, r) => {
+        const composeStatus = (
+          r.video_status === 'processing' || r.export_status === 'processing'
+            ? 'processing'
+            : (r.video_status === 'failed' || r.export_status === 'failed')
+              ? 'failed'
+              : (r.video_status === 'done' && r.export_status === 'done')
+                ? 'done'
+                : (r.video_status || r.export_status || 'pending')
+        )
+        return (
+          <Space size={2} wrap={false}>
+            {[
+              ['配音', r.voice_status],
+              ['字幕', r.subtitle_status],
+              ['合成', composeStatus],
+            ].map(([label, st]) => (
+              <Tooltip key={label} title={`${label}：${statusLabels[st] || st}`}>
+                <Tag
+                  color={statusColors[st]}
+                  style={{ marginInlineEnd: 0, paddingInline: 6, fontSize: 12, lineHeight: '20px' }}
+                >
+                  {label}
+                </Tag>
+              </Tooltip>
+            ))}
+          </Space>
+        )
+      },
     },
     {
       title: '成片', dataIndex: 'duration', width: 64,
@@ -560,20 +598,23 @@ export default function Videos() {
     {
       title: '说明', dataIndex: 'error_msg', width: 140, ellipsis: true,
       render: (v, r) => {
-        const failed = failedStepOf(r)
+        const busy = r.voice_status === 'processing' || r.subtitle_status === 'processing'
+          || r.video_status === 'processing' || r.export_status === 'processing'
         const sec = composeElapsedOf(r)
+        // 进行中优先于失败文案（重试后不应再显示「合成失败」）
+        if (busy) {
+          return (
+            <span style={{ color: '#1677ff' }}>
+              制作中{sec != null ? ` · ${formatElapsedSec(sec)}` : '…'}
+            </span>
+          )
+        }
+        const failed = failedStepOf(r)
         if (!failed) {
           if (r.export_status === 'done') {
             return (
               <span style={{ color: '#94a3b8' }}>
                 已完成{sec != null ? ` · 用时${formatElapsedSec(sec)}` : ''}
-              </span>
-            )
-          }
-          if (r.voice_status === 'processing' || r.subtitle_status === 'processing' || r.video_status === 'processing' || r.export_status === 'processing') {
-            return (
-              <span style={{ color: '#1677ff' }}>
-                制作中{sec != null ? ` · ${formatElapsedSec(sec)}` : '…'}
               </span>
             )
           }

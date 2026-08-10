@@ -77,7 +77,7 @@ curl http://127.0.0.1:3456/api/health
 | 软件 | 建议版本 |
 |------|----------|
 | Git | 最新 |
-| Python | 3.12+ |
+| Python | 3.11+ |
 | Node.js | 20 LTS |
 | PostgreSQL | 16+ |
 | FFmpeg | 推荐（视频合成） |
@@ -103,7 +103,7 @@ CREATE DATABASE ai_ops;
 ```bat
 python -m venv backend\venv
 backend\venv\Scripts\pip install -U pip
-backend\venv\Scripts\pip install -e .
+backend\venv\Scripts\pip install -e .\backend
 backend\venv\Scripts\playwright install chromium
 
 cd frontend && npm install && cd ..
@@ -120,7 +120,7 @@ start_frontend.bat
 python3 -m venv backend/venv
 source backend/venv/bin/activate
 pip install -U pip
-pip install -e .
+pip install -e ./backend
 playwright install chromium
 
 cd frontend && npm install

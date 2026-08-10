@@ -8,7 +8,7 @@ echo === 后台启动后端 ===
 if not exist "backend\venv\Scripts\python.exe" (
   echo [错误] 未找到 backend\venv，请先创建虚拟环境：
   echo   python -m venv backend\venv
-  echo   backend\venv\Scripts\python.exe -m pip install -e .
+  echo   backend\venv\Scripts\python.exe -m pip install -e .\backend
   pause
   exit /b 1
 )

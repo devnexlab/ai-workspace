@@ -448,9 +448,10 @@ def execute_step(id, step):
                 ('processing', 'processing', 'processing', 'processing', '', id)
             )
         else:
+            # 重试合成时必须同时清掉 export_status=failed，否则前端仍显示「合成失败」和重试按钮
             conn.execute(
-                'UPDATE video_task SET video_status=?, error_msg=? WHERE id=?',
-                ('processing', '', id)
+                'UPDATE video_task SET video_status=?, export_status=?, error_msg=? WHERE id=?',
+                ('processing', 'processing', '', id)
             )
         _mark_compose_start(conn, id)
         conn.commit()

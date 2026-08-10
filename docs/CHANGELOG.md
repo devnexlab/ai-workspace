@@ -156,5 +156,5 @@
 - 总览数据大屏与动态列表；待办/提醒分离
 - 内容情报、文案出片、视频四步流水线、半自动发布
 - 客户 CRM + 提醒、知识库、股票自选与现价刷新
-- Docker Compose（`ai-ops-net` + Postgres）、`pyproject.toml` 统一依赖
+- Docker Compose（`ai-ops-net` + Postgres）、`backend/pyproject.toml` 统一后端依赖、`frontend/package.json` 管理前端依赖
 - README：分系统部署、PostgreSQL、FFmpeg / Playwright 说明

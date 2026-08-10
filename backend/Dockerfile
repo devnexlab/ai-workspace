@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
@@ -19,14 +19,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-wqy-zenhei \
     && rm -rf /var/lib/apt/lists/*
 
-# 依赖以仓库根目录 pyproject.toml 为准
-COPY pyproject.toml README.md ./
+# 依赖以 backend/pyproject.toml 为准
 COPY backend/ ./backend/
+WORKDIR /app/backend
 
 RUN pip install --no-cache-dir . -i https://pypi.tuna.tsinghua.edu.cn/simple \
     && playwright install --with-deps chromium
-
-WORKDIR /app/backend
 
 EXPOSE 3456
 

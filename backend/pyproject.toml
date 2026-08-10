@@ -2,7 +2,7 @@
 name = "ai-workspace"
 version = "0.1.0"
 description = "AI 智能运营系统（内容 / 客户 / 视频 / 股票）"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = [
     "flask>=3.0",
     "flask-cors>=4.0",
@@ -22,12 +22,11 @@ dependencies = [
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
-# 后端代码在 backend/，安装后可 import modules / routes / config
+# 本文件位于 backend/，安装后可 import modules / routes / config / app
 [tool.setuptools]
-package-dir = { "" = "backend" }
 py-modules = ["app", "config", "database"]
 
 [tool.setuptools.packages.find]
-where = ["backend"]
+where = ["."]
 include = ["modules*", "routes*"]
 namespaces = false
