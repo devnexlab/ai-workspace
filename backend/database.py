@@ -996,7 +996,7 @@ def init_db():
     print(f'[DB] PostgreSQL initialized: {PG_HOST}:{PG_PORT}/{PG_DBNAME}')
 
     try:
-        from modules.ai_providers import ensure_builtin_settings
+        from modules.ai.providers import ensure_builtin_settings
         ensure_builtin_settings()
         print('[DB] AI LLM provider settings ensured')
     except Exception as e:

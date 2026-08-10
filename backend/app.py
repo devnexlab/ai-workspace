@@ -61,12 +61,12 @@ def create_app():
         print(f'[Server] Daily scheduler not started: {e}')
 
     try:
-        from modules.stock_watchlist_scheduler import start_watchlist_scheduler
+        from modules.stocks.watchlist_scheduler import start_watchlist_scheduler
         start_watchlist_scheduler()
     except Exception as e:
         print(f'[Server] Watchlist scheduler not started: {e}')
     try:
-        from modules.stock_universe import start_universe_scheduler
+        from modules.stocks.universe import start_universe_scheduler
         start_universe_scheduler()
     except Exception as e:
         print(f'[Server] Universe scheduler not started: {e}')

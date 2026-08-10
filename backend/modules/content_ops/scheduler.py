@@ -79,7 +79,7 @@ def _tick():
                 f'{datetime.now().isoformat(timespec="seconds")}'
             )
             try:
-                from modules.stock_news import run_stock_briefing_job
+                from modules.stocks.news import run_stock_briefing_job
                 result = run_stock_briefing_job()
                 print(f'[DailyScheduler] 财经新闻已推送到页面: {result}')
             except Exception as e:

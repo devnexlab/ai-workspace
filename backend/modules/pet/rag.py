@@ -10,7 +10,7 @@ import re
 from typing import Any
 
 from config import get_db
-from modules.embeddings import cosine_similarity, embed_query, embed_texts
+from modules.pet.embeddings import cosine_similarity, embed_query, embed_texts
 
 CHUNK_SIZE = 520
 CHUNK_OVERLAP = 80

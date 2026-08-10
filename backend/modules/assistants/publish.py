@@ -194,7 +194,7 @@ def _task_do_publish(task_id: int) -> dict:
                 'data': {'creator_url': creator_url, 'mode': 'manual'},
             }
 
-        from modules.publisher import publish_video
+        from modules.publish.publisher import publish_video
         result = publish_video(
             platform=t['platform'],
             video_path=t['output_path'],
@@ -251,7 +251,7 @@ def run_publish_assistant(trigger: str = 'manual', system_prompt: str = '') -> d
 当前任务：{json.dumps([t['title'] for t in (tasks.get('tasks') or [])[:10]], ensure_ascii=False)}
 只输出 JSON：{{"summary":"...","next_actions":["..."],"talk_tips":"..."}}"""
     try:
-        from modules.ai_writer import call_llm
+        from modules.ai.writer import call_llm
         sys_p = (system_prompt or '').strip() or DEFAULT_SYSTEM_PROMPTS['publish']
         if 'JSON' not in sys_p and 'json' not in sys_p:
             sys_p = sys_p + ' 只输出合法 JSON。'

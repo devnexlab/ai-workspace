@@ -14,8 +14,8 @@ from datetime import datetime
 
 import pandas as pd
 
-from modules.market_data import list_a_shares, get_daily_bars, is_tradable_a_share
-from modules.stock_ta import add_indicators
+from modules.stocks.market_data import list_a_shares, get_daily_bars, is_tradable_a_share
+from modules.stocks.ta import add_indicators
 
 # ---- 默认可配置规则（用户不传 conditions 时启用 enabled=true 的项）----
 DEFAULT_PATTERN_RULES = [

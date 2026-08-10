@@ -2,7 +2,7 @@
 
 from flask import Blueprint, request, jsonify
 from config import get_db as _db
-from modules.leads import (
+from modules.crm.leads import (
     LEAD_FIELDS,
     SOURCE_OPTIONS,
     STATUS_OPTIONS,

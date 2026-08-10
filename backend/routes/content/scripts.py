@@ -93,7 +93,7 @@ def _save_script(conn, script, topic_id=None, content_type='traffic', age_band='
 @bp.route('/api/scripts/generate', methods=['POST'])
 def generate():
     """Generate a script using AI. Can be from a topic ID or custom prompt."""
-    from modules.ai_writer import (
+    from modules.ai.writer import (
         generate_script as gen_script, call_llm, build_script_prompt,
         parse_script_response, apply_brand_ending, SYSTEM_PROMPT,
     )

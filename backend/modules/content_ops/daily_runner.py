@@ -44,7 +44,7 @@ def generate_daily_scripts(traffic_count=None, insurance_count=None):
     生成今日 2+1 文案计划（与 /api/scripts/daily-plan 同逻辑）。
     返回 dict: created / skipped / errors / brand_ending / message
     """
-    from modules.ai_writer import generate_script as gen_script, AGE_AUDIENCE
+    from modules.ai.writer import generate_script as gen_script, AGE_AUDIENCE
     from routes.content.scripts import AGE_ROTATION, _save_script
 
     traffic_n = int(

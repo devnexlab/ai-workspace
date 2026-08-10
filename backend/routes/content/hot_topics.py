@@ -418,7 +418,7 @@ def refresh_intelligence():
 def collect_compat():
     data = request.get_json(silent=True) or {}
     if data.get('keywords'):
-        from modules.collector import collect_all
+        from modules.content_ops.collector import collect_all
         from modules.content_ops.pipeline import enrich_and_rank
         from modules.content_ops.age_bands import guess_age_band
         try:
@@ -474,7 +474,7 @@ def collect_compat():
 
 @bp.route('/api/hot-topics/<int:id>/generate-script', methods=['POST'])
 def generate_script(id):
-    from modules.ai_writer import generate_script as gen_script
+    from modules.ai.writer import generate_script as gen_script
 
     conn = _db()
     topic = conn.execute('SELECT * FROM hot_topic WHERE id=?', (id,)).fetchone()
@@ -529,7 +529,7 @@ def generate_script(id):
 
 @bp.route('/api/hot-topics/batch-generate', methods=['POST'])
 def batch_generate_scripts():
-    from modules.ai_writer import generate_script as gen_script
+    from modules.ai.writer import generate_script as gen_script
     data = request.get_json(silent=True) or {}
     limit = int(data.get('limit', 5))
     content_type = data.get('content_type', 'traffic')

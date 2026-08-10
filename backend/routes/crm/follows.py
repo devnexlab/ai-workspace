@@ -227,7 +227,7 @@ def _smart_parse_text(data):
 """
 
     try:
-        from modules.ai_writer import call_llm
+        from modules.ai.writer import call_llm
         resp, _tokens, _model = call_llm(
             prompt,
             system_prompt='你只输出合法 JSON，不要解释。',

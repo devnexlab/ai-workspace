@@ -2,7 +2,7 @@
 
 from flask import Blueprint, request, jsonify
 from config import get_db as _db
-from modules.publisher import (
+from modules.publish.publisher import (
     publish_video, get_publish_status, check_playwright,
     list_sessions, close_session,
     sync_publish_engagement, apply_engagement_to_consult,

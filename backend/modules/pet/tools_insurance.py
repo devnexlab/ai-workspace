@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from modules.pet_rag import search_vectors
+from modules.pet.rag import search_vectors
 
 # 常青常识（可后续扩成配置文件；不替代用户自己的知识库）
 _INSURANCE_FACTS: list[dict[str, str]] = [

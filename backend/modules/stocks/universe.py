@@ -46,7 +46,7 @@ def refresh_stock_universe(force_refresh=True):
     - 本次未出现的标记 is_active=false（退市/过滤）
     """
     from config import get_db, update_setting
-    from modules.market_data import list_a_shares, _normalize_stock_code, is_tradable_a_share
+    from modules.stocks.market_data import list_a_shares, _normalize_stock_code, is_tradable_a_share
 
     now = datetime.now()
     rows = list_a_shares(force_refresh=force_refresh) or []

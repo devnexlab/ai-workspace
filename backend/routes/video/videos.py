@@ -6,7 +6,7 @@ import threading
 from datetime import datetime
 from flask import Blueprint, request, jsonify, send_file
 from config import OUTPUT_DIR as _OUTPUT_DIR, get_db as _db, get_setting, update_setting, get_settings_by_category, get_video_config, get_tts_config
-from modules import video_maker
+import modules.video.maker as video_maker
 
 bp = Blueprint('videos', __name__)
 
@@ -493,7 +493,7 @@ def execute_step(id, step):
             narration_prompt = task_dict.get('narration_prompt', '').strip()
             if narration_prompt:
                 try:
-                    from modules.ai_writer import generate_narration
+                    from modules.ai.writer import generate_narration
                     rewritten = generate_narration(script_dict, narration_prompt)
                     if rewritten.strip():
                         narration = rewritten
@@ -877,8 +877,8 @@ def check_ffmpeg():
 @bp.route('/api/videos/voice-options')
 def voice_options():
     """Return available TTS voices and narration style presets."""
-    from modules.video_maker import get_voice_options_for_api
-    from modules.ai_writer import NARRATION_PRESETS
+    from modules.video.maker import get_voice_options_for_api
+    from modules.ai.writer import NARRATION_PRESETS
     return jsonify({
         'voices': get_voice_options_for_api(),
         'narration_presets': [{'value': k, 'label': v} for k, v in NARRATION_PRESETS.items()],
@@ -905,7 +905,7 @@ def _build_narration_for_task(task_dict, script_dict):
     narration_prompt = task_dict.get('narration_prompt', '').strip()
     if narration_prompt:
         try:
-            from modules.ai_writer import generate_narration
+            from modules.ai.writer import generate_narration
             rewritten = generate_narration(script_dict, narration_prompt)
             if rewritten.strip():
                 narration = rewritten
@@ -978,7 +978,7 @@ def generate_scenes_api(id):
         return jsonify({'error': msg, 'reason': why}), 400
 
     try:
-        from modules.ai_writer import generate_scenes, auto_match_materials
+        from modules.ai.writer import generate_scenes, auto_match_materials
         scenes = generate_scenes(narration, materials_info)
 
         # Auto-match if AI didn't assign materials

@@ -181,7 +181,7 @@ def run_operations_assistant(trigger: str = 'manual', system_prompt: str = '', e
 只输出 JSON：
 {{"summary":"一句话","next_actions":["动作1","动作2"],"talk_tips":"要点"}}"""
     try:
-        from modules.ai_writer import call_llm
+        from modules.ai.writer import call_llm
         sys_p = (system_prompt or '').strip() or DEFAULT_SYSTEM_PROMPTS['operations']
         if 'JSON' not in sys_p and 'json' not in sys_p:
             sys_p = sys_p + ' 只输出合法 JSON。'

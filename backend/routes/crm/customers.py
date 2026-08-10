@@ -308,7 +308,7 @@ def run_customer_assistant_route(id):
 @bp.route('/api/customers/<int:id>/analyze', methods=['POST'])
 def analyze_customer(id):
     """AI analyzes customer: deal probability, focus points, recommended products, etc."""
-    from modules.ai_writer import call_llm
+    from modules.ai.writer import call_llm
     conn = _db()
     row = conn.execute('SELECT * FROM customer WHERE id=%s', (id,)).fetchone()
     if not row:

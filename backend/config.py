@@ -311,7 +311,7 @@ def update_settings_batch(settings_dict):
 
 
 def get_ai_config():
-    from modules.ai_providers import resolve_ai_config
+    from modules.ai.providers import resolve_ai_config
     return resolve_ai_config()
 
 

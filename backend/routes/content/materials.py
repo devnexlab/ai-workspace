@@ -99,7 +99,7 @@ def create_material():
     thumbnail = ''
     if mtype == 'video':
         try:
-            from modules.video_maker import _get_ffmpeg_path
+            from modules.video.maker import _get_ffmpeg_path
             ffmpeg = _get_ffmpeg_path()
             thumb_path = os.path.join(UPLOAD_DIR, unique_name + '_thumb.jpg')
             import subprocess
@@ -189,5 +189,5 @@ def preview_material(id):
 @bp.route('/api/materials/styles')
 def list_styles():
     """List available video style presets."""
-    from modules.video_maker import get_available_styles
+    from modules.video.maker import get_available_styles
     return jsonify({'styles': get_available_styles()})

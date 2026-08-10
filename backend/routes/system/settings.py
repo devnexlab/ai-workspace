@@ -5,8 +5,8 @@ from flask import Blueprint, request, jsonify
 from config import update_settings_batch, get_db as _db
 from modules.content_ops.platforms import list_platforms
 from modules.content_ops.commercial_data import list_commercial_providers
-from modules.wechat_notify import list_notify_channels, channel_status as notify_channel_status
-from modules.ai_providers import (
+from modules.crm.wechat_notify import list_notify_channels, channel_status as notify_channel_status
+from modules.ai.providers import (
     list_ai_providers,
     channel_status as ai_channel_status,
     resolve_ai_config,
@@ -204,12 +204,12 @@ def check_readiness():
     now = _time.time()
     if now - _ENV_TOOL_CACHE['ts'] > _ENV_TOOL_TTL:
         try:
-            from modules.publisher import check_playwright
+            from modules.publish.publisher import check_playwright
             pw_ok = bool(check_playwright())
         except Exception:
             pw_ok = False
         try:
-            from modules.video_maker import check_ffmpeg
+            from modules.video.maker import check_ffmpeg
             ff_ok = bool(check_ffmpeg())
         except Exception:
             ff_ok = False
@@ -287,7 +287,7 @@ def check_readiness():
         }
 
     try:
-        from modules.wechat_notify import is_ready as notify_ready, _cfg as notify_cfg
+        from modules.crm.wechat_notify import is_ready as notify_ready, _cfg as notify_cfg
         ncfg = notify_cfg()
         n_ok, n_msg = notify_ready(ncfg)
         if not ncfg['enabled']:
@@ -408,7 +408,7 @@ def check_readiness():
     }
 
     try:
-        from modules.wechat_oa import get_oa_profile
+        from modules.crm.wechat_oa import get_oa_profile
         oa = get_oa_profile()
         if not oa['enabled']:
             readiness['wechat_oa'] = {
@@ -464,7 +464,7 @@ def test_notify():
     content = (data.get('content') or '这是一条来自运营平台的测试消息，配置正常即可收到股价预警。').strip()
     channel = (data.get('channel') or data.get('provider') or '').strip().lower() or None
     try:
-        from modules.wechat_notify import send_wechat
+        from modules.crm.wechat_notify import send_wechat
         result = send_wechat(title, content, force=True, provider=channel)
         if result.get('ok'):
             return jsonify({'message': result.get('message') or '已发送', **result})
@@ -506,9 +506,9 @@ def test_ai():
     provider = (data.get('provider') or data.get('channel') or '').strip().lower() or None
     try:
         from config import get_setting
-        from modules.ai_writer import call_llm
-        from modules.ai_providers import list_ai_providers, resolve_ai_config
-        import modules.ai_providers as ap
+        from modules.ai.writer import call_llm
+        from modules.ai.providers import list_ai_providers, resolve_ai_config
+        import modules.ai.providers as ap
 
         prev = ap.resolve_ai_config
         if provider:

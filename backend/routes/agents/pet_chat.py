@@ -2,13 +2,13 @@
 
 from flask import Blueprint, request, jsonify
 
-from modules.pet_agent import (
+from modules.pet.agent import (
     append_message,
     create_session,
     load_history,
     run_pet_agent,
 )
-from modules.pet_rag import ensure_index, index_status, reindex_all
+from modules.pet.rag import ensure_index, index_status, reindex_all
 
 bp = Blueprint('pet_chat', __name__)
 

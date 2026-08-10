@@ -205,7 +205,7 @@ def delete_knowledge(id):
 @bp.route('/api/knowledge/<int:id>/ai-process', methods=['POST'])
 def ai_process_knowledge(id):
     """AI auto-categorizes, tags, summarizes, and finds related items."""
-    from modules.ai_writer import call_llm
+    from modules.ai.writer import call_llm
     conn = _db()
     row = conn.execute('SELECT * FROM knowledge_item WHERE id=%s', (id,)).fetchone()
     if not row:
@@ -310,7 +310,7 @@ def compare_knowledge():
     多笔记对比 → 启发灵感。
     body: { ids: [1,2,3] } 或 { contents: [{title, content}, ...] }
     """
-    from modules.ai_writer import call_llm
+    from modules.ai.writer import call_llm
     import re
     data = request.get_json(silent=True) or {}
     ids = data.get('ids') or []

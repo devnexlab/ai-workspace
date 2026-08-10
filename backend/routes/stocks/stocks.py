@@ -50,7 +50,7 @@ def add_to_watchlist():
 def refresh_watchlist_prices_api():
     """手动/定时刷新自选股现价（盈亏由买入价与现价计算）。"""
     try:
-        from modules.stock_watchlist_scheduler import refresh_watchlist_prices
+        from modules.stocks.watchlist_scheduler import refresh_watchlist_prices
         result = refresh_watchlist_prices(force_spot=True)
         return jsonify(result)
     except Exception as e:
@@ -155,7 +155,7 @@ def list_universe():
 @bp.route('/api/stocks/universe/refresh', methods=['POST'])
 def refresh_universe_api():
     """手动触发全市场同步（可能较慢）。"""
-    from modules.stock_universe import refresh_stock_universe
+    from modules.stocks.universe import refresh_stock_universe
     try:
         result = refresh_stock_universe(force_refresh=True)
         return jsonify(result)
@@ -191,7 +191,7 @@ def universe_meta():
 
 @bp.route('/api/stocks/pattern-rules')
 def get_pattern_rules():
-    from modules.stock_screener import list_default_rules
+    from modules.stocks.screener import list_default_rules
     saved = get_setting('stock', 'pattern_rules_json', '')
     rules = list_default_rules()
     if saved:
@@ -282,8 +282,8 @@ def get_indicators():
     if not code:
         return jsonify({'error': 'stock code required'}), 400
     try:
-        from modules.market_data import get_daily_bars
-        from modules.stock_ta import add_indicators, latest_snapshot
+        from modules.stocks.market_data import get_daily_bars
+        from modules.stocks.ta import add_indicators, latest_snapshot
         df = get_daily_bars(code, days=300)
         if df is None or df.empty:
             return jsonify({
@@ -345,7 +345,7 @@ def _saved_pattern_rules():
 
 
 def _run_screening_job(sid, payload):
-    from modules.stock_screener import run_screen
+    from modules.stocks.screener import run_screen
     try:
         def progress(done, total):
             conn = _db()
@@ -398,7 +398,7 @@ def _run_screening_job(sid, payload):
             }, ensure_ascii=False),
         )
         try:
-            from modules.wechat_notify import notify_screening_done
+            from modules.crm.wechat_notify import notify_screening_done
             notify_screening_done(
                 payload.get('name') or '技术面筛选',
                 int(result.get('matched') or 0),
@@ -532,7 +532,7 @@ def screening_history():
 
 def _strategy_rules_blob(data) -> str:
     """把用户文字策略编译成可执行 JSON 存库。"""
-    from modules.stock_screener import build_strategy_payload
+    from modules.stocks.screener import build_strategy_payload
     text = data.get('rules_text')
     if text is None:
         raw = data.get('rules_json', data.get('rules', ''))
@@ -553,7 +553,7 @@ def _strategy_rules_blob(data) -> str:
 @bp.route('/api/stocks/strategies/parse', methods=['POST'])
 def parse_strategy():
     """预览：文字描述 → 将用于筛选的条件。"""
-    from modules.stock_screener import parse_strategy_text
+    from modules.stocks.screener import parse_strategy_text
     data = request.get_json(silent=True) or {}
     text = data.get('text') or data.get('rules_text') or ''
     return jsonify(parse_strategy_text(text))
@@ -561,7 +561,7 @@ def parse_strategy():
 
 @bp.route('/api/stocks/strategies')
 def list_strategies():
-    from modules.stock_screener import strategy_from_row
+    from modules.stocks.screener import strategy_from_row
     conn = _db()
     rows = conn.execute('SELECT * FROM stock_strategy ORDER BY created_at DESC').fetchall()
     conn.close()
@@ -589,7 +589,7 @@ def create_strategy():
     conn.commit()
     row = conn.execute('SELECT * FROM stock_strategy WHERE id=%s', (new_id,)).fetchone()
     conn.close()
-    from modules.stock_screener import strategy_from_row
+    from modules.stocks.screener import strategy_from_row
     return jsonify({'id': new_id, 'message': '策略已创建', 'strategy': strategy_from_row(dict(row))})
 
 
@@ -613,7 +613,7 @@ def update_strategy(id):
     conn.close()
     if not row:
         return jsonify({'error': 'not found'}), 404
-    from modules.stock_screener import strategy_from_row
+    from modules.stocks.screener import strategy_from_row
     return jsonify({'message': '策略已更新', 'strategy': strategy_from_row(dict(row))})
 
 
@@ -726,7 +726,7 @@ def ai_review():
     1) 今日买卖记录复盘
     2) 持仓/下一步怎么操作（没有成交记录也可以）
     """
-    from modules.ai_writer import call_llm
+    from modules.ai.writer import call_llm
     data = request.get_json(silent=True) or {}
     conn = _db()
     holdings = conn.execute(
@@ -771,8 +771,8 @@ def ai_review():
     # 给持仓补一点技术面快照，便于模型谈“接下来怎么操作”
     tech_briefs = []
     try:
-        from modules.market_data import get_daily_bars
-        from modules.stock_ta import add_indicators, latest_snapshot
+        from modules.stocks.market_data import get_daily_bars
+        from modules.stocks.ta import add_indicators, latest_snapshot
         codes = []
         for r in holdings:
             c = str(r['stock_code'] or '').zfill(6)

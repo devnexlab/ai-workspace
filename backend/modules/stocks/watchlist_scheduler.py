@@ -39,7 +39,7 @@ def _upsert_stock_alert(conn, *, code, name, title, content):
 
 def _check_price_alerts(conn, rows, price_map):
     """根据最新价写入股票预警提醒。返回 (创建数, 新建预警列表)。"""
-    from modules.market_data import _normalize_stock_code
+    from modules.stocks.market_data import _normalize_stock_code
 
     created = 0
     new_alerts = []
@@ -78,7 +78,7 @@ def _check_price_alerts(conn, rows, price_map):
 def refresh_watchlist_prices(force_spot=True):
     """按自选股代码拉取腾讯实时行情，回写 current_price，并检查预警。"""
     from config import get_db, update_setting
-    from modules.market_data import fetch_spot_prices, _normalize_stock_code
+    from modules.stocks.market_data import fetch_spot_prices, _normalize_stock_code
 
     conn = get_db()
     rows = conn.execute(
@@ -128,7 +128,7 @@ def refresh_watchlist_prices(force_spot=True):
 
     if new_alerts:
         try:
-            from modules.wechat_notify import notify_stock_alerts
+            from modules.crm.wechat_notify import notify_stock_alerts
             push_res = notify_stock_alerts(new_alerts)
             if push_res.get('ok'):
                 print(f'[WatchlistScheduler] 微信推送成功: {push_res.get("message")}')

@@ -154,7 +154,7 @@ def _fetch_aggregated(source, platform_key, author, limit=20):
 def fetch_ai_daily_hotspots(limit=10):
     """AI 兜底：生成今日适合泛流量/保险口播的热点选题。"""
     try:
-        from modules.ai_writer import call_llm
+        from modules.ai.writer import call_llm
         import json
         today = datetime.now().strftime('%Y年%m月%d日')
         prompt = f"""今天是{today}。请给出{limit}条「适合短视频口播」的实时/近期热点选题。

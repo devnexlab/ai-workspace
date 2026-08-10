@@ -647,7 +647,7 @@ def collect_all(keywords=None, platforms=None, count_per_keyword=10):
 
 def analyze_hot_topic(topic_data):
     """Use AI to analyze a hot topic and give it a score."""
-    from modules.ai_writer import call_llm
+    from modules.ai.writer import call_llm
 
     ai_config = get_ai_config()
     if not ai_config.get('api_key'):

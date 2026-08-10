@@ -19,7 +19,7 @@ import requests
 from config import get_ai_config, get_setting
 
 
-# Default base URLs for each provider（与 modules.ai_providers 保持一致）
+# Default base URLs for each provider（与 modules.ai.providers 保持一致）
 PROVIDER_URLS = {
     'zhipu': 'https://open.bigmodel.cn/api/paas/v4',
     'openai': 'https://api.openai.com/v1',

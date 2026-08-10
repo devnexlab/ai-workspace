@@ -2,7 +2,7 @@
 
 from flask import Blueprint, request, jsonify
 
-from modules import stock_news as sn
+import modules.stocks.news as sn
 
 bp = Blueprint('stock_briefing', __name__)
 

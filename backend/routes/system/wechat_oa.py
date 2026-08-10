@@ -2,7 +2,7 @@
 
 from flask import Blueprint, request, jsonify
 
-from modules.wechat_oa import get_oa_profile, create_lead
+from modules.crm.wechat_oa import get_oa_profile, create_lead
 
 bp = Blueprint('wechat_oa', __name__)
 

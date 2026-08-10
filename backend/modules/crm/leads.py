@@ -79,7 +79,7 @@ def create_lead_row(data: dict, *, notify: bool = False) -> dict:
 
     if notify:
         try:
-            from modules.wechat_notify import send_wechat
+            from modules.crm.wechat_notify import send_wechat
             title = f'新线索：{nickname}'
             content = (
                 f'来源：{source_label(source)}\n'

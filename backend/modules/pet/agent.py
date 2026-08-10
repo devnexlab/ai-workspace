@@ -9,10 +9,10 @@ import json
 from typing import Any
 
 from config import get_db
-from modules.ai_writer import call_llm
-from modules.pet_rag import search_vectors
-from modules.pet_tools_finance import tool_finance_market
-from modules.pet_tools_insurance import tool_insurance_knowledge
+from modules.ai.writer import call_llm
+from modules.pet.rag import search_vectors
+from modules.pet.tools_finance import tool_finance_market
+from modules.pet.tools_insurance import tool_insurance_knowledge
 
 MODE_SOURCES = {
     'auto': ['knowledge', 'script', 'stock_brief'],

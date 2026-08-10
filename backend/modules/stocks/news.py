@@ -413,7 +413,7 @@ def build_stock_briefing(force: bool = True, row: dict | None = None, use_llm: b
     model = ''
     if use_llm:
         try:
-            from modules.ai_writer import call_llm
+            from modules.ai.writer import call_llm
             today = datetime.now().strftime('%Y年%m月%d日')
             bullets = '\n'.join(
                 f"- [{it.get('source')}] {it.get('title')}：{(it.get('summary') or '')[:100]}"
@@ -482,7 +482,7 @@ def analyze_briefing(force: bool = True) -> dict:
     brief_hint = ''
     if brief:
         brief_hint = '已有股市简报（可参考，勿简单复述）：\n' + brief[:2000]
-    from modules.ai_writer import call_llm
+    from modules.ai.writer import call_llm
     prompt = f"""请对下列财经新闻做「AI 分析总结」（Markdown），这是投研向解读，
 与「今日股市简报」分开展示。
 

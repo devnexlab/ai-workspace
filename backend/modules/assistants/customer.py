@@ -380,7 +380,7 @@ def _analyze(customer: dict, follows: list, trigger: str, extra: dict, system_pr
 }}"""
 
     try:
-        from modules.ai_writer import call_llm
+        from modules.ai.writer import call_llm
         from .prompts import DEFAULT_SYSTEM_PROMPTS
         sys_p = (system_prompt or '').strip() or DEFAULT_SYSTEM_PROMPTS['customer']
         if 'JSON' not in sys_p and 'json' not in sys_p:

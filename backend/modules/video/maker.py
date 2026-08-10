@@ -1141,7 +1141,7 @@ def compose_video(audio_path, subtitle_path, image_paths, output_path,
     # Try MoviePy first (better quality) if configured
     if engine != 'ffmpeg':
         try:
-            from modules.video_composer import compose_video_moviepy
+            from modules.video.composer import compose_video_moviepy
             print('[VideoMaker] Using MoviePy composer')
             return compose_video_moviepy(
                 audio_path, subtitle_path, image_paths, output_path,
@@ -1739,7 +1739,7 @@ def produce_video(script_data, video_task_id, output_dir, video_style='default',
     if narration_prompt:
         print(f'[VideoMaker] Narration prompt provided, rewriting script with AI...')
         try:
-            from modules.ai_writer import generate_narration
+            from modules.ai.writer import generate_narration
             narration = generate_narration(script_data, narration_prompt)
             if not narration.strip():
                 narration = script_data.get('hook', '') + '\n' + script_data.get('content', '') + '\n' + script_data.get('ending', '')
@@ -1796,7 +1796,7 @@ def produce_video(script_data, video_task_id, output_dir, video_style='default',
         print(f'[VideoMaker] Using {len(scenes)} pre-generated scenes')
     elif materials_info and len(materials_info) > 0:
         try:
-            from modules.ai_writer import generate_scenes, auto_match_materials
+            from modules.ai.writer import generate_scenes, auto_match_materials
             print(f'[VideoMaker] Generating scenes with {len(materials_info)} materials...')
             scenes = generate_scenes(narration, materials_info)
             # Auto-match if not already matched by AI

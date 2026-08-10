@@ -52,7 +52,7 @@ def collect_platform_koubo(platforms=None, age_bands=None, count_per_keyword=5,
     """
     按年龄段口播关键词，去各平台搜高互动内容。
     """
-    from modules.collector import get_collector
+    from modules.content_ops.collector import get_collector
 
     plats = get_enabled_platforms(platforms)
     pmap = platform_map()
@@ -159,7 +159,7 @@ def run_full_intelligence(platforms=None, age_bands=None, include_hotspots=True,
 
 def platform_status():
     """给前端展示各平台配置状态。"""
-    from modules.collector import get_collector
+    from modules.content_ops.collector import get_collector
     rows = []
     for p in list_platforms():
         if not p.get('enable_collector', True):

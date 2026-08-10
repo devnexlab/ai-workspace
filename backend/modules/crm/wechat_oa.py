@@ -33,7 +33,7 @@ def get_oa_profile() -> dict:
 
 def create_lead(data: dict) -> dict:
     """服务号 H5 留资 → 写入线索池，并尽量通知运营。"""
-    from modules.leads import create_lead_row
+    from modules.crm.leads import create_lead_row
 
     payload = {
         'nickname': data.get('nickname') or data.get('name'),
