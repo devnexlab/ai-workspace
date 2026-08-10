@@ -42,7 +42,7 @@
 | AI | OpenAI 兼容接口（智谱 / 火山 / DeepSeek / OpenAI 等） |
 | 部署 | Docker Compose · Nginx / Caddy · 云服务器 |
 
-依赖声明见 [`backend/pyproject.toml`](backend/pyproject.toml)；前端见 [`frontend/package.json`](frontend/package.json)。
+依赖声明见根目录 [`pyproject.toml`](pyproject.toml)（源码在 `backend/`）；前端见 [`frontend/package.json`](frontend/package.json)。本地可用 `uv sync` 或 `pip install -e .`。
 
 ---
 

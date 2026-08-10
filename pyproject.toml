@@ -22,11 +22,12 @@ dependencies = [
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
-# 本文件位于 backend/，安装后可 import modules / routes / config / app
+# 源码在 backend/；安装后可 import modules / routes / config / app
 [tool.setuptools]
+package-dir = {"" = "backend"}
 py-modules = ["app", "config", "database"]
 
 [tool.setuptools.packages.find]
-where = ["."]
+where = ["backend"]
 include = ["modules*", "routes*"]
 namespaces = false

@@ -101,10 +101,8 @@ CREATE DATABASE ai_ops;
 ### 3.3 Windows
 
 ```bat
-python -m venv backend\venv
-backend\venv\Scripts\pip install -U pip
-backend\venv\Scripts\pip install -e .\backend
-backend\venv\Scripts\playwright install chromium
+uv sync
+.venv\Scripts\playwright install chromium
 
 cd frontend && npm install && cd ..
 
@@ -112,16 +110,16 @@ start_backend.bat
 start_frontend.bat
 ```
 
+（也可用 `python -m venv .venv` 后 `pip install -e .` 代替 `uv sync`。）
+
 停止：`stop_backend.bat` / `stop_frontend.bat`。
 
 ### 3.4 Linux / macOS
 
 ```bash
-python3 -m venv backend/venv
-source backend/venv/bin/activate
-pip install -U pip
-pip install -e ./backend
-playwright install chromium
+uv sync
+# 或: python3 -m venv .venv && source .venv/bin/activate && pip install -e .
+.venv/bin/playwright install chromium
 
 cd frontend && npm install
 npm run dev
@@ -130,7 +128,7 @@ npm run dev
 另开终端：
 
 ```bash
-cd backend && ../backend/venv/bin/python app.py
+cd backend && ../.venv/bin/python app.py
 ```
 
 ### 3.5 访问

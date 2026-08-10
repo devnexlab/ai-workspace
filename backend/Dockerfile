@@ -19,12 +19,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-wqy-zenhei \
     && rm -rf /var/lib/apt/lists/*
 
-# 依赖以 backend/pyproject.toml 为准
+# 依赖以仓库根 pyproject.toml 为准（源码在 backend/）
+COPY pyproject.toml ./
 COPY backend/ ./backend/
-WORKDIR /app/backend
 
 RUN pip install --no-cache-dir . -i https://pypi.tuna.tsinghua.edu.cn/simple \
     && playwright install --with-deps chromium
+
+WORKDIR /app/backend
 
 EXPOSE 3456
 
