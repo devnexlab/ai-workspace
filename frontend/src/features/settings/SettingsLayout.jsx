@@ -37,7 +37,7 @@ export default function SettingsLayout() {
     <div className="settings-page">
       <div className="settings-page-head">
         <h1 className="settings-page-title">系统设置</h1>
-        <p className="settings-page-desc">集中管理 AI、采集、发布、媒体与消息等配置。</p>
+        <p className="settings-page-desc">管理大模型配置、推送通道、公众号对外页、定时任务等系统级参数。</p>
       </div>
 
       <div className="settings-frame">

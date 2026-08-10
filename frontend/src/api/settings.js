@@ -6,6 +6,8 @@ export const settingsApi = {
   check: () => api.get('/settings/check'),
   modules: () => api.get('/settings/modules'),
   category: (cat) => api.get(`/settings/${cat}`),
+  scheduledTasks: () => api.get('/settings/scheduled-tasks'),
+  updateScheduledTask: (id, data) => api.put(`/settings/scheduled-tasks/${id}`, data),
   testCommercial: (providerKey) => api.post(`/commercial-data/test/${providerKey}`, {}),
   testNotify: (data = {}) => api.post('/settings/notify/test', data),
   testAi: (data = {}) => api.post('/settings/ai/test', data),

@@ -21,6 +21,11 @@
   gap: 10px;
   font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
   pointer-events: none;
+  touch-action: none;
+}
+
+.pet-wrap.is-dragging {
+  user-select: none;
 }
 
 .pet-wrap > * {
@@ -50,7 +55,7 @@
   height: var(--pet-size);
   border: 0;
   border-radius: 50%;
-  cursor: pointer;
+  cursor: grab;
   background: var(--pet-fab);
   box-shadow:
     0 10px 28px var(--pet-glow),
@@ -61,6 +66,7 @@
   transition: transform 0.2s ease, box-shadow 0.2s ease;
   animation: pet-float 3.2s ease-in-out infinite;
   padding: 0;
+  touch-action: none;
 }
 
 .pet-fab:hover {
@@ -71,6 +77,13 @@
 .pet-fab.open {
   animation: none;
   box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--pet-primary);
+}
+
+.pet-fab.dragging {
+  cursor: grabbing;
+  animation: none;
+  transform: scale(1.06);
+  box-shadow: 0 16px 36px var(--pet-glow);
 }
 
 @keyframes pet-float {

@@ -67,8 +67,12 @@ function StockIntelPanel() {
 
   const newsColumns = [
     {
-      title: '来源', dataIndex: 'source', width: 88,
-      render: v => <span className="stock-intel-chip" style={{ padding: '1px 8px' }}>{v || '资讯'}</span>,
+      title: '来源', dataIndex: 'source', width: 118,
+      render: v => (
+        <span className="stock-intel-chip" style={{ padding: '1px 8px', whiteSpace: 'nowrap' }}>
+          {v || '资讯'}
+        </span>
+      ),
     },
     {
       title: '标题', dataIndex: 'title',

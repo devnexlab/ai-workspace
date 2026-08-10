@@ -877,9 +877,79 @@ def ai_review():
                 t = (result.get(key) or '').strip()
                 if t.startswith('暂无') or t in ('无', '无记录', '无交易', 'N/A', 'n/a'):
                     result[key] = ''
+
+        # 写入复盘记录
+        summary = (result.get('situation_summary') or '').strip()
+        title = summary[:48] if summary else (user_input[:40] if user_input else '持仓复盘')
+        blob = ' '.join([
+            summary,
+            (result.get('position_view') or ''),
+            (result.get('next_actions') or ''),
+        ])
+        tone = 'gray'
+        if any(k in blob for k in ('止盈', '盈利', '加仓', '看多', '继续持有')):
+            tone = 'green'
+        if any(k in blob for k in ('止损', '减仓', '浮亏', '风险', '出局')):
+            tone = 'orange'
+        try:
+            conn2 = _db()
+            conn2.execute(
+                '''INSERT INTO stock_review (title, input_text, summary, result_json, tone)
+                   VALUES (%s, %s, %s, %s, %s)''',
+                (
+                    title or 'AI复盘',
+                    user_input,
+                    summary or (result.get('next_actions') or '')[:200],
+                    json.dumps(result, ensure_ascii=False),
+                    tone,
+                ),
+            )
+            conn2.commit()
+            conn2.close()
+        except Exception as e:
+            print(f'[stocks/review] save log failed: {e}')
+
         return jsonify({'review': result, 'message': 'AI复盘完成'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@bp.route('/api/stocks/reviews')
+def list_reviews():
+    """复盘记录列表。"""
+    limit = min(100, max(1, int(request.args.get('limit', 50) or 50)))
+    conn = _db()
+    rows = conn.execute(
+        'SELECT id, title, input_text, summary, tone, created_at FROM stock_review '
+        'ORDER BY created_at DESC LIMIT %s',
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return jsonify({'list': [dict(r) for r in rows]})
+
+
+@bp.route('/api/stocks/reviews/<int:rid>', methods=['GET'])
+def get_review(rid):
+    conn = _db()
+    row = conn.execute('SELECT * FROM stock_review WHERE id=%s', (rid,)).fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error': '记录不存在'}), 404
+    item = dict(row)
+    try:
+        item['result'] = json.loads(item.get('result_json') or '{}')
+    except (json.JSONDecodeError, TypeError):
+        item['result'] = {}
+    return jsonify(item)
+
+
+@bp.route('/api/stocks/reviews/<int:rid>', methods=['DELETE'])
+def delete_review(rid):
+    conn = _db()
+    conn.execute('DELETE FROM stock_review WHERE id=%s', (rid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': '已删除'})
 
 
 @bp.route('/api/stocks/note', methods=['POST'])

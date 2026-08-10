@@ -386,6 +386,7 @@ export default function Scripts() {
           <Button type="primary" icon={<SearchOutlined />} onClick={() => loadData(1, filters)}>搜索</Button>
           <Button icon={<ReloadOutlined />} onClick={() => { setFilters({}); loadData(1, {}) }}>重置</Button>
         </div>
+        <div className="table-toolbar-right">
         <Space wrap>
           <Tooltip
             title={(
@@ -412,6 +413,7 @@ export default function Scripts() {
             手动添加
           </Button>
         </Space>
+        </div>
       </div>
 
       <Alert

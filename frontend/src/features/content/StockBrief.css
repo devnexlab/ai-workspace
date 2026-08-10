@@ -279,6 +279,11 @@
   font-size: 13px;
 }
 
+.stock-intel-news-table .stock-intel-chip,
+.stock-intel-news-table td:first-child {
+  white-space: nowrap;
+}
+
 .stock-intel-empty {
   padding: 48px 12px;
 }

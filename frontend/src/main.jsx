@@ -14,20 +14,23 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       theme={{
         token: {
           colorPrimary: THEME.colorPrimary,
-          colorInfo: '#3b82f6',
-          colorSuccess: '#00b884',
-          colorWarning: '#ff9500',
-          colorError: '#ff3b5c',
+          colorInfo: THEME.colorInfo,
+          colorSuccess: THEME.colorSuccess,
+          colorWarning: THEME.colorWarning,
+          colorError: THEME.colorError,
           borderRadius: THEME.borderRadius,
+          borderRadiusLG: THEME.borderRadiusLG,
+          borderRadiusSM: 6,
           fontSize: THEME.fontSize,
           controlHeight: THEME.controlHeight,
           colorText: THEME.colorText,
           colorTextSecondary: THEME.colorTextSecondary,
+          colorTextTertiary: THEME.colorTextTertiary,
           colorBorder: THEME.colorBorder,
-          colorBorderSecondary: '#f3f3f6',
+          colorBorderSecondary: THEME.colorBorderSecondary,
           colorBgLayout: THEME.colorBgLayout,
-          colorBgContainer: '#ffffff',
-          colorBgElevated: '#ffffff',
+          colorBgContainer: THEME.colorBgContainer,
+          colorBgElevated: THEME.colorBgContainer,
           fontFamily:
             '-apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif',
           lineHeight: 1.6,
@@ -36,27 +39,52 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         components: {
           Button: {
             controlHeight: 34,
+            controlHeightSM: 28,
             paddingContentHorizontal: 14,
             fontWeight: 500,
             primaryShadow: 'none',
+            defaultShadow: 'none',
+            borderRadius: 8,
           },
           Input: {
             controlHeight: 34,
             paddingBlock: 4,
+            borderRadius: 8,
           },
           Select: {
             controlHeight: 34,
+            borderRadius: 8,
           },
           Table: {
             headerBg: '#fafafa',
             headerColor: '#6b6b80',
+            headerSplitColor: '#ededf0',
             rowHoverBg: 'rgba(91, 91, 214, 0.02)',
             cellPaddingBlock: 12,
             cellPaddingInline: 16,
             borderColor: '#f3f3f6',
+            headerBorderRadius: 0,
           },
           Card: {
             paddingLG: 20,
+            headerHeight: 52,
+            borderRadiusLG: 12,
+          },
+          Tag: {
+            defaultBg: '#fafafa',
+            defaultColor: '#6b6b80',
+            borderRadiusSM: 6,
+          },
+          Statistic: {
+            titleFontSize: 12,
+            contentFontSize: 28,
+          },
+          Alert: {
+            borderRadiusLG: 8,
+          },
+          Pagination: {
+            itemSize: 32,
+            borderRadius: 6,
           },
           Menu: {
             itemHeight: 36,
@@ -72,6 +100,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
             itemSelectedColor: '#5b5bd6',
             itemHoverColor: '#1e1e2e',
             itemColor: '#6b6b80',
+            horizontalItemPadding: '10px 16px',
           },
           Form: {
             labelFontSize: 12,
@@ -85,6 +114,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           },
           Segmented: {
             itemSelectedColor: '#5b5bd6',
+            trackBg: '#fafafa',
+            trackPadding: 3,
           },
         },
       }}

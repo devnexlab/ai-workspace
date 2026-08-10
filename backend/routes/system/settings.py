@@ -90,6 +90,21 @@ SETTINGS_MODULES = [
         'desc': '每日 2+1 计划、品牌收口、采集间隔',
         'icon': 'file-text',
         'categories': ['system'],
+        # 定时相关项改到「定时任务」模块展示
+        'exclude_keys': [
+            'daily_auto_enabled', 'daily_run_hour', 'daily_last_run', 'daily_last_run_date',
+            'stock_briefing_auto', 'stock_briefing_hour',
+            'stock_briefing_last_run', 'stock_briefing_last_date',
+        ],
+    },
+    {
+        'key': 'schedule',
+        'path': 'schedule',
+        'label': '定时任务',
+        'desc': '日更、财经新闻、全市场同步、自选股刷新等后台任务',
+        'icon': 'clock-circle',
+        'type': 'scheduled_tasks',
+        'categories': [],
     },
 ]
 
@@ -548,6 +563,126 @@ def test_ai():
 @bp.route('/api/settings')
 def get_settings():
     return jsonify(_load_all_settings_rows())
+
+
+# 内置定时任务定义（读写现有 system_setting / stock 配置）
+_SCHEDULED_TASKS = [
+    {
+        'id': 'daily_pipeline',
+        'name': '每日自动日更',
+        'desc': '采热点 → 写文案 → 出片',
+        'enabled_cat': 'system',
+        'enabled_key': 'daily_auto_enabled',
+        'hour_cat': 'system',
+        'hour_key': 'daily_run_hour',
+        'hour_default': '8',
+        'last_cat': 'system',
+        'last_key': 'daily_last_run',
+        'freq_tpl': '每天 {hour}:00',
+    },
+    {
+        'id': 'stock_briefing',
+        'name': '早间财经新闻',
+        'desc': '抓取财经资讯并推送到内容情报 · 股票页',
+        'enabled_cat': 'system',
+        'enabled_key': 'stock_briefing_auto',
+        'hour_cat': 'system',
+        'hour_key': 'stock_briefing_hour',
+        'hour_default': '8',
+        'last_cat': 'system',
+        'last_key': 'stock_briefing_last_run',
+        'freq_tpl': '每天 {hour}:00',
+    },
+    {
+        'id': 'universe_refresh',
+        'name': '全市场夜间同步',
+        'desc': '交易日晚上同步全部 A 股，新股自动入库',
+        'enabled_cat': 'stock',
+        'enabled_key': 'universe_auto_refresh',
+        'hour_cat': 'stock',
+        'hour_key': 'universe_refresh_hour',
+        'hour_default': '18',
+        'last_cat': 'stock',
+        'last_key': 'universe_last_refresh_at',
+        'freq_tpl': '交易日 {hour}:00',
+    },
+    {
+        'id': 'watchlist_refresh',
+        'name': '自选股收盘刷新',
+        'desc': '交易日收盘后刷新自选现价并检查预警',
+        'enabled_cat': 'stock',
+        'enabled_key': 'watchlist_auto_refresh',
+        'hour_cat': 'stock',
+        'hour_key': 'watchlist_refresh_hour',
+        'hour_default': '15',
+        'last_cat': 'stock',
+        'last_key': 'watchlist_last_refresh_date',
+        'freq_tpl': '交易日 {hour}:00',
+    },
+]
+
+
+def _next_run_hint(hour: int, enabled: bool) -> str:
+    if not enabled:
+        return '—'
+    from datetime import datetime, timedelta
+    now = datetime.now()
+    target = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+    if now >= target:
+        target = target + timedelta(days=1)
+    if target.date() == now.date():
+        return f'今日 {hour:02d}:00'
+    if (target.date() - now.date()).days == 1:
+        return f'明日 {hour:02d}:00'
+    return target.strftime('%m-%d %H:00')
+
+
+@bp.route('/api/settings/scheduled-tasks')
+def list_scheduled_tasks():
+    from config import get_setting
+    tasks = []
+    for defn in _SCHEDULED_TASKS:
+        enabled = str(get_setting(defn['enabled_cat'], defn['enabled_key'], 'false')).lower() == 'true'
+        try:
+            hour = int(get_setting(defn['hour_cat'], defn['hour_key'], defn['hour_default']) or defn['hour_default'])
+        except (TypeError, ValueError):
+            hour = int(defn['hour_default'])
+        hour = max(0, min(23, hour))
+        last = get_setting(defn['last_cat'], defn['last_key'], '') or ''
+        tasks.append({
+            'id': defn['id'],
+            'name': defn['name'],
+            'desc': defn['desc'],
+            'enabled': enabled,
+            'hour': hour,
+            'frequency': defn['freq_tpl'].format(hour=f'{hour:02d}'),
+            'next_run': _next_run_hint(hour, enabled),
+            'last_run': last,
+            'status': 'running' if enabled else 'paused',
+        })
+    return jsonify({'list': tasks})
+
+
+@bp.route('/api/settings/scheduled-tasks/<task_id>', methods=['PUT'])
+def update_scheduled_task(task_id):
+    from config import update_setting
+    defn = next((d for d in _SCHEDULED_TASKS if d['id'] == task_id), None)
+    if not defn:
+        return jsonify({'error': '未知任务'}), 404
+    data = request.get_json(silent=True) or {}
+    if 'enabled' in data:
+        update_setting(
+            defn['enabled_cat'],
+            defn['enabled_key'],
+            'true' if data.get('enabled') else 'false',
+        )
+    if 'hour' in data:
+        try:
+            hour = max(0, min(23, int(data['hour'])))
+        except (TypeError, ValueError):
+            return jsonify({'error': '整点须为 0-23'}), 400
+        update_setting(defn['hour_cat'], defn['hour_key'], str(hour))
+    return jsonify({'message': '已更新'})
 
 
 @bp.route('/api/settings', methods=['PUT'])

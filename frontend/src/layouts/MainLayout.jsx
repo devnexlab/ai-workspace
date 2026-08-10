@@ -2,7 +2,6 @@ import { useState, useMemo } from 'react'
 import { Layout, Tooltip, Button } from 'antd'
 import {
   DashboardOutlined,
-  ThunderboltOutlined,
   FireOutlined,
   FileTextOutlined,
   VideoCameraOutlined,
@@ -32,7 +31,6 @@ const BRAND_NAME = '智能运营台'
 
 const pageTitleMap = {
   '/': '运营仪表盘',
-  '/live': '实时动态',
   '/hot-topics': '热点情报',
   '/scripts': '文案管理',
   '/videos': '视频生产',
@@ -49,7 +47,6 @@ const pageTitleMap = {
 
 const sectionLabelMap = {
   '/': '总览',
-  '/live': '总览',
   '/hot-topics': '内容运营',
   '/scripts': '内容运营',
   '/videos': '内容运营',
@@ -69,7 +66,6 @@ const navGroups = [
     label: '总览',
     items: [
       { key: '/', icon: <DashboardOutlined />, label: '运营仪表盘' },
-      { key: '/live', icon: <ThunderboltOutlined />, label: '实时动态' },
     ],
   },
   {

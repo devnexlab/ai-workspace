@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react'
 import { useOutletContext, useParams } from 'react-router-dom'
 import {
   Alert, Button, Card, Checkbox, Form, Input, Modal, Select, Space, Spin, Tag, message, Popconfirm,
+  Table, InputNumber,
 } from 'antd'
 import {
   SaveOutlined, CheckCircleOutlined, ExclamationCircleOutlined, PlusOutlined, DeleteOutlined,
-  ExperimentOutlined,
+  ExperimentOutlined, PauseCircleOutlined, PlayCircleOutlined, EditOutlined,
 } from '@ant-design/icons'
 import { settingsApi, platformsApi } from '../../api'
 import { flattenValues, groupValues, renderSettingField } from './settingUtils'
@@ -81,6 +82,10 @@ export default function SettingsModulePage() {
     return <WechatOaSettingsPage mod={mod} />
   }
 
+  if (mod.type === 'scheduled_tasks') {
+    return <ScheduledTasksPage />
+  }
+
   const handleSave = () => {
     setSaving(true)
     const cats = mod.categories || []
@@ -130,7 +135,9 @@ export default function SettingsModulePage() {
             )}
           >
             <Form layout="vertical">
-              {items.map(item => (
+              {(items || [])
+                .filter(item => !(mod.exclude_keys || []).includes(item.key))
+                .map(item => (
                 <Form.Item key={item.key} label={item.label} extra={item.description}>
                   {renderSettingField(item, values, setValues)}
                 </Form.Item>
@@ -1106,3 +1113,130 @@ function PlatformsPage({ mod }) {
     </div>
   )
 }
+
+function ScheduledTasksPage() {
+  const [list, setList] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [busyId, setBusyId] = useState(null)
+  const [editTask, setEditTask] = useState(null)
+  const [hour, setHour] = useState(8)
+
+  const load = () => {
+    setLoading(true)
+    settingsApi.scheduledTasks()
+      .then(res => setList(res.list || []))
+      .catch(() => message.error('加载定时任务失败'))
+      .finally(() => setLoading(false))
+  }
+
+  useEffect(() => { load() }, [])
+
+  const toggle = (row) => {
+    setBusyId(row.id)
+    settingsApi.updateScheduledTask(row.id, { enabled: !row.enabled })
+      .then(() => {
+        message.success(row.enabled ? '已暂停' : '已启用')
+        load()
+      })
+      .catch(err => message.error(err?.error || '更新失败'))
+      .finally(() => setBusyId(null))
+  }
+
+  const saveHour = () => {
+    if (!editTask) return
+    setBusyId(editTask.id)
+    settingsApi.updateScheduledTask(editTask.id, { hour })
+      .then(() => {
+        message.success('执行整点已更新')
+        setEditTask(null)
+        load()
+      })
+      .catch(err => message.error(err?.error || '更新失败'))
+      .finally(() => setBusyId(null))
+  }
+
+  const columns = [
+    {
+      title: '任务名称',
+      dataIndex: 'name',
+      render: (v, r) => (
+        <div>
+          <div style={{ fontWeight: 600, color: 'var(--color-primary, #5b5bd6)' }}>{v}</div>
+          <div style={{ fontSize: 12, color: '#9b9bb0', marginTop: 2 }}>{r.desc}</div>
+        </div>
+      ),
+    },
+    { title: '执行频率', dataIndex: 'frequency', width: 140 },
+    { title: '下次执行', dataIndex: 'next_run', width: 120 },
+    {
+      title: '状态', dataIndex: 'status', width: 100,
+      render: (v) => (
+        v === 'running'
+          ? <Tag color="success">运行中</Tag>
+          : <Tag>已暂停</Tag>
+      ),
+    },
+    {
+      title: '操作', key: 'action', width: 120,
+      render: (_, r) => (
+        <Space>
+          <Button
+            size="small"
+            icon={r.enabled ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
+            loading={busyId === r.id}
+            onClick={() => toggle(r)}
+          />
+          <Button
+            size="small"
+            icon={<EditOutlined />}
+            onClick={() => { setEditTask(r); setHour(r.hour ?? 8) }}
+          />
+        </Space>
+      ),
+    },
+  ]
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+        <div>
+          <div className="page-title">定时任务</div>
+          <div className="page-desc" style={{ marginBottom: 0 }}>
+            管理日更、财经新闻、全市场同步与自选股刷新等后台任务。
+          </div>
+        </div>
+        <Button icon={<ExperimentOutlined />} onClick={load}>刷新</Button>
+      </div>
+
+      <Card styles={{ body: { padding: 0 } }}>
+        <Table
+          rowKey="id"
+          columns={columns}
+          dataSource={list}
+          loading={loading}
+          pagination={false}
+          size="middle"
+        />
+      </Card>
+
+      <Modal
+        title={`调整执行整点 — ${editTask?.name || ''}`}
+        open={!!editTask}
+        onOk={saveHour}
+        onCancel={() => setEditTask(null)}
+        confirmLoading={busyId === editTask?.id}
+        destroyOnClose
+      >
+        <Form layout="vertical" style={{ marginTop: 12 }}>
+          <Form.Item label="执行整点（0-23）" extra="到点后约 10 分钟窗口内执行一次">
+            <InputNumber min={0} max={23} value={hour} onChange={v => setHour(v ?? 0)} style={{ width: 120 }} />
+          </Form.Item>
+          {editTask?.last_run ? (
+            <div style={{ color: '#94a3b8', fontSize: 12 }}>上次执行：{editTask.last_run}</div>
+          ) : null}
+        </Form>
+      </Modal>
+    </div>
+  )
+}
+

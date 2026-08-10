@@ -2,7 +2,6 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import MainLayout from './layouts/MainLayout'
 
 import Dashboard from './features/dashboard/Dashboard'
-import LiveActivity from './features/live/LiveActivity'
 import HotTopics from './features/content/HotTopics'
 import Scripts from './features/content/Scripts'
 import Videos from './features/content/Videos'
@@ -28,7 +27,6 @@ export default function App() {
 
         <Route path="/" element={<MainLayout />}>
           <Route index element={<Dashboard />} />
-          <Route path="live" element={<LiveActivity />} />
           <Route path="hot-topics" element={<HotTopics />} />
           <Route path="scripts" element={<Scripts />} />
           <Route path="videos" element={<Videos />} />

@@ -311,6 +311,17 @@ CREATE TABLE IF NOT EXISTS stock_screening (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- AI / 手动复盘记录
+CREATE TABLE IF NOT EXISTS stock_review (
+    id SERIAL PRIMARY KEY,
+    title TEXT DEFAULT '',
+    input_text TEXT DEFAULT '',
+    summary TEXT DEFAULT '',
+    result_json TEXT DEFAULT '',
+    tone TEXT DEFAULT 'gray',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 全市场 A 股（夜间同步，新股自动加入）
 CREATE TABLE IF NOT EXISTS stock_universe (
     id SERIAL PRIMARY KEY,
@@ -562,6 +573,11 @@ DEFAULT_SETTINGS = [
      '0-23，默认 18（收盘后）；窗口为该小时前 25 分钟', 'text', None, 7),
     ('stock', 'universe_last_refresh_date', '', '全市场上次同步日期', '系统自动写入', 'text', None, 8),
     ('stock', 'universe_last_refresh_at', '', '全市场上次同步时间', '系统自动写入', 'text', None, 9),
+    ('stock', 'watchlist_auto_refresh', 'true', '自选股收盘刷新',
+     '交易日收盘后自动刷新自选现价并检查预警', 'select', '["true","false"]', 10),
+    ('stock', 'watchlist_refresh_hour', '15', '自选股刷新整点',
+     '0-23，默认 15（收盘后）', 'text', None, 11),
+    ('stock', 'watchlist_last_refresh_date', '', '自选股上次刷新日期', '系统自动写入', 'text', None, 12),
 
     # ---- 消息推送（按渠道分卡片，对齐采集平台）----
     ('notify_wecom', 'enabled', 'false', '启用企业微信推送',

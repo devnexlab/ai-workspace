@@ -1,16 +1,20 @@
 import { useState, useEffect } from 'react'
 import {
-  Table, Tag, Button, Input, Select, Space, Modal, message,
-  Form, Popconfirm, Tooltip, Row, Col, Card, Statistic, Descriptions,
-  Spin, Empty, Alert, Upload,
+  Tag, Button, Input, Select, Space, Modal, message,
+  Form, Popconfirm, Tooltip, Row, Col, Card, Descriptions,
+  Spin, Empty, Alert, Upload, Checkbox, Pagination,
 } from 'antd'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined,
   ReloadOutlined, RobotOutlined, BookOutlined,
-  FileTextOutlined, UploadOutlined,
+  FileTextOutlined, UploadOutlined, MessageOutlined,
+  SoundOutlined, PictureOutlined, GlobalOutlined,
+  FilePdfOutlined, FileExcelOutlined, StockOutlined,
+  BulbOutlined, ReadOutlined, VideoCameraOutlined,
 } from '@ant-design/icons'
 import { knowledgeApi } from '../../api'
-import { formatDateTime } from '../../utils/date'
+import { formatDate, formatDateTime } from '../../utils/date'
+import './KnowledgeBase.css'
 
 const sourceTypeOptions = [
   { value: 'note', label: '笔记' },
@@ -45,6 +49,60 @@ const sourceTypeColors = {
   inspiration: 'pink',
 }
 
+const sourceTypeIconStyle = {
+  note: { bg: 'rgba(59,130,246,0.1)', color: '#3b82f6', icon: <FileTextOutlined /> },
+  study: { bg: 'rgba(0,184,132,0.1)', color: '#00b884', icon: <ReadOutlined /> },
+  chat: { bg: 'rgba(0,184,132,0.1)', color: '#00b884', icon: <MessageOutlined /> },
+  voice: { bg: 'rgba(255,149,0,0.1)', color: '#ff9500', icon: <SoundOutlined /> },
+  image: { bg: 'rgba(139,92,246,0.1)', color: '#8b5cf6', icon: <PictureOutlined /> },
+  web: { bg: 'rgba(91,91,214,0.1)', color: '#5b5bd6', icon: <GlobalOutlined /> },
+  pdf: { bg: 'rgba(255,59,92,0.1)', color: '#ff3b5c', icon: <FilePdfOutlined /> },
+  excel: { bg: 'rgba(0,184,132,0.1)', color: '#00b884', icon: <FileExcelOutlined /> },
+  article: { bg: 'rgba(236,72,153,0.1)', color: '#ec4899', icon: <BookOutlined /> },
+  video_summary: { bg: 'rgba(249,115,22,0.1)', color: '#f97316', icon: <VideoCameraOutlined /> },
+  stock: { bg: 'rgba(234,179,8,0.12)', color: '#ca8a04', icon: <StockOutlined /> },
+  insurance: { bg: 'rgba(34,197,94,0.1)', color: '#16a34a', icon: <BulbOutlined /> },
+  inspiration: { bg: 'rgba(244,114,182,0.12)', color: '#db2777', icon: <BulbOutlined /> },
+}
+
+function cardSnippet(item) {
+  const raw = (item.summary || item.content || '').replace(/\s+/g, ' ').trim()
+  return raw || '暂无摘要，可点击 AI 整理生成'
+}
+
+function parseRelatedIds(raw) {
+  if (Array.isArray(raw)) return raw
+  if (raw == null || raw === '') return []
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return String(raw).split(',').map(s => Number(s.trim())).filter(Boolean)
+    }
+  }
+  return []
+}
+
+function hasAiResult(item) {
+  if (!item) return false
+  return Boolean(
+    (item.summary && String(item.summary).trim())
+    || (item.ai_analysis && String(item.ai_analysis).trim())
+  )
+}
+
+function buildAiResultFromItem(item) {
+  if (!item) return null
+  return {
+    category: item.category || '',
+    tags: item.tags || '',
+    summary: item.summary || '',
+    related_ids: parseRelatedIds(item.related_ids),
+    ai_analysis: item.ai_analysis || '',
+  }
+}
+
 export default function KnowledgeBase() {
   const [data, setData] = useState({ list: [], total: 0 })
   const [loading, setLoading] = useState(true)
@@ -53,6 +111,7 @@ export default function KnowledgeBase() {
   const [editModal, setEditModal] = useState(false)
   const [aiModal, setAiModal] = useState(false)
   const [aiResult, setAiResult] = useState(null)
+  const [aiResultId, setAiResultId] = useState(null)
   const [aiLoading, setAiLoading] = useState(false)
   const [aiLoadingId, setAiLoadingId] = useState(null)
   const [selectedRowKeys, setSelectedRowKeys] = useState([])
@@ -64,9 +123,10 @@ export default function KnowledgeBase() {
   const [categories, setCategories] = useState([])
   const [viewing, setViewing] = useState(null)
   const [uploading, setUploading] = useState(false)
+
   const loadData = (p = page, f = filters) => {
     setLoading(true)
-    knowledgeApi.list({ page: p, pageSize: 15, ...f })
+    knowledgeApi.list({ page: p, pageSize: 12, ...f })
       .then(res => { setData(res); setPage(p) })
       .finally(() => setLoading(false))
   }
@@ -77,6 +137,12 @@ export default function KnowledgeBase() {
   }, [])
 
   const handleSearch = () => loadData(1, filters)
+
+  const toggleSelect = (id, checked) => {
+    setSelectedRowKeys(prev => (
+      checked ? [...new Set([...prev, id])] : prev.filter(x => x !== id)
+    ))
+  }
 
   const handleSave = () => {
     form.validateFields().then(values => {
@@ -104,13 +170,49 @@ export default function KnowledgeBase() {
     })
   }
 
-  const handleAiProcess = (record) => {
+  const openAiResult = (record) => {
+    const show = (item) => {
+      setAiResultId(item.id)
+      setAiResult(buildAiResultFromItem(item))
+      setAiModal(true)
+    }
+    // 列表项已有字段则直接看；否则拉详情
+    if (hasAiResult(record) && (record.ai_analysis || record.summary)) {
+      show(record)
+      return
+    }
+    knowledgeApi.get(record.id)
+      .then((item) => {
+        if (!hasAiResult(item)) {
+          message.info('尚未整理，正在生成…')
+          handleAiProcess(item, true)
+          return
+        }
+        show(item)
+      })
+      .catch(() => message.error('加载失败'))
+  }
+
+  const handleAiProcess = (record, force = false) => {
+    if (!force && hasAiResult(record)) {
+      openAiResult(record)
+      return
+    }
     setAiLoadingId(record.id)
     setAiLoading(true)
+    setAiResultId(record.id)
     knowledgeApi.aiProcess(record.id).then(res => {
-      setAiResult(res?.result || res)
+      const result = res?.result || res
+      setAiResult({
+        ...result,
+        related_ids: parseRelatedIds(result?.related_ids),
+      })
       setAiModal(true)
       loadData()
+      // 同步详情弹窗里的数据
+      if (viewing?.id === record.id) {
+        knowledgeApi.get(record.id).then(setViewing).catch(() => {})
+      }
     }).catch(err => {
       message.error(err?.error || 'AI 整理失败，请检查 AI 配置')
     }).finally(() => {
@@ -137,124 +239,45 @@ export default function KnowledgeBase() {
     knowledgeApi.get(id).then(res => setViewing(res)).catch(() => message.error('加载失败'))
   }
 
-  const columns = [
-    { title: 'ID', dataIndex: 'id', width: 60 },
-    {
-      title: '标题', dataIndex: 'title', width: 200, ellipsis: true,
-      render: (v, r) => (
-        <Tooltip title={v}>
-          <a style={{ fontWeight: 500 }}>{v}</a>
-        </Tooltip>
-      ),
-    },
-    {
-      title: '来源', dataIndex: 'source_type', width: 100,
-      render: v => <Tag color={sourceTypeColors[v]}>{sourceTypeLabels[v] || v}</Tag>
-    },
-    {
-      title: '分类', dataIndex: 'category', width: 100,
-      render: v => v ? <Tag color="blue">{v}</Tag> : '-'
-    },
-    {
-      title: '标签', dataIndex: 'tags', width: 180, ellipsis: true,
-      render: v => v ? (Array.isArray(v) ? v : v.split(',')).map((t, i) => (
-        <Tag key={i} color="default">{typeof t === 'string' ? t.trim() : t}</Tag>
-      )) : '-'
-    },
-    {
-      title: '摘要', dataIndex: 'summary', width: 240, ellipsis: true,
-      render: v => v || <span style={{ color: '#ccc' }}>暂无摘要，可点击 AI 整理生成</span>,
-    },
-    {
-      title: '创建时间', dataIndex: 'created_at', width: 160,
-      render: v => formatDateTime(v),
-    },
-    {
-      title: '操作', key: 'action', width: 220, fixed: 'right',
-      render: (_, r) => (
-        <Space size="small">
-          <Tooltip title="AI 整理">
-            <Button
-              size="small"
-              type="primary"
-              ghost
-              icon={<RobotOutlined />}
-              loading={aiLoadingId === r.id}
-              onClick={() => handleAiProcess(r)}
-            />
-          </Tooltip>
-          <Tooltip title="编辑">
-            <Button size="small" icon={<EditOutlined />} onClick={() => {
-              setEditing(r)
-              const formData = { ...r }
-              if (typeof formData.tags === 'string') {
-                formData.tags = formData.tags.split(',').map(t => t.trim()).join(',')
-              } else if (Array.isArray(formData.tags)) {
-                formData.tags = formData.tags.join(',')
-              }
-              form.setFieldsValue(formData)
-              setEditModal(true)
-            }} />
-          </Tooltip>
-          <Popconfirm title="确认删除？" onConfirm={() => {
-            knowledgeApi.delete(r.id).then(() => { message.success('已删除'); loadData() })
-          }}>
-            <Button size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
-        </Space>
-      )
-    },
-  ]
-
-  const totalCount = data.total
-  const noteCount = data.list.filter(d => d.source_type === 'note').length
-  const studyCount = data.list.filter(d => d.source_type === 'study').length
+  const openEdit = (r) => {
+    setEditing(r)
+    const formData = { ...r }
+    if (typeof formData.tags === 'string') {
+      formData.tags = formData.tags.split(',').map(t => t.trim()).join(',')
+    } else if (Array.isArray(formData.tags)) {
+      formData.tags = formData.tags.join(',')
+    }
+    form.setFieldsValue(formData)
+    setEditModal(true)
+  }
 
   return (
-    <div>
+    <div className="kb-page">
       <div className="page-title">知识库</div>
       <div className="page-desc">
-        沉淀话术、资料与经验，供写文案和客户跟进时调用。
+        笔记、学习资料、聊天记录、行业资讯的沉淀与搜索。
       </div>
 
-      <Row gutter={16} style={{ marginBottom: 16 }}>
-        <Col span={8}>
-          <Card size="small">
-            <Statistic title="知识总数" value={totalCount} prefix={<BookOutlined />} />
-          </Card>
-        </Col>
-        <Col span={8}>
-          <Card size="small">
-            <Statistic title="笔记" value={noteCount} valueStyle={{ color: '#1890ff' }} />
-          </Card>
-        </Col>
-        <Col span={8}>
-          <Card size="small">
-            <Statistic title="学习" value={studyCount} valueStyle={{ color: '#13c2c2' }} />
-          </Card>
-        </Col>
-      </Row>
-
-      <div className="table-toolbar">
+      <div className="table-toolbar kb-toolbar">
         <div className="table-toolbar-left">
           <Select
-            placeholder="来源类型"
+            placeholder="类型"
             allowClear
-            style={{ width: 130 }}
+            style={{ width: 120 }}
             value={filters.source_type}
             onChange={v => setFilters({ ...filters, source_type: v })}
             options={sourceTypeOptions}
           />
           <Select
-            placeholder="分类筛选"
+            placeholder="分类"
             allowClear
-            style={{ width: 150 }}
+            style={{ width: 140 }}
             value={filters.category}
             onChange={v => setFilters({ ...filters, category: v })}
             options={categories.map(c => ({ value: c, label: c }))}
           />
           <Input
-            placeholder="搜索标题/标签/内容"
+            placeholder="搜索标题/内容"
             allowClear
             style={{ width: 220 }}
             value={filters.q}
@@ -264,66 +287,130 @@ export default function KnowledgeBase() {
           <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>搜索</Button>
           <Button icon={<ReloadOutlined />} onClick={() => { setFilters({}); loadData(1, {}) }}>重置</Button>
         </div>
-        <Space>
-          <Upload
-            showUploadList={false}
-            accept=".pdf,audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac,.webm"
-            beforeUpload={(file) => {
-              const fd = new FormData()
-              fd.append('file', file)
-              setUploading(true)
-              knowledgeApi.upload(fd)
-                .then((res) => {
-                  message.success(res.message || '导入成功')
-                  loadData(1)
-                  if (res.id) {
-                    knowledgeApi.get(res.id).then((item) => {
-                      setEditing(item)
-                      form.setFieldsValue(item)
-                      setEditModal(true)
-                    }).catch(() => {})
-                  }
-                })
-                .catch((err) => message.error(err?.error || err?.message || '导入失败'))
-                .finally(() => setUploading(false))
-              return false
-            }}
-          >
-            <Button icon={<UploadOutlined />} loading={uploading}>上传 PDF/录音</Button>
-          </Upload>
-          <Button icon={<RobotOutlined />} loading={compareLoading} onClick={handleCompare}
-            disabled={!selectedRowKeys.length}>
-            AI 对比启发 ({selectedRowKeys.length})
-          </Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => {
-            setEditing(null)
-            form.resetFields()
-            setEditModal(true)
-          }}>随手记</Button>
-        </Space>
+        <div className="table-toolbar-right">
+          <Space>
+            <Button
+              type="link"
+              icon={<RobotOutlined />}
+              loading={compareLoading}
+              onClick={handleCompare}
+              disabled={!selectedRowKeys.length}
+            >
+              AI 总结 / 对比 ({selectedRowKeys.length})
+            </Button>
+            <Upload
+              showUploadList={false}
+              accept=".pdf,audio/*,.mp3,.wav,.m4a,.aac,.ogg,.flac,.webm"
+              beforeUpload={(file) => {
+                const fd = new FormData()
+                fd.append('file', file)
+                setUploading(true)
+                knowledgeApi.upload(fd)
+                  .then((res) => {
+                    message.success(res.message || '导入成功')
+                    loadData(1)
+                    if (res.id) {
+                      knowledgeApi.get(res.id).then((item) => {
+                        setEditing(item)
+                        form.setFieldsValue(item)
+                        setEditModal(true)
+                      }).catch(() => {})
+                    }
+                  })
+                  .catch((err) => message.error(err?.error || err?.message || '导入失败'))
+                  .finally(() => setUploading(false))
+                return false
+              }}
+            >
+              <Button icon={<UploadOutlined />} loading={uploading}>导入文件</Button>
+            </Upload>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => {
+              setEditing(null)
+              form.resetFields()
+              setEditModal(true)
+            }}>添加笔记</Button>
+          </Space>
+        </div>
       </div>
 
-      <Table
-        columns={columns}
-        dataSource={data.list}
-        rowKey="id"
-        loading={loading}
-        rowSelection={{
-          selectedRowKeys,
-          onChange: setSelectedRowKeys,
-        }}
-        scroll={{ x: 1300 }}
-        pagination={{
-          current: page,
-          total: data.total,
-          pageSize: 15,
-          onChange: (p) => loadData(p),
-          showTotal: (t) => `共 ${t} 条`,
-        }}
-        size="middle"
-      />
+      <Spin spinning={loading}>
+        <div className="kb-grid">
+          {!data.list.length && !loading ? (
+            <div className="kb-empty"><Empty description="暂无知识，点右上角添加" /></div>
+          ) : data.list.map(item => {
+            const st = sourceTypeIconStyle[item.source_type] || sourceTypeIconStyle.note
+            const selected = selectedRowKeys.includes(item.id)
+            return (
+              <div
+                key={item.id}
+                className={`kb-card${selected ? ' is-selected' : ''}`}
+                onClick={() => setViewing(item)}
+              >
+                <div className="kb-card-check" onClick={e => e.stopPropagation()}>
+                  <Checkbox
+                    checked={selected}
+                    onChange={e => toggleSelect(item.id, e.target.checked)}
+                  />
+                </div>
+                <div className="kb-card-header">
+                  <div className="kb-card-icon" style={{ background: st.bg, color: st.color }}>
+                    {st.icon}
+                  </div>
+                  <div className="kb-card-title" title={item.title}>{item.title}</div>
+                </div>
+                <div className="kb-card-desc">{cardSnippet(item)}</div>
+                <div className="kb-card-footer">
+                  <div className="kb-card-meta">
+                    <Tag color={sourceTypeColors[item.source_type]}>
+                      {sourceTypeLabels[item.source_type] || item.source_type}
+                    </Tag>
+                    {item.category ? <span className="kb-card-cat" title={item.category}>{item.category}</span> : null}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div className="kb-card-actions" onClick={e => e.stopPropagation()}>
+                      <Tooltip title={hasAiResult(item) ? '查看 AI 整理' : 'AI 整理'}>
+                        <Button
+                          size="small"
+                          type="text"
+                          icon={<RobotOutlined />}
+                          loading={aiLoadingId === item.id}
+                          onClick={() => hasAiResult(item) ? openAiResult(item) : handleAiProcess(item, true)}
+                        />
+                      </Tooltip>
+                      <Tooltip title="编辑">
+                        <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(item)} />
+                      </Tooltip>
+                      <Popconfirm title="确认删除？" onConfirm={() => {
+                        knowledgeApi.delete(item.id).then(() => {
+                          message.success('已删除')
+                          loadData()
+                        })
+                      }}>
+                        <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+                      </Popconfirm>
+                    </div>
+                    <span className="kb-card-date">{formatDate(item.created_at).slice(5) || '-'}</span>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </Spin>
 
-      {/* 添加/编辑 Modal */}
+      {data.total > 0 && (
+        <div className="kb-pagination">
+          <Pagination
+            current={page}
+            total={data.total}
+            pageSize={12}
+            onChange={(p) => loadData(p)}
+            showTotal={(t) => `共 ${t} 条`}
+            size="small"
+          />
+        </div>
+      )}
+
       <Modal
         title={editing ? '编辑知识' : '添加知识'}
         open={editModal}
@@ -380,13 +467,28 @@ export default function KnowledgeBase() {
         </Form>
       </Modal>
 
-      {/* AI 整理结果 Modal */}
       <Modal
         title={<span><RobotOutlined /> AI 整理结果</span>}
         open={aiModal}
-        onCancel={() => { setAiModal(false); setAiResult(null) }}
+        onCancel={() => { setAiModal(false); setAiResult(null); setAiResultId(null) }}
         footer={
-          <Button onClick={() => { setAiModal(false); setAiResult(null) }}>关闭</Button>
+          <Space>
+            {aiResultId ? (
+              <Popconfirm
+                title="重新整理会覆盖当前结果，确定吗？"
+                okText="重新整理"
+                cancelText="取消"
+                onConfirm={() => handleAiProcess({ id: aiResultId }, true)}
+              >
+                <Button icon={<RobotOutlined />} loading={aiLoading && aiLoadingId === aiResultId}>
+                  重新整理
+                </Button>
+              </Popconfirm>
+            ) : null}
+            <Button type="primary" onClick={() => { setAiModal(false); setAiResult(null); setAiResultId(null) }}>
+              关闭
+            </Button>
+          </Space>
         }
         width={700}
       >
@@ -429,10 +531,7 @@ export default function KnowledgeBase() {
             )}
 
             {aiResult.ai_analysis && (
-              <Card
-                size="small"
-                title={<span><RobotOutlined /> AI 分析</span>}
-              >
+              <Card size="small" title={<span><RobotOutlined /> AI 分析</span>}>
                 <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, color: '#333' }}>
                   {aiResult.ai_analysis}
                 </div>
@@ -498,19 +597,65 @@ export default function KnowledgeBase() {
         title={viewing?.title || '知识详情'}
         open={!!viewing}
         onCancel={() => setViewing(null)}
-        footer={<Button onClick={() => setViewing(null)}>关闭</Button>}
+        footer={
+          <Space>
+            {viewing && hasAiResult(viewing) && (
+              <Button icon={<RobotOutlined />} onClick={() => openAiResult(viewing)}>
+                查看整理结果
+              </Button>
+            )}
+            {viewing && (
+              hasAiResult(viewing) ? (
+                <Popconfirm
+                  title="重新整理会覆盖当前结果，确定吗？"
+                  okText="重新整理"
+                  onConfirm={() => handleAiProcess(viewing, true)}
+                >
+                  <Button loading={aiLoading && aiLoadingId === viewing.id}>重新整理</Button>
+                </Popconfirm>
+              ) : (
+                <Button
+                  icon={<RobotOutlined />}
+                  loading={aiLoading && aiLoadingId === viewing.id}
+                  onClick={() => handleAiProcess(viewing, true)}
+                >
+                  AI 整理
+                </Button>
+              )
+            )}
+            {viewing && (
+              <Button icon={<EditOutlined />} onClick={() => { openEdit(viewing); setViewing(null) }}>编辑</Button>
+            )}
+            <Button onClick={() => setViewing(null)}>关闭</Button>
+          </Space>
+        }
         width={640}
       >
         {viewing && (
           <div>
             <Space wrap style={{ marginBottom: 8 }}>
+              <Tag color={sourceTypeColors[viewing.source_type]}>
+                {sourceTypeLabels[viewing.source_type] || viewing.source_type}
+              </Tag>
               {viewing.category && <Tag color="blue">{viewing.category}</Tag>}
               {(String(viewing.tags || '').split(',').filter(Boolean)).map((t, i) => (
                 <Tag key={i}>{t.trim()}</Tag>
               ))}
             </Space>
+            <div style={{ fontSize: 12, color: '#94a3b8', marginBottom: 10 }}>
+              {formatDateTime(viewing.created_at)}
+            </div>
             <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{viewing.content}</div>
-            {viewing.summary && <p style={{ marginTop: 12, color: '#666' }}>摘要：{viewing.summary}</p>}
+            {viewing.summary && (
+              <Card size="small" title="摘要" style={{ marginTop: 12 }}>
+                {viewing.summary}
+              </Card>
+            )}
+            {viewing.ai_analysis && (
+              <Card size="small" title={<span><RobotOutlined /> AI 分析</span>} style={{ marginTop: 12 }}>
+                <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.7 }}>{viewing.ai_analysis}</div>
+              </Card>
+            )}
           </div>
         )}
       </Modal>

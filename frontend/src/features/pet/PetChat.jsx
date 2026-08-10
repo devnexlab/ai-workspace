@@ -22,6 +22,9 @@ const WELCOME =
   '你好，我是智仔。可以问知识库、文案、股票持仓等系统数据。我会先检索再回答，并标出引用。'
 
 const SKIN_KEY = 'pet_chat_skin'
+const POS_KEY = 'pet_chat_pos'
+const PET_SIZE = 72
+const DRAG_THRESHOLD = 6
 
 const SKINS = [
   { key: 'violet', label: '紫罗兰', fab: 'linear-gradient(145deg, #7d7dff, #5b5bd6 55%, #4a4ab8)', primary: '#5b5bd6', soft: '#eef0ff', glow: 'rgba(91,91,214,.35)' },
@@ -39,6 +42,29 @@ function loadSkin() {
     /* ignore */
   }
   return 'violet'
+}
+
+function loadPos() {
+  try {
+    const raw = localStorage.getItem(POS_KEY)
+    if (!raw) return { right: 20, bottom: 20 }
+    const p = JSON.parse(raw)
+    if (typeof p?.right === 'number' && typeof p?.bottom === 'number') {
+      return { right: p.right, bottom: p.bottom }
+    }
+  } catch {
+    /* ignore */
+  }
+  return { right: 20, bottom: 20 }
+}
+
+function clampPos(right, bottom) {
+  const maxRight = Math.max(8, window.innerWidth - PET_SIZE - 8)
+  const maxBottom = Math.max(8, window.innerHeight - PET_SIZE - 8)
+  return {
+    right: Math.min(maxRight, Math.max(8, right)),
+    bottom: Math.min(maxBottom, Math.max(8, bottom)),
+  }
 }
 
 function PetFace({ mini = false }) {
@@ -60,6 +86,8 @@ export default function PetChat() {
   const [showBadge, setShowBadge] = useState(true)
   const [showSkins, setShowSkins] = useState(false)
   const [skin, setSkin] = useState(loadSkin)
+  const [pos, setPos] = useState(loadPos)
+  const [dragging, setDragging] = useState(false)
   const [mode, setMode] = useState('auto')
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
@@ -69,6 +97,7 @@ export default function PetChat() {
   ])
   const bodyRef = useRef(null)
   const textareaRef = useRef(null)
+  const dragRef = useRef(null)
 
   const skinMeta = SKINS.find((s) => s.key === skin) || SKINS[0]
 
@@ -85,6 +114,20 @@ export default function PetChat() {
     }
   }, [skin])
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(POS_KEY, JSON.stringify(pos))
+    } catch {
+      /* ignore */
+    }
+  }, [pos])
+
+  useEffect(() => {
+    const onResize = () => setPos((p) => clampPos(p.right, p.bottom))
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
   const toggleOpen = () => {
     setOpen((v) => {
       const next = !v
@@ -96,6 +139,41 @@ export default function PetChat() {
       }
       return next
     })
+  }
+
+  const onFabPointerDown = (e) => {
+    if (e.button != null && e.button !== 0) return
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+    dragRef.current = {
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      startRight: pos.right,
+      startBottom: pos.bottom,
+      moved: false,
+    }
+  }
+
+  const onFabPointerMove = (e) => {
+    const d = dragRef.current
+    if (!d || d.pointerId !== e.pointerId) return
+    const dx = e.clientX - d.startX
+    const dy = e.clientY - d.startY
+    if (!d.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return
+    d.moved = true
+    setDragging(true)
+    setShowTip(false)
+    // 向右拖 → right 减小；向下拖 → bottom 减小
+    setPos(clampPos(d.startRight - dx, d.startBottom - dy))
+  }
+
+  const endFabPointer = (e) => {
+    const d = dragRef.current
+    if (!d || (e.pointerId != null && d.pointerId !== e.pointerId)) return
+    const wasDrag = d.moved
+    dragRef.current = null
+    setDragging(false)
+    if (!wasDrag) toggleOpen()
   }
 
   const clearChat = () => {
@@ -182,10 +260,18 @@ export default function PetChat() {
     '--pet-soft': skinMeta.soft,
     '--pet-fab': skinMeta.fab,
     '--pet-glow': skinMeta.glow,
+    right: pos.right,
+    bottom: pos.bottom,
+    left: 'auto',
+    top: 'auto',
   }
 
   return (
-    <div className="pet-wrap" style={wrapStyle} data-skin={skin}>
+    <div
+      className={`pet-wrap${dragging ? ' is-dragging' : ''}`}
+      style={wrapStyle}
+      data-skin={skin}
+    >
       <div className={`pet-chat${open ? ' open' : ''}`} id="pet-chat-panel">
         <div className="pet-chat-head">
           <div className="pet-chat-avatar">
@@ -357,15 +443,19 @@ export default function PetChat() {
         </div>
       </div>
 
-      {showTip && !open && (
-        <div className="pet-tip">点我，用系统数据问一问～</div>
+      {showTip && !open && !dragging && (
+        <div className="pet-tip">点我提问 · 按住可拖动</div>
       )}
       <button
-        className={`pet-fab${open ? ' open' : ''}`}
+        className={`pet-fab${open ? ' open' : ''}${dragging ? ' dragging' : ''}`}
         type="button"
-        title="智仔 · 数据问答"
-        aria-label="打开数据问答"
-        onClick={toggleOpen}
+        title="智仔 · 数据问答（按住拖动）"
+        aria-label="打开数据问答，按住可拖动"
+        onPointerDown={onFabPointerDown}
+        onPointerMove={onFabPointerMove}
+        onPointerUp={endFabPointer}
+        onPointerCancel={endFabPointer}
+        onClick={(e) => e.preventDefault()}
       >
         {showBadge && !open && <span className="pet-badge">1</span>}
         <PetFace />
