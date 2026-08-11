@@ -60,9 +60,12 @@ _CONTENT_URL_HINTS = (
     'xhslink.com/',
     'weixin.qq.com/sph/',
     'channels.weixin.qq.com/web/',
+    'channels.weixin.qq.com/mobile/',
 )
 _EXCLUDE_URL_HINTS = (
     'upload', 'publish/publish', 'post/create', 'login', 'passport',
+    'developers.weixin.qq.com', 'platform/post/list', 'platform/post/create',
+    'miniprogram/dev', 'doc.weixin', 'support.weixin', '/platform/',
 )
 
 
@@ -81,12 +84,18 @@ def _platform_meta(platform):
 
 
 def check_playwright():
-    """Check if Playwright is installed."""
+    """Check if Playwright + Chromium are available."""
     try:
-        import playwright  # noqa: F401
-        return True
-    except ImportError:
-        return False
+        from modules.playwright_env import ensure_playwright_browsers_path, playwright_chromium_ready
+        ensure_playwright_browsers_path()
+        ok, _msg = playwright_chromium_ready()
+        return bool(ok)
+    except Exception:
+        try:
+            import playwright  # noqa: F401
+            return True
+        except ImportError:
+            return False
 
 
 def _profile_dir(platform):
@@ -150,6 +159,8 @@ def _stop_platform_sessions(platform, except_id=None):
 
 def _launch_persistent(playwright, profile):
     """启动持久化浏览器；失败则清锁/杀残留后重试一次。"""
+    from modules.playwright_env import ensure_playwright_browsers_path
+    ensure_playwright_browsers_path()
     last_err = None
     for attempt in range(2):
         _clear_profile_locks(profile)
@@ -185,6 +196,12 @@ def _launch_persistent(playwright, profile):
 
 def _launch_error_hint(err, profile, label):
     text = str(err)
+    if "Executable doesn't exist" in text or 'cursor-sandbox-cache' in text:
+        return (
+            f'{label} 浏览器启动失败：未找到 Chromium。'
+            f'请在仓库根目录执行：.venv\\Scripts\\python.exe -m playwright install chromium'
+            f'；若从 Cursor 启动后端，请用 start_backend.bat（会清除错误的 PLAYWRIGHT_BROWSERS_PATH）。'
+        )
     if 'has been closed' in text or 'Target page' in text:
         return (
             f'{label} 浏览器启动失败：配置目录可能被占用或已损坏。'
@@ -495,7 +512,34 @@ def _is_content_url(url):
         return False
     if any(x in u for x in _EXCLUDE_URL_HINTS):
         return False
-    return any(x in u for x in _CONTENT_URL_HINTS)
+    if any(x in u for x in _CONTENT_URL_HINTS):
+        return True
+    if re.search(r'weixin\.qq\.com/sph[/?#]', u):
+        return True
+    if re.search(r'channels\.weixin\.qq\.com/.+(feed|share|export)', u):
+        return True
+    return False
+
+
+def _sanitize_engagement(likes, comments):
+    """过滤把日期误当成赞评的情况（如 2026/8）。"""
+    try:
+        likes = int(likes or 0)
+    except Exception:
+        likes = 0
+    try:
+        comments = int(comments or 0)
+    except Exception:
+        comments = 0
+    # 年份误判
+    if 1900 <= likes <= 2100 and 1 <= comments <= 31:
+        return 0, 0
+    # 过大不合理
+    if likes > 10_000_000:
+        likes = 0
+    if comments > 10_000_000:
+        comments = 0
+    return max(0, likes), max(0, comments)
 
 
 def _detect_url_from_page(page):
@@ -575,91 +619,366 @@ def _parse_cn_count(text):
     return int(num)
 
 
-def _scrape_manage_page(page, platform, title):
+def _title_match_keys(title, platform=''):
+    """生成用于作品列表匹配的标题关键字（短标题 / 截断 / 去标点）。"""
+    raw = (title or '').strip()
+    keys = []
+    if not raw:
+        return keys
+
+    def add(s):
+        s = (s or '').strip()
+        if not s:
+            return
+        if s not in keys:
+            keys.append(s)
+
+    add(raw)
+    add(raw[:24])
+    add(raw[:16])
+    add(raw[:12])
+    add(raw[:8])
+    if platform == 'shipinhao':
+        add(_shipinhao_short_title(raw))
+    # 去常见标点后再取前缀
+    compact = re.sub(r'[\s\-_|｜·•，。！？、：:；;（）()【】\[\]《》<>\"\'“”‘’]+', '', raw)
+    add(compact[:16])
+    add(compact[:12])
+    add(compact[:8])
+    # 过滤太短的无意义键
+    return [k for k in keys if len(k) >= 4]
+
+
+def _page_looks_like_login_or_qr(page):
+    """作品管理页若落在登录墙 / 微信扫码观看页，则无法刮取列表。"""
+    try:
+        url = (page.url or '').lower()
+    except Exception:
+        url = ''
+    if any(x in url for x in ('login', 'passport', 'signin', 'sso')):
+        return True
+    try:
+        text = page.inner_text('body', timeout=2000) or ''
+    except Exception:
+        text = ''
+    markers = (
+        '扫码登录', '手机号登录', '请使用微信扫码', '可扫码前往微信观看',
+        '扫码关注', '登录后查看', '微信扫一扫登录',
+    )
+    return any(m in text for m in markers)
+
+
+def _scrape_roots(page):
+    """主文档 + iframe（视频号 wujie /micro/ 优先）。"""
+    roots = []
+    try:
+        frames = list(page.frames)
+        micro = [f for f in frames if '/micro/' in (f.url or '')]
+        others = [f for f in frames if f not in micro]
+        # Frame 自身可 evaluate；page 用 main frame
+        for f in micro + others:
+            roots.append(f)
+    except Exception:
+        pass
+    if not roots:
+        roots = [page]
+    return roots
+
+
+def _scrape_manage_page(page, platform, title, navigate=True):
     """在创作者作品管理页按标题匹配，提取链接与点赞/评论（尽力而为）。"""
     manage = MANAGE_URLS.get(platform) or ''
-    if manage:
+    if navigate and manage:
         try:
             page.goto(manage, wait_until='domcontentloaded', timeout=60000)
-            page.wait_for_timeout(3500)
+            page.wait_for_timeout(2500)
+            try:
+                page.wait_for_function(
+                    "() => !!(document.body && document.body.innerText && document.body.innerText.length > 80)",
+                    timeout=8000,
+                )
+            except Exception:
+                pass
+            page.wait_for_timeout(2000)
+            try:
+                page.mouse.wheel(0, 1200)
+                page.wait_for_timeout(800)
+                page.mouse.wheel(0, -600)
+                page.wait_for_timeout(500)
+            except Exception:
+                pass
         except Exception as e:
             return {'ok': False, 'error': f'打开作品管理页失败: {e}'}
 
-    title_key = (title or '').strip()[:24]
-    try:
-        items = page.evaluate(
-            '''(titleKey) => {
-              const norm = (s) => (s || '').replace(/\\s+/g, ' ').trim();
-              const parseNum = (s) => {
-                s = String(s || '').trim().replace(/,/g, '');
-                const m = s.match(/^([\\d.]+)\\s*([万wW千kK])?/);
-                if (!m) {
-                  const d = s.replace(/[^\\d]/g, '');
-                  return d ? parseInt(d, 10) : 0;
-                }
-                let n = parseFloat(m[1]);
-                const u = (m[2] || '').toLowerCase();
-                if (u === '万' || u === 'w') n *= 10000;
-                if (u === '千' || u === 'k') n *= 1000;
-                return Math.round(n);
-              };
-              const isContent = (href) => {
-                const u = (href || '').toLowerCase();
-                if (!u.startsWith('http')) return false;
-                if (/upload|publish\\/publish|post\\/create|login|passport/.test(u)) return false;
-                return /douyin\\.com\\/video\\/|v\\.douyin\\.com\\/|xiaohongshu\\.com\\/(explore|discovery\\/item)\\/|xhslink\\.com\\/|weixin\\.qq\\.com\\/sph\\/|channels\\.weixin\\.qq\\.com\\/web\\//.test(u);
-              };
-              const cards = [];
-              const nodes = Array.from(document.querySelectorAll('a, [class*="item"], [class*="card"], [class*="row"], li, tr'));
-              for (const el of nodes) {
-                const t = norm(el.innerText || el.textContent || '');
-                if (!t || t.length < 2) continue;
-                if (titleKey && !t.includes(titleKey) && !(el.innerText || '').includes(titleKey.slice(0, 12))) continue;
-                if (!titleKey && t.length > 80) continue;
-                let href = '';
-                if (el.tagName === 'A' && isContent(el.href)) href = el.href;
-                if (!href) {
-                  const a = el.querySelector && el.querySelector('a[href]');
-                  if (a && isContent(a.href)) href = a.href;
-                }
-                const likesM = t.match(/(?:点赞|赞)\\s*[:：]?\\s*([\\d.]+\\s*[万wW千kK]?)/) || t.match(/👍\\s*([\\d.]+\\s*[万wW千kK]?)/);
-                const commentsM = t.match(/(?:评论|回复)\\s*[:：]?\\s*([\\d.]+\\s*[万wW千kK]?)/) || t.match(/💬\\s*([\\d.]+\\s*[万wW千kK]?)/);
-                const nums = (t.match(/[\\d.]+\\s*[万wW千kK]?/g) || []).map(parseNum).filter(n => n >= 0);
-                cards.push({
-                  title: t.slice(0, 80),
-                  url: href,
-                  likes: likesM ? parseNum(likesM[1]) : (nums[0] || 0),
-                  comments: commentsM ? parseNum(commentsM[1]) : (nums[1] || 0),
-                });
-                if (cards.length >= 8) break;
-              }
-              return cards;
-            }''',
-            title_key,
-        ) or []
-    except Exception as e:
-        return {'ok': False, 'error': f'解析作品列表失败: {e}'}
+    if _page_looks_like_login_or_qr(page):
+        return {
+            'ok': False,
+            'error': '创作者后台未登录或落在扫码页。请先用「浏览器发布」扫码登录，保持登录后再点同步',
+        }
+
+    title_keys = _title_match_keys(title, platform)
+    scrape_js = """
+    (payload) => {
+      const titleKeys = (payload && payload.keys) || [];
+      const platform = (payload && payload.platform) || '';
+      const norm = (s) => (s || '').replace(/\\s+/g, ' ').trim();
+      const parseNum = (s) => {
+        s = String(s || '').trim().replace(/,/g, '');
+        if (!s) return 0;
+        const m = s.match(/^([\\d.]+)\\s*([万wW千kK])?$/);
+        if (!m) return 0;
+        let n = parseFloat(m[1]);
+        if (!isFinite(n)) return 0;
+        const u = (m[2] || '').toLowerCase();
+        if (u === '万' || u === 'w') n *= 10000;
+        if (u === '千' || u === 'k') n *= 1000;
+        return Math.round(n);
+      };
+      const stripDateNoise = (s) => String(s || '')
+        .replace(/\\d{4}\\s*年\\s*\\d{1,2}\\s*月\\s*\\d{1,2}\\s*日/g, ' ')
+        .replace(/\\d{4}[\\/-]\\d{1,2}[\\/-]\\d{1,2}/g, ' ')
+        .replace(/\\d{1,2}\\s*[:：]\\s*\\d{2}(?:\\s*[:：]\\s*\\d{2})?/g, ' ')
+        .replace(/\\d{4}\\s*年\\s*\\d{1,2}\\s*月/g, ' ');
+      const isBadDocUrl = (href) => {
+        const u = (href || '').toLowerCase();
+        return /developers\\.weixin\\.qq\\.com|miniprogram\\/dev|doc\\.weixin|support\\.weixin|platform\\/post\\/(list|create)/.test(u);
+      };
+      const isContent = (href) => {
+        const u = (href || '').toLowerCase();
+        if (!u.startsWith('http') || isBadDocUrl(u)) return false;
+        if (/upload|publish\\/publish|post\\/create|login|passport/.test(u)) return false;
+        return /douyin\\.com\\/video\\/|v\\.douyin\\.com\\/|xiaohongshu\\.com\\/(explore|discovery\\/item)\\/|xhslink\\.com\\/|weixin\\.qq\\.com\\/sph\\/?|channels\\.weixin\\.qq\\.com\\/(web|mobile)\\//.test(u);
+      };
+      const keys = (titleKeys || []).filter(Boolean);
+      const hit = (text) => {
+        if (!keys.length) return true;
+        const t = norm(text);
+        const compact = t.replace(/[\\s\\-_|｜·•，。！？、：:；;（）()【】\\[\\]《》<>\"'“”‘’]+/g, '');
+        return keys.some(k => t.includes(k) || compact.includes(String(k).replace(/\\s+/g, '')));
+      };
+      const parseEngagement = (rawText) => {
+        const t0 = norm(rawText);
+        const t = stripDateNoise(t0);
+        let likes = 0, comments = 0, views = 0;
+        const labeledLike = t.match(/(?:点赞|赞)\\s*[:：]?\\s*([\\d.]+\\s*[万wW千kK]?)/);
+        const labeledComment = t.match(/(?:评论|回复)\\s*[:：]?\\s*([\\d.]+\\s*[万wW千kK]?)/);
+        const labeledView = t.match(/(?:播放|观看|浏览|阅读)\\s*[:：]?\\s*([\\d.]+\\s*[万wW千kK]?)/);
+        if (labeledLike) likes = parseNum(labeledLike[1]);
+        if (labeledComment) comments = parseNum(labeledComment[1]);
+        if (labeledView) views = parseNum(labeledView[1]);
+        const nums = (t.match(/\\d+(?:\\.\\d+)?\\s*[万wW千kK]?/g) || [])
+          .map(parseNum)
+          .filter(n => n >= 0 && n < 100000000 && !(n >= 1900 && n <= 2100));
+        // 视频号管理页常见顺序：播放 喜欢 评论 分享 点赞
+        if (platform === 'shipinhao' && (!labeledLike || !labeledComment)) {
+          if (nums.length >= 5) {
+            views = views || nums[0];
+            comments = labeledComment ? comments : nums[2];
+            likes = labeledLike ? likes : nums[4];
+          } else if (nums.length >= 3) {
+            comments = labeledComment ? comments : nums[Math.min(2, nums.length - 1)];
+            likes = labeledLike ? likes : nums[nums.length - 1];
+          } else if (nums.length === 2) {
+            likes = labeledLike ? likes : nums[0];
+            comments = labeledComment ? comments : nums[1];
+          } else if (nums.length === 1 && !labeledLike) {
+            likes = nums[0];
+          }
+        } else if (!labeledLike && !labeledComment) {
+          if (nums.length >= 2) { likes = nums[0]; comments = nums[1]; }
+          else if (nums.length === 1) { likes = nums[0]; }
+        }
+        if (likes >= 1900 && likes <= 2100 && comments >= 1 && comments <= 31) {
+          likes = 0; comments = 0;
+        }
+        return { likes, comments, views };
+      };
+      const cards = [];
+      const seen = new Set();
+      const nodes = Array.from(document.querySelectorAll(
+        '[class*="post"], [class*="feed"], [class*="item"], [class*="card"], [class*="row"], [class*="list"] > *, li, tr, [role="listitem"], a'
+      ));
+      for (const el of nodes) {
+        const t = norm(el.innerText || el.textContent || '');
+        if (!t || t.length < 4 || t.length > 800) continue;
+        if (!hit(t)) continue;
+        const looksPost = /\\d{4}\\s*年|点赞|评论|播放|分享|置顶|可见权限/.test(t)
+          || (platform === 'shipinhao' && /#/.test(t));
+        if (keys.length && !looksPost && t.length < 20) continue;
+        let href = '';
+        const feedId = el.getAttribute && (
+          el.getAttribute('data-feed-id') || el.getAttribute('data-feedid') || el.getAttribute('data-id') || ''
+        );
+        if (el.tagName === 'A' && el.href && isContent(el.href)) href = el.href;
+        if (!href) {
+          const anchors = el.querySelectorAll ? Array.from(el.querySelectorAll('a[href]')) : [];
+          for (const a of anchors) {
+            if (isContent(a.href)) { href = a.href; break; }
+          }
+        }
+        if (href && isBadDocUrl(href)) href = '';
+        const eng = parseEngagement(t);
+        const key = (href || feedId || '') + '|' + t.slice(0, 48);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        cards.push({
+          title: t.slice(0, 120),
+          url: href || '',
+          feedId: feedId || '',
+          likes: eng.likes,
+          comments: eng.comments,
+          views: eng.views,
+          score: (href ? 12 : 0) + (eng.likes + eng.comments > 0 ? 8 : 0) + (looksPost ? 6 : 0),
+        });
+        if (cards.length >= 24) break;
+      }
+      cards.sort((a, b) => (b.score || 0) - (a.score || 0));
+      return cards;
+    }
+    """
+
+    payload = {'keys': title_keys, 'platform': platform or ''}
+    items = []
+    samples = []
+    for root in _scrape_roots(page):
+        try:
+            found = root.evaluate(scrape_js, payload) or []
+            items.extend(found)
+        except Exception:
+            continue
+        if not samples:
+            try:
+                raw = root.evaluate(scrape_js, {'keys': [], 'platform': platform or ''}) or []
+                samples = [
+                    s for s in raw
+                    if 6 <= len((s.get('title') or '')) <= 120
+                    and not any(x in (s.get('title') or '') for x in ('作品管理', '发表视频', '数据中心', '设置', '首页'))
+                ][:5] or raw[:3]
+            except Exception:
+                pass
+
+    uniq, seen = [], set()
+    for it in items:
+        k = (it.get('url') or '') + '|' + (it.get('feedId') or '') + '|' + (it.get('title') or '')[:40]
+        if k in seen:
+            continue
+        seen.add(k)
+        uniq.append(it)
+    items = uniq
 
     if not items:
-        # 退而求其次：页面上任意内容链
         url = _detect_url_from_page(page)
-        if url:
+        if url and _is_content_url(url):
             return {'ok': True, 'publish_url': url, 'likes': 0, 'comments': 0, 'matched': False}
-        return {'ok': False, 'error': '未在作品管理页匹配到该标题，请确认已发布成功'}
+        hint = ''
+        if samples:
+            titles = '；'.join((s.get('title') or '')[:20] for s in samples[:3] if s.get('title'))
+            if titles:
+                hint = f'。页上可见：{titles}'
+        elif title_keys:
+            hint = f'（匹配关键字：{title_keys[0][:16]}）'
+        return {'ok': False, 'error': f'未在作品管理页匹配到该标题，请确认已发布成功{hint}'}
 
     best = items[0]
     for it in items:
-        if it.get('url'):
+        if it.get('url') and _is_content_url(it.get('url')):
             best = it
             break
+
+    likes, comments = _sanitize_engagement(best.get('likes'), best.get('comments'))
+    publish_url = best.get('url') or ''
+    if publish_url and not _is_content_url(publish_url):
+        publish_url = ''
+
+    if platform == 'shipinhao' and not publish_url:
+        share = _shipinhao_try_share_url(page, title_keys)
+        if share:
+            publish_url = share
+
     return {
         'ok': True,
-        'publish_url': best.get('url') or '',
-        'likes': int(best.get('likes') or 0),
-        'comments': int(best.get('comments') or 0),
+        'publish_url': publish_url,
+        'likes': likes,
+        'comments': comments,
         'matched': True,
         'matched_title': best.get('title') or '',
     }
+
+
+def _shipinhao_try_share_url(page, title_keys):
+    """点击作品「分享」，尽量拿到视频号公开链。"""
+    keys = [k for k in (title_keys or []) if k]
+    click_js = """
+    (keys) => {
+      const norm = (s) => (s || '').replace(/\\s+/g, ' ').trim();
+      const hit = (t) => !keys.length || keys.some(k => t.includes(k));
+      const nodes = Array.from(document.querySelectorAll('button, a, span, div'));
+      for (const el of nodes) {
+        if (norm(el.innerText || '') !== '分享') continue;
+        let p = el;
+        for (let i = 0; i < 8 && p; i++) {
+          const pt = norm(p.innerText || '');
+          if (hit(pt) && pt.length > 10) { el.click(); return true; }
+          p = p.parentElement;
+        }
+      }
+      const any = nodes.find(el => norm(el.innerText || '') === '分享');
+      if (any) { any.click(); return true; }
+      return false;
+    }
+    """
+    clicked = False
+    for root in _scrape_roots(page):
+        try:
+            if root.evaluate(click_js, keys):
+                clicked = True
+                break
+        except Exception:
+            continue
+    if not clicked:
+        return ''
+
+    page.wait_for_timeout(1200)
+    read_js = """
+    () => {
+      const bad = /developers\\.weixin\\.qq\\.com|miniprogram\\/dev|platform\\/post\\//;
+      for (const el of Array.from(document.querySelectorAll('input, textarea'))) {
+        const v = (el.value || el.getAttribute('value') || '').trim();
+        if (/^https?:\\/\\//.test(v) && /weixin\\.qq\\.com|channels\\.weixin/.test(v) && !bad.test(v)) return v;
+      }
+      for (const a of Array.from(document.querySelectorAll('a[href]'))) {
+        const u = a.href || '';
+        if (/weixin\\.qq\\.com\\/sph|channels\\.weixin\\.qq\\.com\\/(web|mobile)/.test(u) && !bad.test(u)) return u;
+      }
+      const text = document.body ? (document.body.innerText || '') : '';
+      const m = text.match(/https?:\\/\\/[^\\s\"']*(?:weixin\\.qq\\.com\\/sph|channels\\.weixin\\.qq\\.com\\/(?:web|mobile))[^\\s\"']*/);
+      return m ? m[0] : '';
+    }
+    """
+    for root in _scrape_roots(page):
+        try:
+            found = root.evaluate(read_js)
+            if found and _is_content_url(found):
+                return found.rstrip('.,);]')
+        except Exception:
+            continue
+        try:
+            root.evaluate("""
+            () => {
+              const nodes = Array.from(document.querySelectorAll('button, a, span, div'));
+              const btn = nodes.find(el => /复制链接|复制/.test((el.innerText || '').trim()));
+              if (btn) btn.click();
+            }
+            """)
+            page.wait_for_timeout(400)
+        except Exception:
+            pass
+    try:
+        page.keyboard.press('Escape')
+    except Exception:
+        pass
+    return ''
+
 
 
 def request_session_sync(session_id, title=''):
@@ -719,6 +1038,22 @@ def sync_publish_engagement(task):
                 page = context.pages[0] if context.pages else context.new_page()
                 page.set_default_timeout(20000)
                 result = _scrape_manage_page(page, platform, title)
+                # 视频号未匹配时多等一会再刮一次（列表异步渲染，不再重复 goto）
+                if not result.get('ok') and platform == 'shipinhao':
+                    try:
+                        page.wait_for_timeout(3500)
+                        try:
+                            page.mouse.wheel(0, 1600)
+                            page.wait_for_timeout(800)
+                        except Exception:
+                            pass
+                        result2 = _scrape_manage_page(page, platform, title, navigate=False)
+                        if result2.get('ok'):
+                            result = result2
+                        elif result2.get('error') and '页上可见' in (result2.get('error') or ''):
+                            result = result2
+                    except Exception:
+                        pass
                 return result
             finally:
                 try:

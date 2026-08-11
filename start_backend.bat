@@ -14,6 +14,20 @@ if not exist ".venv\Scripts\python.exe" (
   exit /b 1
 )
 
+REM Cursor 会把 PLAYWRIGHT_BROWSERS_PATH 指到空的 sandbox 缓存，导致 Chromium 找不到
+if defined PLAYWRIGHT_BROWSERS_PATH (
+  echo %PLAYWRIGHT_BROWSERS_PATH% | findstr /I "cursor-sandbox-cache" >nul
+  if not errorlevel 1 (
+    echo [提示] 清除错误的 PLAYWRIGHT_BROWSERS_PATH（Cursor sandbox）
+    set "PLAYWRIGHT_BROWSERS_PATH="
+  )
+)
+if not defined PLAYWRIGHT_BROWSERS_PATH (
+  if exist "%LOCALAPPDATA%\ms-playwright" (
+    set "PLAYWRIGHT_BROWSERS_PATH=%LOCALAPPDATA%\ms-playwright"
+  )
+)
+
 if not exist "logs" mkdir "logs"
 
 echo 清理占用 3456 端口的旧进程...

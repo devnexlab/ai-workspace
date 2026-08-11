@@ -288,12 +288,26 @@ def sync_publish(id):
     url = (result.get('publish_url') or '').strip()
     got = apply_engagement_to_consult(likes, comments)
 
+    # 丢掉明显错误的文档链（历史误刮 developers.weixin.qq.com 等）
+    from modules.publish.publisher import _is_content_url
+    old_url = (task.get('publish_url') or '').strip()
+    if url and not _is_content_url(url):
+        url = ''
+    if not url and old_url and not _is_content_url(old_url):
+        url = ''  # 下面用 clear_url 清空
+        clear_bad_url = True
+    else:
+        clear_bad_url = bool(old_url and not _is_content_url(old_url) and not url)
+
     conn = _db()
     fields = ['likes=?', 'comments=?', 'engagement_synced_at=CURRENT_TIMESTAMP']
     params = [likes, comments]
     if url:
         fields.append('publish_url=?')
         params.append(url)
+    elif clear_bad_url:
+        fields.append('publish_url=?')
+        params.append('')
     if got:
         fields.append('got_consult=?')
         params.append(True)

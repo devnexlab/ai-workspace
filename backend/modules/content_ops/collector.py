@@ -21,8 +21,8 @@ from config import get_collector_config, get_ai_config
 
 
 _INSTALL_HINT = (
-    '浏览器内核未安装，请在 backend 目录执行：'
-    'venv\\Scripts\\python.exe -m playwright install chromium'
+    '浏览器内核未安装，请在仓库根目录执行：'
+    '.venv\\Scripts\\python.exe -m playwright install chromium'
 )
 
 
@@ -33,6 +33,7 @@ def _is_fatal_browser_error(exc):
         "Executable doesn't exist" in text
         or 'Sync API inside the asyncio loop' in text
         or 'playwright install' in text
+        or 'cursor-sandbox-cache' in text
     )
 
 
@@ -45,41 +46,23 @@ def check_browser():
     检查 Playwright 及 Chromium 是否可用。
     返回 (ok, message)，避免每个关键词都重复失败一次。
     """
+    from modules.playwright_env import ensure_playwright_browsers_path, playwright_chromium_ready, clear_playwright_ready_cache
+    ensure_playwright_browsers_path()
+
     cached_ok = _browser_check_cache['ok']
     if cached_ok is True:
         return True, ''
     if cached_ok is False and time.time() - _browser_check_cache['at'] < _BROWSER_CHECK_TTL:
         return False, _browser_check_cache['msg']
 
-    ok, msg = _probe_browser()
-    _browser_check_cache.update({'ok': ok, 'msg': msg, 'at': time.time()})
-    return ok, msg
-
-
-def _probe_browser():
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        return False, 'Playwright 未安装，请执行 pip install playwright'
-
-    pw = None
-    try:
-        pw = sync_playwright().start()
-        exe = pw.chromium.executable_path
-        if not os.path.exists(exe):
-            return False, _INSTALL_HINT
-        return True, ''
-    except Exception as e:
-        if _is_fatal_browser_error(e):
-            return False, _INSTALL_HINT
-        return False, f'浏览器环境不可用: {str(e)[:120]}'
-    finally:
-        if pw is not None:
-            try:
-                pw.stop()
-            except Exception:
-                pass
-
+    clear_playwright_ready_cache()
+    ok, msg = playwright_chromium_ready()
+    if not ok and not msg:
+        msg = _INSTALL_HINT
+    elif not ok and 'Chromium' not in msg and 'Playwright' not in msg:
+        msg = _INSTALL_HINT
+    _browser_check_cache.update({'ok': ok, 'msg': msg if not ok else '', 'at': time.time()})
+    return ok, ('' if ok else msg)
 
 def _parse_cookies(cookie_str, domain):
     """Parse cookie string into Playwright cookie format."""
@@ -119,7 +102,9 @@ class BaseCollector:
         失败时必须回收 pw，否则同线程后续 sync_playwright().start()
         会因残留事件循环报 "Sync API inside the asyncio loop"。
         """
+        from modules.playwright_env import ensure_playwright_browsers_path
         from playwright.sync_api import sync_playwright
+        ensure_playwright_browsers_path()
         pw = sync_playwright().start()
         browser = context = None
         try:

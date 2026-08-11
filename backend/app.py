@@ -12,6 +12,13 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# 尽早修正 Cursor sandbox 指向的空 Playwright 目录
+try:
+    from modules.playwright_env import ensure_playwright_browsers_path
+    ensure_playwright_browsers_path()
+except Exception:
+    pass
+
 from flask import Flask, jsonify
 from flask.json.provider import DefaultJSONProvider
 from flask_cors import CORS
