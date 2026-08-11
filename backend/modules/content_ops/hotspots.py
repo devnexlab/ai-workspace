@@ -99,7 +99,9 @@ def fetch_baidu_hot(limit=20):
 
 
 _AGG_BASE = 'https://60s.viki.moe/v2'
+# 公开聚合源（免登录）。视频号无开放搜索；抖音热榜走聚合接口补选题。
 _AGG_SOURCES = [
+    ('douyin', 'douyin_hot', '抖音热榜'),
     ('toutiao', 'toutiao_hot', '头条热榜'),
     ('zhihu', 'zhihu_hot', '知乎热榜'),
 ]
@@ -107,8 +109,9 @@ _AGG_SOURCES = [
 
 def _fetch_aggregated(source, platform_key, author, limit=20):
     """
-    公开热榜聚合接口。视频号没有开放的内容搜索，
-    这里用通用热榜补充口播选题来源。
+    公开热榜聚合接口（HTTP JSON，无需 Playwright / Cookie）。
+    得到的是「选题标题 + 热度」，不是平台成片视频文件，也不是完整口播稿。
+    口播文案请在热点上点「生成口播」用 AI 改写。
     """
     items = []
     try:
@@ -119,17 +122,31 @@ def _fetch_aggregated(source, platform_key, author, limit=20):
         )
         if resp.status_code != 200:
             return items
-        rows = (resp.json() or {}).get('data') or []
+        payload = resp.json() or {}
+        rows = payload.get('data') or []
+        if isinstance(rows, dict):
+            rows = rows.get('list') or rows.get('data') or []
         if not isinstance(rows, list):
             return items
         for i, row in enumerate(rows[:limit]):
-            title = (row.get('title') or '').strip()
+            if not isinstance(row, dict):
+                continue
+            title = (row.get('title') or row.get('word') or row.get('name') or '').strip()
             if not title:
                 continue
-            try:
-                hot = int(row.get('hot_value') or 0)
-            except (TypeError, ValueError):
-                hot = 0
+            hot = 0
+            for key in ('hot_value', 'hot', 'hot_score', 'hotScore', 'num', 'score'):
+                if row.get(key) is not None:
+                    try:
+                        hot = int(re.sub(r'\D', '', str(row.get(key))) or 0)
+                    except Exception:
+                        hot = 0
+                    if hot:
+                        break
+            link = (
+                row.get('link') or row.get('url') or row.get('mobile_url')
+                or row.get('rawUrl') or ''
+            )
             items.append({
                 'platform': platform_key,
                 'title': title,
@@ -138,8 +155,8 @@ def _fetch_aggregated(source, platform_key, author, limit=20):
                 'comments': 0,
                 'favorites': 0,
                 'shares': 0,
-                'url': row.get('link') or '',
-                'cover': row.get('cover') or '',
+                'url': link,
+                'cover': row.get('cover') or row.get('img') or '',
                 'keyword': '实时热榜',
                 'source_type': 'hotspot',
                 'content_kind': 'hotspot',
@@ -196,7 +213,7 @@ def fetch_ai_daily_hotspots(limit=10):
 
 
 def fetch_all_hotspots(use_ai_fallback=True):
-    """聚合全网实时热点。"""
+    """聚合全网实时热点（公开 HTTP，免登录；不含平台成片下载）。"""
     items = []
     sources_ok = []
 
@@ -237,4 +254,4 @@ def fetch_all_hotspots(use_ai_fallback=True):
             sources_ok.append('AI补全')
 
     src = '/'.join(sources_ok) if sources_ok else '无可用源'
-    return unique, f'全网热点 {len(unique)} 条（{src}）'
+    return unique, f'全网热点 {len(unique)} 条（{src}，免登录）'

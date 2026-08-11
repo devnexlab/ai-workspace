@@ -260,7 +260,8 @@ function VideoIntelPanel() {
     if (p) return p.label
     const map = {
       douyin: '抖音', xiaohongshu: '小红书', shipinhao: '视频号',
-      weibo_hot: '微博热搜', baidu_hot: '百度热搜', toutiao_hot: '头条热榜',
+      weibo_hot: '微博热搜', baidu_hot: '百度热搜', douyin_hot: '抖音热榜',
+      toutiao_hot: '头条热榜',
       zhihu_hot: '知乎热榜', web_ai: 'AI热点',
       julang: '巨量算数', chanmama: '蝉妈妈', xinbang: '新榜',
       commercial_custom: '自定义数据源',
@@ -457,14 +458,15 @@ function VideoIntelPanel() {
         type="info"
         showIcon
         style={{ marginBottom: 12 }}
-        message="视频号选题池：全网热榜 + 官方数据台，按互动排序；不做视频号登录采集"
+        message="选题抓取：公开热榜免登录（微博/百度/抖音热/头条/知乎）；成片视频无法从网页直接下载"
         description={
           <span>
-            公开热榜只有「热度」，没有真实转发/收藏（会显示为 —）。
-            要更接近点赞/转发数据，请配置并拉取
+            热榜提供的是「爆款选题标题 + 热度」，口播稿请点「生成口播」用 AI 改写。
+            抖音/小红书登录采集（平台口播）不稳定且易风控，默认不推荐。
+            视频号无开放搜索；更贴近平台互动请配置
             {' '}
             <Link to="/settings/commercial">官方数据台</Link>
-            。
+            。成片请用本系统视频中心制作或自行上传素材。
           </span>
         }
       />
