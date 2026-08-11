@@ -1,0 +1,31 @@
+/* 共享组件样式补充（主体原语在 theme.css） */
+
+.ui-spark {
+  width: 72px;
+  height: 28px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* 主题切换按钮 */
+.ui-theme-toggle {
+  transition: color var(--transition, 0.2s ease), background var(--transition, 0.2s ease);
+}
+.ui-theme-toggle:hover {
+  color: var(--color-primary) !important;
+  background: var(--primary-soft) !important;
+}
+
+/* StatCard 作为按钮去掉默认外观 */
+.ui-kpi:disabled {
+  cursor: default;
+}
+.ui-kpi:disabled:hover {
+  transform: none;
+  box-shadow: var(--shadow-card);
+}
+
+/* 隐藏原生 disabled 灰化 */
+.ant-btn[disabled] {
+  opacity: 0.55;
+}

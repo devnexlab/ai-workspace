@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Layout, Tooltip, Button } from 'antd'
+import { Layout, Tooltip, Button, Drawer } from 'antd'
 import {
   DashboardOutlined,
   FireOutlined,
@@ -16,6 +16,8 @@ import {
   ApartmentOutlined,
   RightOutlined,
   QuestionCircleOutlined,
+  MenuOutlined,
+  CloseOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
 } from '@ant-design/icons'
@@ -24,6 +26,7 @@ import { APP_NAME } from '../config'
 import NotificationBell from '../features/notifications/NotificationBell'
 import TodoBell from '../features/notifications/TodoBell'
 import PetChat from '../features/pet/PetChat'
+import ThemeToggle from '../components/ui/ThemeToggle'
 
 const { Header, Sider, Content } = Layout
 
@@ -64,9 +67,7 @@ const sectionLabelMap = {
 const navGroups = [
   {
     label: '总览',
-    items: [
-      { key: '/', icon: <DashboardOutlined />, label: '运营仪表盘' },
-    ],
+    items: [{ key: '/', icon: <DashboardOutlined />, label: '运营仪表盘' }],
   },
   {
     label: '内容运营',
@@ -101,22 +102,48 @@ const navGroups = [
   },
   {
     label: '系统',
-    items: [
-      { key: '/settings', icon: <SettingOutlined />, label: '系统设置' },
-    ],
+    items: [{ key: '/settings', icon: <SettingOutlined />, label: '系统设置' }],
   },
 ]
 
 function isNavActive(pathname, key) {
   if (key === '/') return pathname === '/'
   if (key === '/settings') return pathname.startsWith('/settings')
-  // /stocks 与 /stocks/watchlist 互不抢高亮
   if (key === '/stocks') return pathname === '/stocks' || pathname === '/stocks/'
   return pathname === key || pathname.startsWith(`${key}/`)
 }
 
+function NavContent({ collapsed, onNavigate }) {
+  const location = useLocation()
+  return (
+    <nav className="app-sider-nav">
+      {navGroups.map((group) => (
+        <div key={group.label} className="app-nav-group">
+          {!collapsed && <div className="app-nav-group-label">{group.label}</div>}
+          {group.items.map((item) => {
+            const active = isNavActive(location.pathname, item.key)
+            return (
+              <button
+                key={item.key}
+                type="button"
+                className={`app-nav-item${active ? ' active' : ''}`}
+                title={collapsed ? item.label : undefined}
+                onClick={() => onNavigate(item.key)}
+              >
+                <span className="app-nav-icon">{item.icon}</span>
+                {!collapsed && <span className="app-nav-text">{item.label}</span>}
+              </button>
+            )
+          })}
+        </div>
+      ))}
+    </nav>
+  )
+}
+
 export default function MainLayout() {
   const [collapsed, setCollapsed] = useState(false)
+  const [mobileOpen, setMobileOpen] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -127,6 +154,11 @@ export default function MainLayout() {
 
   const pageTitle = pageTitleMap[selectedKey] || APP_NAME
   const sectionLabel = sectionLabelMap[selectedKey] || '总览'
+
+  const go = (key) => {
+    navigate(key)
+    setMobileOpen(false)
+  }
 
   return (
     <Layout className="app-shell">
@@ -151,34 +183,13 @@ export default function MainLayout() {
             type="button"
             className="app-collapse-btn"
             title={collapsed ? '展开侧边栏' : '折叠侧边栏'}
-            onClick={() => setCollapsed(v => !v)}
+            onClick={() => setCollapsed((v) => !v)}
           >
             {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
           </button>
         </div>
 
-        <nav className="app-sider-nav">
-          {navGroups.map(group => (
-            <div key={group.label} className="app-nav-group">
-              {!collapsed && <div className="app-nav-group-label">{group.label}</div>}
-              {group.items.map(item => {
-                const active = isNavActive(location.pathname, item.key)
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    className={`app-nav-item${active ? ' active' : ''}`}
-                    title={collapsed ? item.label : undefined}
-                    onClick={() => navigate(item.key)}
-                  >
-                    <span className="app-nav-icon">{item.icon}</span>
-                    {!collapsed && <span className="app-nav-text">{item.label}</span>}
-                  </button>
-                )
-              })}
-            </div>
-          ))}
-        </nav>
+        <NavContent collapsed={collapsed} onNavigate={go} />
 
         <div className="app-sider-footer">
           <div className="app-user-card" title={collapsed ? '顾问' : undefined}>
@@ -195,15 +206,28 @@ export default function MainLayout() {
 
       <Layout className="app-main">
         <Header className="app-header">
-          <div className="app-header-title">
-            <span className="crumb">{sectionLabel}</span>
-            <span className="sep"><RightOutlined /></span>
-            <span className="current">{pageTitle}</span>
+          <div className="app-header-left">
+            <button
+              type="button"
+              className="app-menu-btn"
+              aria-label="打开菜单"
+              onClick={() => setMobileOpen(true)}
+            >
+              <MenuOutlined />
+            </button>
+            <div className="app-header-title">
+              <span className="crumb">{sectionLabel}</span>
+              <span className="sep">
+                <RightOutlined />
+              </span>
+              <span className="current">{pageTitle}</span>
+            </div>
           </div>
           <div className="app-header-right">
             <div className="app-header-actions">
               <NotificationBell />
               <TodoBell />
+              <ThemeToggle />
               <Tooltip
                 title={(
                   <div style={{ maxWidth: 260, lineHeight: 1.55 }}>
@@ -212,6 +236,8 @@ export default function MainLayout() {
                   </div>
                 )}
                 placement="bottomRight"
+                mouseEnterDelay={0.35}
+                mouseLeaveDelay={0.08}
               >
                 <Button
                   type="text"
@@ -227,6 +253,33 @@ export default function MainLayout() {
           <Outlet />
         </Content>
       </Layout>
+
+      {/* 移动端抽屉式侧栏 */}
+      <Drawer
+        placement="left"
+        open={mobileOpen}
+        onClose={() => setMobileOpen(false)}
+        width={240}
+        closable={false}
+        className="app-mobile-drawer"
+        styles={{ body: { padding: 0, background: 'var(--bg-sidebar)' } }}
+        title={null}
+      >
+        <div className="app-brand app-brand--mobile">
+          <span className="app-brand-icon">智</span>
+          <span className="app-brand-text">{BRAND_NAME}</span>
+          <button
+            type="button"
+            className="app-collapse-btn"
+            aria-label="关闭菜单"
+            onClick={() => setMobileOpen(false)}
+          >
+            <CloseOutlined />
+          </button>
+        </div>
+        <NavContent collapsed={false} onNavigate={go} />
+      </Drawer>
+
       <PetChat />
     </Layout>
   )

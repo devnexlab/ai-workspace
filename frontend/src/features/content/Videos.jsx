@@ -1289,7 +1289,7 @@ export default function Videos() {
                     borderRadius: 8, cursor: 'pointer', overflow: 'hidden',
                   }}
                   onClick={() => toggleMaterialSelect(m.id, kind)}>
-                  <div style={{ width: '100%', height: 120, background: '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <div style={{ width: '100%', height: 120, background: 'var(--bg-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     {m.type === 'image' ? (
                       <img src={`/api/materials/${m.id}/preview`} alt={m.name}
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }} />

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Badge, Button, Drawer, Empty, List, Space, Tag, Tooltip, Spin } from 'antd'
 import {
   CheckSquareOutlined, FileTextOutlined, VideoCameraOutlined,
@@ -27,10 +27,10 @@ function Section({ title, icon, count, extra, children }) {
           gap: 8,
           fontWeight: 600,
           fontSize: 14,
-          color: '#0f172a',
+          color: 'var(--text-primary)',
         }}
         >
-          <span style={{ color: '#64748b' }}>{icon}</span>
+          <span style={{ color: 'var(--text-secondary)' }}>{icon}</span>
           {title}
           <Tag color="blue">{count}</Tag>
         </div>
@@ -39,6 +39,15 @@ function Section({ title, icon, count, extra, children }) {
       {children}
     </div>
   )
+}
+
+function sameIdList(a, b) {
+  if (a === b) return true
+  if (!a || !b || a.length !== b.length) return false
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i]?.id !== b[i]?.id) return false
+  }
+  return true
 }
 
 /** 运营待办：待出片文案 / 待生成视频 / 待发布 / 待跟进客户 */
@@ -50,34 +59,63 @@ export default function TodoBell() {
   const [pendingVideos, setPendingVideos] = useState([])
   const [pendingPublish, setPendingPublish] = useState([])
   const [followCustomers, setFollowCustomers] = useState([])
+  const reqSeq = useRef(0)
+  const hasLoaded = useRef(false)
 
-  const load = useCallback(() => {
-    setLoading(true)
+  const load = useCallback((opts = {}) => {
+    const silent = opts.silent !== false
+    const seq = ++reqSeq.current
+    if (!silent) setLoading(true)
     dashboardApi.get()
       .then((dash) => {
-        setPendingScripts(dash.pendingScripts || [])
-        setPendingVideos(dash.pendingVideos || [])
-        setPendingPublish(dash.pendingPublish || [])
-        setFollowCustomers(dash.followCustomers || [])
+        if (seq !== reqSeq.current) return
+        const scripts = dash.pendingScripts || []
+        const videos = dash.pendingVideos || []
+        const publish = dash.pendingPublish || []
+        const follows = dash.followCustomers || []
+        setPendingScripts((prev) => (sameIdList(prev, scripts) ? prev : scripts))
+        setPendingVideos((prev) => (sameIdList(prev, videos) ? prev : videos))
+        setPendingPublish((prev) => (sameIdList(prev, publish) ? prev : publish))
+        setFollowCustomers((prev) => (sameIdList(prev, follows) ? prev : follows))
+        hasLoaded.current = true
       })
       .catch(() => {
-        setPendingScripts([])
-        setPendingVideos([])
-        setPendingPublish([])
-        setFollowCustomers([])
+        if (seq !== reqSeq.current) return
+        if (!silent && !hasLoaded.current) {
+          setPendingScripts([])
+          setPendingVideos([])
+          setPendingPublish([])
+          setFollowCustomers([])
+        }
       })
-      .finally(() => setLoading(false))
+      .finally(() => {
+        if (seq !== reqSeq.current) return
+        if (!silent) setLoading(false)
+      })
   }, [])
 
   useEffect(() => {
-    load()
-    const timer = setInterval(load, 60000)
+    load({ silent: true })
+    const timer = setInterval(() => load({ silent: true }), 60000)
     return () => clearInterval(timer)
   }, [load])
 
-  useEffect(() => {
-    if (open) load()
-  }, [open, load])
+  const openDrawer = () => {
+    setOpen(true)
+    const cached = hasLoaded.current
+      || pendingScripts.length
+      || pendingVideos.length
+      || pendingPublish.length
+      || followCustomers.length
+    // 已有缓存：立刻展示，后台静默刷新，避免等 dashboard 1～2 秒
+    load({ silent: Boolean(cached) })
+  }
+
+  const closeDrawer = () => {
+    reqSeq.current += 1
+    setLoading(false)
+    setOpen(false)
+  }
 
   const badgeCount = pendingScripts.length
     + pendingVideos.length
@@ -85,31 +123,37 @@ export default function TodoBell() {
     + followCustomers.length
 
   const go = (path) => {
-    setOpen(false)
+    closeDrawer()
     navigate(path)
   }
 
   return (
     <>
-      <Tooltip title={badgeCount ? `${badgeCount} 条待办` : '暂无待办'}>
-        <Badge count={badgeCount} overflowCount={99} size="small" offset={[-2, 4]}>
+      <Badge count={badgeCount} overflowCount={99} size="small" offset={[-2, 4]}>
+        <Tooltip
+          title={badgeCount ? `${badgeCount} 条待办` : '暂无待办'}
+          mouseEnterDelay={0.35}
+          mouseLeaveDelay={0.08}
+        >
           <Button
             type="text"
             className="app-icon-btn"
-            onClick={() => setOpen(true)}
+            onClick={openDrawer}
             aria-label="打开待办"
             icon={<CheckSquareOutlined />}
           />
-        </Badge>
-      </Tooltip>
+        </Tooltip>
+      </Badge>
 
       <Drawer
         title={`待办${badgeCount > 0 ? `（${badgeCount}）` : ''}`}
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={closeDrawer}
         width={460}
+        destroyOnClose={false}
+        forceRender={false}
       >
-        <Spin spinning={loading}>
+        <Spin spinning={loading && !badgeCount}>
           {!badgeCount && !loading ? (
             <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无待办，一切顺利" />
           ) : (
@@ -205,7 +249,7 @@ export default function TodoBell() {
                         title={p.video_title || `发布任务 #${p.id}`}
                         description={(
                           <Space size={6}>
-                            <span style={{ fontSize: 12, color: '#64748b' }}>{p.platform || '未指定平台'}</span>
+                            <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>{p.platform || '未指定平台'}</span>
                             <Tag color="orange">{p.status === 'reviewing' ? '待确认' : '待发布'}</Tag>
                           </Space>
                         )}
@@ -239,7 +283,7 @@ export default function TodoBell() {
                             <Tag color={c.intention === 'high' ? 'red' : 'orange'}>
                               {intentionLabels[c.intention] || c.intention}
                             </Tag>
-                            <span style={{ fontSize: 12, color: '#64748b' }}>
+                            <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
                               {c.last_follow_time ? formatDateTime(c.last_follow_time) : '未跟进'}
                             </span>
                           </Space>

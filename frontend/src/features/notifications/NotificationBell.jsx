@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Badge, Button, Drawer, Empty, List, Space, Tag, Tooltip, message } from 'antd'
 import { BellOutlined, CheckOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
@@ -21,6 +21,17 @@ function isOverdue(dateStr) {
   return String(dateStr).slice(0, 10) < today
 }
 
+function sameReminderList(a, b) {
+  if (a === b) return true
+  if (!a || !b || a.length !== b.length) return false
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i].id !== b[i].id || a[i].status !== b[i].status || a[i].remind_date !== b[i].remind_date) {
+      return false
+    }
+  }
+  return true
+}
+
 /** 客户提醒（生日 / 保单 / 跟进日程等） */
 export default function NotificationBell() {
   const navigate = useNavigate()
@@ -28,24 +39,47 @@ export default function NotificationBell() {
   const [loading, setLoading] = useState(false)
   const [items, setItems] = useState([])
   const [actingId, setActingId] = useState(null)
+  const reqSeq = useRef(0)
+  const hasLoaded = useRef(false)
 
-  const load = useCallback(() => {
-    setLoading(true)
+  const load = useCallback((opts = {}) => {
+    const silent = opts.silent !== false
+    const seq = ++reqSeq.current
+    if (!silent) setLoading(true)
     remindersApi.list({ status: 'pending', scope: 'all' })
-      .then(res => setItems(res.list || []))
-      .catch(() => setItems([]))
-      .finally(() => setLoading(false))
+      .then((res) => {
+        if (seq !== reqSeq.current) return
+        const next = res.list || []
+        setItems((prev) => (sameReminderList(prev, next) ? prev : next))
+        hasLoaded.current = true
+      })
+      .catch(() => {
+        if (seq !== reqSeq.current) return
+        if (!silent && !hasLoaded.current) setItems([])
+      })
+      .finally(() => {
+        if (seq !== reqSeq.current) return
+        if (!silent) setLoading(false)
+      })
   }, [])
 
   useEffect(() => {
-    load()
-    const timer = setInterval(load, 60000)
+    load({ silent: true })
+    const timer = setInterval(() => load({ silent: true }), 60000)
     return () => clearInterval(timer)
   }, [load])
 
-  useEffect(() => {
-    if (open) load()
-  }, [open, load])
+  const openDrawer = () => {
+    setOpen(true)
+    // 有缓存则静默刷新，不挡首屏；无数据才显示 loading
+    load({ silent: hasLoaded.current || items.length > 0 })
+  }
+
+  const closeDrawer = () => {
+    reqSeq.current += 1 // 丢弃关闭后返回的请求，避免关抽屉时被 setState 拖住
+    setLoading(false)
+    setOpen(false)
+  }
 
   const badgeCount = items.length
 
@@ -54,9 +88,9 @@ export default function NotificationBell() {
     remindersApi.update(id, { status: 'done' })
       .then(() => {
         message.success('已完成')
-        load()
+        load({ silent: true })
       })
-      .catch(err => message.error(err?.error || '操作失败'))
+      .catch((err) => message.error(err?.error || '操作失败'))
       .finally(() => setActingId(null))
   }
 
@@ -65,37 +99,43 @@ export default function NotificationBell() {
     remindersApi.update(id, { snooze_days: days })
       .then(() => {
         message.success(`已延期 ${days} 天`)
-        load()
+        load({ silent: true })
       })
-      .catch(err => message.error(err?.error || '操作失败'))
+      .catch((err) => message.error(err?.error || '操作失败'))
       .finally(() => setActingId(null))
   }
 
   return (
     <>
-      <Tooltip title={badgeCount ? `${badgeCount} 条提醒` : '暂无提醒'}>
-        <Badge count={badgeCount} overflowCount={99} size="small" offset={[-2, 4]}>
+      <Badge count={badgeCount} overflowCount={99} size="small" offset={[-2, 4]}>
+        <Tooltip
+          title={badgeCount ? `${badgeCount} 条提醒` : '暂无提醒'}
+          mouseEnterDelay={0.35}
+          mouseLeaveDelay={0.08}
+        >
           <Button
             type="text"
             className="app-icon-btn"
-            onClick={() => setOpen(true)}
+            onClick={openDrawer}
             aria-label="打开提醒"
             icon={<BellOutlined />}
           />
-        </Badge>
-      </Tooltip>
+        </Tooltip>
+      </Badge>
 
       <Drawer
         title={`提醒${badgeCount > 0 ? `（${badgeCount}）` : ''}`}
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={closeDrawer}
         width={420}
+        destroyOnClose={false}
+        forceRender={false}
         extra={(
           <Button
             type="link"
             size="small"
             onClick={() => {
-              setOpen(false)
+              closeDrawer()
               navigate('/customers?tab=reminders')
             }}
           >
@@ -143,16 +183,18 @@ export default function NotificationBell() {
                         <span
                           style={{ cursor: 'pointer' }}
                           onClick={() => {
-                            setOpen(false)
+                            closeDrawer()
                             navigate(r.type === 'stock_alert' ? '/stocks/watchlist' : '/customers?tab=reminders')
                           }}
-                        >{r.title || '未命名提醒'}</span>
+                        >
+                          {r.title || '未命名提醒'}
+                        </span>
                         <Tag color={tp.color}>{tp.label}</Tag>
                         {overdue && <Tag color="red">逾期</Tag>}
                       </Space>
                     )}
                     description={(
-                      <span style={{ fontSize: 12, color: '#64748b' }}>
+                      <span style={{ fontSize: 12, color: 'var(--text-tertiary)' }}>
                         {r.type === 'stock_alert'
                           ? (r.content || r.suggested_action || '股价提醒')
                           : (r.customer_name || '未关联客户')}

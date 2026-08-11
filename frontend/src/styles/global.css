@@ -624,6 +624,38 @@ body {
   flex-shrink: 0;
 }
 
+.app-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.app-menu-btn {
+  display: none;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: var(--radius-md);
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 18px;
+  transition: all var(--transition);
+}
+
+.app-menu-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-page);
+}
+
+.app-brand--mobile {
+  border-bottom: 1px solid var(--border-sidebar);
+}
+
 .app-header-actions .ant-badge {
   display: inline-flex;
   line-height: 1;
@@ -1075,6 +1107,14 @@ body {
 
   .app-header-search {
     display: none;
+  }
+
+  .app-sider {
+    display: none !important;
+  }
+
+  .app-menu-btn {
+    display: inline-flex !important;
   }
 }
 

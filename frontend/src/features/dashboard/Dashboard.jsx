@@ -11,6 +11,7 @@ import {
 } from 'recharts'
 import { useNavigate } from 'react-router-dom'
 import { dashboardApi } from '../../api'
+import { StatCard } from '../../components/ui'
 import './Dashboard.css'
 
 const intentionLabels = { high: '高意向', medium: '中意向', low: '低意向', closed: '已成交' }
@@ -478,35 +479,29 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <div className="dash-kpi-row">
-        {kpis.map((s, i) => (
-          <button
+      <div
+        className="dash-kpi-row ui-stagger"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: 16,
+        }}
+      >
+        {kpis.map((s) => (
+          <StatCard
             key={s.title}
-            type="button"
-            className="dash-kpi"
-            style={{ '--accent': s.accent, animationDelay: `${0.05 * (i + 1)}s` }}
+            label={s.title}
+            value={s.value}
+            unit={s.unit}
+            trend={s.trend}
+            trendUp={s.trendUp}
+            trendLabel={s.trendLabel}
+            sub={s.sub}
+            icon={s.icon}
+            accent={s.accent}
+            spark={s.spark}
             onClick={() => navigate(s.path)}
-          >
-            <div className="dash-kpi-header">
-              <span className="dash-kpi-label">{s.title}</span>
-              <span className="dash-kpi-icon">{s.icon}</span>
-            </div>
-            <div className="dash-kpi-value">
-              {s.value}
-              <span className="unit">{s.unit}</span>
-            </div>
-            <div className="dash-kpi-footer">
-              {s.trend ? (
-                <span className={`dash-kpi-trend ${s.trendUp ? 'up' : 'down'}`}>
-                  {s.trend}
-                  <span className="dash-kpi-trend-label">{s.trendLabel}</span>
-                </span>
-              ) : (
-                <span className="dash-kpi-sub">{s.sub}</span>
-              )}
-              <Sparkline color={s.accent} values={s.spark} id={`spark-${i}`} />
-            </div>
-          </button>
+          />
         ))}
       </div>
 
