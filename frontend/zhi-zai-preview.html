@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>智仔 2.0 · 形象规范</title>
+<style>
+  :root {
+    --ink: #1e1e2e;
+    --muted: #6b6b80;
+    --line: #ededf0;
+    --bg: #f7f7fb;
+    --card: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 48px 24px 72px; }
+  header.hero {
+    background: linear-gradient(135deg, #8e8eff, #5b5bd6 55%, #4242a8);
+    border-radius: 22px;
+    padding: 36px 36px 30px;
+    color: #fff;
+    box-shadow: 0 18px 48px rgba(91, 91, 214, 0.28);
+  }
+  header.hero h1 { margin: 0; font-size: 26px; letter-spacing: 0.5px; }
+  header.hero p { margin: 8px 0 0; opacity: 0.85; font-size: 14px; }
+  header.hero .big { margin-top: 18px; display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+  header.hero .big .zz { filter: drop-shadow(0 10px 22px rgba(0,0,0,0.22)); }
+  header.hero .big .tag {
+    font-size: 13px; background: rgba(255,255,255,0.16);
+    padding: 8px 12px; border-radius: 10px; line-height: 1.5;
+  }
+  section { margin-top: 38px; }
+  .sec-title { font-size: 16px; font-weight: 700; margin: 0 0 4px; }
+  .sec-sub { font-size: 13px; color: var(--muted); margin: 0 0 18px; }
+  .grid {
+    display: grid; gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 16px; padding: 18px 14px; text-align: center;
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
+  }
+  .card:hover { transform: translateY(-3px); box-shadow: 0 12px 28px rgba(26,26,46,0.1); }
+  .card .zz { display: block; margin: 0 auto; }
+  .card .name { margin-top: 10px; font-size: 13px; font-weight: 600; }
+  .card .meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .row { display: flex; flex-wrap: wrap; gap: 22px; align-items: flex-end; }
+  .note {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 16px; padding: 22px 24px; font-size: 14px; color: var(--ink);
+  }
+  .note h3 { margin: 0 0 12px; font-size: 15px; }
+  .note ul { margin: 0; padding-left: 18px; }
+  .note li { margin-bottom: 8px; color: #3a3a4a; }
+  .note b { color: var(--ink); }
+  .pill {
+    display: inline-block; font-size: 12px; color: #5b5bd6;
+    background: #eef0ff; border-radius: 999px; padding: 3px 10px; margin-right: 6px;
+  }
+  footer { margin-top: 48px; text-align: center; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <h1>智仔 2.0 · 形象规范</h1>
+    <p>智能运营台 · 数据问答助手</p>
+    <div class="big">
+      <div id="hero-avatar"></div>
+      <div class="tag">
+        深色面罩 + 发光大眼 + 能量触角<br />
+        小身体 + 披风 + 胸前徽章<br />
+        呼应「智仔 2.0」3D 角色规范 · 纯 SVG 矢量落地
+      </div>
+    </div>
+  </header>
+
+  <section>
+    <h2 class="sec-title">主形象</h2>
+    <p class="sec-sub">默认配色「紫罗兰」，常态表情 idle</p>
+    <div class="card" style="max-width:260px;margin:0 auto;">
+      <div id="main-avatar"></div>
+      <div class="name">智仔 · 紫罗兰</div>
+      <div class="meta">idle / 220px</div>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="sec-title">配色家族</h2>
+    <p class="sec-sub">5 套可切换皮肤，颜色自动映射到头部、侧发、披风与触角</p>
+    <div class="grid" id="skins-grid"></div>
+  </section>
+
+  <section>
+    <h2 class="sec-title">表情状态</h2>
+    <p class="sec-sub">随对话联动：常态 → 思考（请求中）→ 开心（收到回复）</p>
+    <div class="grid" id="moods-grid" style="grid-template-columns:repeat(3,minmax(120px,160px));"></div>
+  </section>
+
+  <section>
+    <h2 class="sec-title">尺寸适配</h2>
+    <p class="sec-sub">从悬浮球（72px）到列表头像（24px）均保持清晰可辨</p>
+    <div class="row" id="sizes-row" style="align-items:center;"></div>
+  </section>
+
+  <section>
+    <div class="note">
+      <h3>设计说明</h3>
+      <ul>
+        <li><b>识别点：</b>深色面罩 + 发光大眼 + 头顶<b>能量触角</b>，贴近「智仔 2.0」3D 规范；触角光球随状态呼吸/快闪。</li>
+        <li><b>结构：</b>大头小身体、向后飘逸的侧发、胸前星形徽章、小披风，强化「智能小助手」品牌感。</li>
+        <li><b>配色：</b>默认沿用系统品牌紫 <span class="pill">#5b5bd6</span>，其余 4 套皮肤（青石 / 珊瑚 / 晴空 / 墨灰）复用同一套造型，仅换主色。</li>
+        <li><b>立体感：</b>多层径向渐变 + 发光滤镜 + 投影，纯矢量即可呈现 3D 渲染感，无需位图，任意尺寸清晰。</li>
+        <li><b>落地：</b>已实现为 <code>src/features/pet/ZhiZaiAvatar.jsx</code>，接入悬浮桌宠，并在发送/回复时切换 thinking / happy 表情。</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>智仔 2.0 形象规范 · 由 UiDesigner 生成 · 纯 SVG 矢量</footer>
+</div>
+
+<script>
+  const SKINS = [
+    { key: 'violet', label: '紫罗兰', primary: '#5b5bd6', soft: '#eef0ff' },
+    { key: 'teal', label: '青石', primary: '#0d9488', soft: '#e6f7f5' },
+    { key: 'coral', label: '珊瑚', primary: '#ea580c', soft: '#fff4ed' },
+    { key: 'sky', label: '晴空', primary: '#2563eb', soft: '#eff6ff' },
+    { key: 'slate', label: '墨灰', primary: '#475569', soft: '#f1f5f9' },
+  ];
+  const DARK = '#1a1230';
+
+  function avatar(primary, soft, mood, size) {
+    const uid = Math.random().toString(36).slice(2, 9);
+
+    let face;
+    if (mood === 'thinking') {
+      face =
+        '<path d="M42 52 Q48 49 54 52" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round" filter="url(#g-' + uid + ')"/>' +
+        '<ellipse cx="74" cy="50" rx="7" ry="8" fill="url(#eye-' + uid + ')" filter="url(#g-' + uid + ')"/>' +
+        '<circle cx="76" cy="48" r="2.2" fill="#0d0818"/>' +
+        '<circle cx="72" cy="47" r="1.6" fill="#ffffff" opacity="0.9"/>' +
+        '<circle cx="60" cy="66" r="2.5" fill="#ffffff" opacity="0.8"/>';
+    } else if (mood === 'happy') {
+      face =
+        '<path d="M40 52 Q48 44 56 52" fill="none" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" filter="url(#g-' + uid + ')"/>' +
+        '<path d="M64 52 Q72 44 80 52" fill="none" stroke="#ffffff" stroke-width="3.5" stroke-linecap="round" filter="url(#g-' + uid + ')"/>' +
+        '<path d="M52 62 Q60 74 68 62 Z" fill="#ffffff" opacity="0.95"/>' +
+        '<ellipse cx="40" cy="62" rx="5" ry="3" fill="' + primary + '" opacity="0.25" filter="url(#g-' + uid + ')"/>' +
+        '<ellipse cx="80" cy="62" rx="5" ry="3" fill="' + primary + '" opacity="0.25" filter="url(#g-' + uid + ')"/>';
+    } else {
+      face =
+        '<ellipse cx="46" cy="50" rx="8" ry="9.5" fill="url(#eye-' + uid + ')" filter="url(#g-' + uid + ')"/>' +
+        '<ellipse cx="74" cy="50" rx="8" ry="9.5" fill="url(#eye-' + uid + ')" filter="url(#g-' + uid + ')"/>' +
+        '<circle cx="48" cy="48" r="2.6" fill="#0d0818"/>' +
+        '<circle cx="76" cy="48" r="2.6" fill="#0d0818"/>' +
+        '<circle cx="44" cy="46" r="1.8" fill="#ffffff" opacity="0.95"/>' +
+        '<circle cx="72" cy="46" r="1.8" fill="#ffffff" opacity="0.95"/>' +
+        '<path d="M54 64 Q60 70 66 64" fill="none" stroke="#ffffff" stroke-width="2.8" stroke-linecap="round" opacity="0.9"/>';
+    }
+
+    return (
+      '<svg viewBox="0 0 120 120" width="' + size + '" height="' + size + '" xmlns="http://www.w3.org/2000/svg" class="zz">' +
+      '<defs>' +
+        '<filter id="g-' + uid + '" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.5" result="b"/><feComposite in="SourceGraphic" in2="b" operator="over"/></filter>' +
+        '<filter id="s-' + uid + '" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>' +
+        '<radialGradient id="head-' + uid + '" cx="35%" cy="28%" r="85%"><stop offset="0%" stop-color="#ffffff"/><stop offset="35%" stop-color="' + soft + '"/><stop offset="85%" stop-color="' + primary + '"/><stop offset="100%" stop-color="' + primary + '" stop-opacity="0.95"/></radialGradient>' +
+        '<radialGradient id="face-' + uid + '" cx="50%" cy="35%" r="75%"><stop offset="0%" stop-color="#3a2a6a"/><stop offset="60%" stop-color="' + DARK + '"/><stop offset="100%" stop-color="#0d0818"/></radialGradient>' +
+        '<radialGradient id="faceh-' + uid + '" cx="50%" cy="20%" r="60%"><stop offset="0%" stop-color="#ffffff" stop-opacity="0.18"/><stop offset="100%" stop-color="#ffffff" stop-opacity="0"/></radialGradient>' +
+        '<radialGradient id="eye-' + uid + '" cx="40%" cy="35%" r="70%"><stop offset="0%" stop-color="#ffffff"/><stop offset="100%" stop-color="#e0e7ff"/></radialGradient>' +
+        '<linearGradient id="cape-' + uid + '" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="' + primary + '" stop-opacity="0.95"/><stop offset="100%" stop-color="' + DARK + '" stop-opacity="0.95"/></linearGradient>' +
+        '<linearGradient id="body-' + uid + '" x1="30%" y1="0%" x2="70%" y2="100%"><stop offset="0%" stop-color="' + soft + '"/><stop offset="100%" stop-color="' + primary + '"/></linearGradient>' +
+        '<linearGradient id="ant-' + uid + '" x1="0%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="' + primary + '"/><stop offset="100%" stop-color="#ffffff"/></linearGradient>' +
+        '<radialGradient id="antb-' + uid + '" cx="35%" cy="30%" r="70%"><stop offset="0%" stop-color="#ffffff"/><stop offset="50%" stop-color="' + soft + '"/><stop offset="100%" stop-color="' + primary + '"/></radialGradient>' +
+      '</defs>' +
+      '<ellipse cx="60" cy="104" rx="28" ry="7" fill="' + DARK + '" opacity="0.16" filter="url(#s-' + uid + ')"/>' +
+      '<path d="M38 78 C30 82 26 92 28 102 C34 98 86 98 92 102 C94 92 90 82 82 78 C78 84 42 84 38 78 Z" fill="url(#cape-' + uid + ')" opacity="0.92"/>' +
+      '<path d="M60 80 L60 100" stroke="#ffffff" stroke-opacity="0.12" stroke-width="1.5"/>' +
+      '<ellipse cx="46" cy="100" rx="10" ry="6" fill="' + soft + '" stroke="' + primary + '" stroke-opacity="0.2"/>' +
+      '<ellipse cx="74" cy="100" rx="10" ry="6" fill="' + soft + '" stroke="' + primary + '" stroke-opacity="0.2"/>' +
+      '<ellipse cx="60" cy="84" rx="22" ry="18" fill="url(#body-' + uid + ')"/>' +
+      '<ellipse cx="60" cy="78" rx="18" ry="10" fill="#ffffff" opacity="0.22"/>' +
+      '<circle cx="60" cy="82" r="7" fill="#ffffff" opacity="0.18"/>' +
+      '<path d="M60 78 L62 81 L66 81 L62.8 83.5 L64 87 L60 85 L56 87 L57.2 83.5 L54 81 L58 81 Z" fill="#ffffff" opacity="0.9"/>' +
+      '<path d="M30 48 C18 44 12 54 16 64 C20 72 28 70 32 64 C34 58 34 52 30 48 Z" fill="' + primary + '" opacity="0.85"/>' +
+      '<path d="M90 48 C102 44 108 54 104 64 C100 72 92 70 88 64 C86 58 86 52 90 48 Z" fill="' + primary + '" opacity="0.85"/>' +
+      '<circle cx="60" cy="48" r="36" fill="url(#head-' + uid + ')"/>' +
+      '<circle cx="60" cy="48" r="36" fill="none" stroke="' + primary + '" stroke-opacity="0.18" stroke-width="1"/>' +
+      '<ellipse cx="60" cy="52" rx="29" ry="24" fill="url(#face-' + uid + ')"/>' +
+      '<ellipse cx="60" cy="44" rx="24" ry="16" fill="url(#faceh-' + uid + ')"/>' +
+      '<ellipse cx="60" cy="52" rx="29" ry="24" fill="none" stroke="' + primary + '" stroke-opacity="0.35" stroke-width="1.2"/>' +
+      '<path d="M60 18 Q64 8 72 6 Q74 5 74 3 Q74 1 72 1 Q70 1 70 3" fill="none" stroke="url(#ant-' + uid + ')" stroke-width="3.5" stroke-linecap="round" filter="url(#g-' + uid + ')"/>' +
+      '<circle cx="72" cy="2" r="5" fill="url(#antb-' + uid + ')" filter="url(#g-' + uid + ')"/>' +
+      face +
+      '</svg>'
+    );
+  }
+
+  const violet = SKINS[0];
+  document.getElementById('hero-avatar').innerHTML = avatar(violet.primary, violet.soft, 'idle', 130);
+  document.getElementById('main-avatar').innerHTML = avatar(violet.primary, violet.soft, 'idle', 220);
+
+  const skinsGrid = document.getElementById('skins-grid');
+  SKINS.forEach((s) => {
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.innerHTML =
+      avatar(s.primary, s.soft, 'idle', 96) +
+      '<div class="name">' + s.label + '</div>' +
+      '<div class="meta">' + s.primary + '</div>';
+    skinsGrid.appendChild(el);
+  });
+
+  const moodsGrid = document.getElementById('moods-grid');
+  [
+    { m: 'idle', t: '常态 idle' },
+    { m: 'thinking', t: '思考 thinking' },
+    { m: 'happy', t: '开心 happy' },
+  ].forEach((x) => {
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.innerHTML =
+      avatar(violet.primary, violet.soft, x.m, 110) +
+      '<div class="name">' + x.t + '</div>';
+    moodsGrid.appendChild(el);
+  });
+
+  const sizesRow = document.getElementById('sizes-row');
+  [72, 48, 36, 24].forEach((sz) => {
+    const wrap = document.createElement('div');
+    wrap.style.textAlign = 'center';
+    wrap.innerHTML =
+      avatar(violet.primary, violet.soft, 'idle', sz) +
+      '<div class="meta" style="font-size:11px;color:#6b6b80;margin-top:6px;">' + sz + 'px</div>';
+    sizesRow.appendChild(wrap);
+  });
+</script>
+</body>
+</html>

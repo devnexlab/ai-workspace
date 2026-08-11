@@ -1,0 +1,74 @@
+.zhi-zai {
+  display: block;
+  overflow: visible;
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: zz-float 3.2s ease-in-out infinite;
+}
+
+.zhi-zai.thinking {
+  animation: zz-float 3.2s ease-in-out infinite, zz-tilt 1.6s ease-in-out infinite;
+}
+
+.zz-antenna {
+  transform-box: fill-box;
+  transform-origin: 60px 18px;
+  animation: zz-antenna-sway 2.8s ease-in-out infinite;
+}
+
+.zz-antenna-ball {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: zz-pulse 2s ease-in-out infinite;
+}
+
+.zz-face-thinking {
+  animation: zz-think-blink 1.4s ease-in-out infinite;
+}
+
+.zz-face-happy {
+  animation: zz-happy-bob 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes zz-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+@keyframes zz-tilt {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-3deg); }
+  75% { transform: rotate(3deg); }
+}
+
+@keyframes zz-antenna-sway {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(4deg); }
+}
+
+@keyframes zz-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.22); opacity: 0.82; }
+}
+
+@keyframes zz-think-blink {
+  0%, 100% { opacity: 1; }
+  45% { opacity: 1; }
+  50% { opacity: 0.7; }
+  55% { opacity: 1; }
+}
+
+@keyframes zz-happy-bob {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-1.5px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zhi-zai,
+  .zz-antenna,
+  .zz-antenna-ball,
+  .zz-face-thinking,
+  .zz-face-happy {
+    animation: none;
+  }
+}

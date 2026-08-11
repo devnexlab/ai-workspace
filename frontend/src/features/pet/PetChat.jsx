@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import api from '../../api/client'
 import { API_LONG_TIMEOUT } from '../../config'
 import './PetChat.css'
+import ZhiZaiAvatar from './ZhiZaiAvatar'
 
 const MODES = [
   { key: 'auto', label: '智能 Agent' },
@@ -67,21 +68,10 @@ function clampPos(right, bottom) {
   }
 }
 
-function PetFace({ mini = false }) {
-  return (
-    <span className={`pet-face${mini ? ' mini-face' : ''}`}>
-      <span className="pet-eye l" />
-      <span className="pet-eye r" />
-      <span className="pet-blush l" />
-      <span className="pet-blush r" />
-      <span className="pet-mouth" />
-    </span>
-  )
-}
-
 export default function PetChat() {
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
+  const [express, setExpress] = useState('idle')
   const [showTip, setShowTip] = useState(true)
   const [showBadge, setShowBadge] = useState(true)
   const [showSkins, setShowSkins] = useState(false)
@@ -222,9 +212,11 @@ export default function PetChat() {
             role: 'bot',
             content: res?.answer || '（无回答）',
             steps: res?.steps || [],
-            cites: res?.cites || [],
-          }),
+          cites: res?.cites || [],
+        }),
       )
+      setExpress('happy')
+      setTimeout(() => setExpress('idle'), 1400)
     } catch (err) {
       const msg =
         err?.error || err?.message || (typeof err === 'string' ? err : '请求失败')
@@ -255,6 +247,8 @@ export default function PetChat() {
     if (cite?.path) navigate(cite.path)
   }
 
+  const mood = busy ? 'thinking' : express
+
   const wrapStyle = {
     '--pet-primary': skinMeta.primary,
     '--pet-soft': skinMeta.soft,
@@ -275,7 +269,7 @@ export default function PetChat() {
       <div className={`pet-chat${open ? ' open' : ''}`} id="pet-chat-panel">
         <div className="pet-chat-head">
           <div className="pet-chat-avatar">
-            <PetFace mini />
+            <ZhiZaiAvatar size={30} mood="idle" skin={skinMeta} />
           </div>
           <div className="pet-chat-head-text">
             <h3>智仔 · 数据问答</h3>
@@ -458,7 +452,7 @@ export default function PetChat() {
         onClick={(e) => e.preventDefault()}
       >
         {showBadge && !open && <span className="pet-badge">1</span>}
-        <PetFace />
+        <ZhiZaiAvatar size={46} mood={mood} skin={skinMeta} />
       </button>
     </div>
   )
