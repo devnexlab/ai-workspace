@@ -113,8 +113,20 @@ if %_w% geq 60 goto open_browser
 goto wait_web
 
 :open_browser
-start "" "http://localhost:5180"
-echo 已尝试打开浏览器。窗口可关闭，服务在后台继续运行。
+REM 客户机可能没有默认浏览器，优先 Edge/Chrome，失败只提示不弹错
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+  "$url='http://localhost:5180';" ^
+  "$cands=@(" ^
+  "  (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe')," ^
+  "  (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe')," ^
+  "  (Join-Path $env:ProgramFiles 'Google\Chrome\Application\chrome.exe')," ^
+  "  (Join-Path ${env:ProgramFiles(x86)} 'Google\Chrome\Application\chrome.exe')," ^
+  "  (Join-Path $env:LocalAppData 'Google\Chrome\Application\chrome.exe')" ^
+  ");" ^
+  "$ok=$false; foreach($b in $cands){ if($b -and (Test-Path $b)){ try{ Start-Process -FilePath $b -ArgumentList $url; $ok=$true; break }catch{} } };" ^
+  "if(-not $ok){ try{ Start-Process $url }catch{ Write-Host '[提示] 未检测到浏览器，请手动打开 http://localhost:5180' } }"
+echo 已尝试打开浏览器。若未弹出，请手动访问 http://localhost:5180
+echo 窗口可关闭，服务在后台继续运行。
 echo.
 pause
 endlocal
