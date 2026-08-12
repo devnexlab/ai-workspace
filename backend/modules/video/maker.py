@@ -1076,7 +1076,7 @@ def _build_subtitle_filter(sub_filter_str, style=None):
         f"OutlineColour={outline_color},"
         f"BorderStyle=1,"
         f"Outline={outline_width},"
-        f"Shadow=1,"
+        f"Shadow=0,"
         f"Alignment=2,"
         f"MarginV={margin_v}"
         f"'"
@@ -1164,7 +1164,7 @@ def compose_video(audio_path, subtitle_path, image_paths, output_path,
 
     # Pass per-task params to FFmpeg filter builders via style dict
     style['_fade_transition'] = tp.get('fade_transition') or config.get('default_fade_transition', 'true') or 'true'
-    style['_title_overlay'] = tp.get('title_overlay') or config.get('default_title_overlay', 'true') or 'true'
+    style['_title_overlay'] = 'false'
 
     sub_filter_str, temp_srt = _escape_subtitle_path(subtitle_path)
 

@@ -65,7 +65,7 @@ def _persist_video_prefs(task_dict):
         'last_render_quality': task_dict.get('render_quality') or 'high',
         'last_video_engine': task_dict.get('video_engine') or 'moviepy',
         'last_fade_transition': task_dict.get('fade_transition') or 'true',
-        'last_title_overlay': task_dict.get('title_overlay') or 'true',
+        'last_title_overlay': task_dict.get('title_overlay') or 'false',
         'last_compose_layout': task_dict.get('compose_layout') or 'default',
         'last_person_material_id': str(task_dict.get('person_material_id') or ''),
         'last_bg_material_id': str(task_dict.get('bg_material_id') or ''),
@@ -93,7 +93,7 @@ def get_last_video_prefs():
         'render_quality': prefs.get('last_render_quality') or vcfg.get('default_render_quality') or 'high',
         'video_engine': prefs.get('last_video_engine') or vcfg.get('default_video_engine') or 'moviepy',
         'fade_transition': prefs.get('last_fade_transition') or vcfg.get('default_fade_transition') or 'true',
-        'title_overlay': prefs.get('last_title_overlay') or vcfg.get('default_title_overlay') or 'true',
+        'title_overlay': prefs.get('last_title_overlay') or vcfg.get('default_title_overlay') or 'false',
         'compose_layout': prefs.get('last_compose_layout') or 'default',
         'person_material_id': prefs.get('last_person_material_id') or '',
         'bg_material_id': prefs.get('last_bg_material_id') or '',
@@ -394,7 +394,7 @@ def create_video():
          data.get('video_style', 'default'), material_ids,
          data.get('resolution', '1080x1920'), data.get('fps', '30'),
          data.get('render_quality', 'high'), data.get('fade_transition', 'true'),
-         data.get('title_overlay', 'true'), data.get('video_engine', 'moviepy'),
+         data.get('title_overlay', 'false'), data.get('video_engine', 'moviepy'),
          data.get('narration_prompt', ''), data.get('voice', ''), data.get('voice_rate', ''),
          layout, person_id, bg_id,
          'pending', 'pending', 'pending', 'pending')
@@ -642,6 +642,20 @@ def _run_video_step_background(task_id, step, script_dict, task_dict):
     """
     task_output_dir = os.path.join(OUTPUT_DIR, f'task_{task_id}')
     os.makedirs(task_output_dir, exist_ok=True)
+
+    # 兜底：日更/批量出片等入口若未打点，这里补上合成计时起点
+    if step in ('compose', 'all'):
+        try:
+            conn = _db()
+            row = conn.execute(
+                'SELECT compose_started_at FROM video_task WHERE id=?', (task_id,)
+            ).fetchone()
+            if not row or not row['compose_started_at']:
+                _mark_compose_start(conn, task_id)
+                conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f'[BackgroundTask] compose start mark skipped: {e}')
 
     try:
         if step == 'compose':

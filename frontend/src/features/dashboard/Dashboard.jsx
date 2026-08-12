@@ -18,11 +18,13 @@ const intentionLabels = { high: '高意向', medium: '中意向', low: '低意�
 
 const PLATFORM_META = {
   xiaohongshu: { label: '小红书', color: '#00b884' },
+  douyin_hot: { label: '抖音热榜', color: '#5b5bd6' },
+  douyin: { label: '抖音', color: '#5b5bd6' },
   toutiao_hot: { label: '今日头条', color: '#ff3b5c' },
   weibo_hot: { label: '微博热搜', color: '#ff9500' },
   baidu_hot: { label: '百度热榜', color: '#3b82f6' },
   zhihu_hot: { label: '知乎热榜', color: '#00bbf9' },
-  douyin: { label: '抖音', color: '#5b5bd6' },
+  web_ai: { label: 'AI热点', color: '#9b5de5' },
   bilibili: { label: 'B站', color: '#f15bb5' },
 }
 
@@ -374,7 +376,7 @@ export default function Dashboard() {
       sub: `累计 ${stats.hotTopics}`,
       icon: <FireOutlined />,
       accent: '#5b5bd6',
-      path: '/hot-topics',
+      path: '/hot-topics?tab=video',
       spark: sparkSeries.hotTopics,
     },
     {
@@ -547,7 +549,7 @@ export default function Dashboard() {
         <DashCard
           title="热点平台分布"
           icon={<FireOutlined />}
-          extra={<button type="button" className="dash-card-link" onClick={go('/hot-topics')}>查看详情</button>}
+          extra={<button type="button" className="dash-card-link" onClick={go('/hot-topics?tab=video')}>查看详情</button>}
         >
           {!platformData.length ? (
             <ChartEmpty tip="暂无平台分布" />
@@ -585,7 +587,7 @@ export default function Dashboard() {
                     key={d.platform}
                     type="button"
                     className="dash-legend-item"
-                    onClick={() => navigate('/hot-topics')}
+                    onClick={() => navigate('/hot-topics?tab=video')}
                   >
                     <span className="swatch" style={{ background: d.color }} />
                     <span className="name">{d.name}</span>
@@ -600,7 +602,7 @@ export default function Dashboard() {
         <DashCard
           title="7日热点趋势"
           icon={<RiseOutlined />}
-          extra={<button type="button" className="dash-card-link" onClick={go('/hot-topics')}>查看详情</button>}
+          extra={<button type="button" className="dash-card-link" onClick={go('/hot-topics?tab=video')}>查看详情</button>}
         >
           {!hasTrendSignal ? (
             <ChartEmpty tip="近 7 日暂无新增" />
@@ -698,7 +700,7 @@ export default function Dashboard() {
         <DashCard
           title="最新热点"
           icon={<FireOutlined />}
-          extra={<button type="button" className="dash-card-link" onClick={go('/hot-topics')}>全部热点</button>}
+          extra={<button type="button" className="dash-card-link" onClick={go('/hot-topics?tab=video')}>全部热点</button>}
           bodyClassName="dash-card-body--flush"
         >
           {!topics.length ? (
@@ -714,7 +716,7 @@ export default function Dashboard() {
                 meta={`${platformLabel(t.platform)} · 热度 ${t.likes?.toLocaleString?.() ?? t.likes ?? 0}`}
                 tag={tag.label}
                 tagCls={tag.cls}
-                onClick={go('/hot-topics')}
+                onClick={go('/hot-topics?tab=video')}
               />
             )
           })}

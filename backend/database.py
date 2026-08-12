@@ -62,7 +62,7 @@ CREATE TABLE IF NOT EXISTS video_task (
     fps TEXT DEFAULT '30',
     render_quality TEXT DEFAULT 'high',
     fade_transition TEXT DEFAULT 'true',
-    title_overlay TEXT DEFAULT 'true',
+    title_overlay TEXT DEFAULT 'false',
     video_engine TEXT DEFAULT 'moviepy',
     narration_prompt TEXT DEFAULT '',
     voice TEXT DEFAULT '',
@@ -514,7 +514,7 @@ DEFAULT_SETTINGS = [
     ('video', 'default_video_engine', 'moviepy', '默认合成引擎',
      'moviepy=高质量(慢) / ffmpeg=快速(效果一般)', 'select', '["moviepy","ffmpeg"]', 9),
     ('video', 'default_fade_transition', 'true', '默认淡入淡出', '新建视频任务时的默认值', 'select', '["true","false"]', 10),
-    ('video', 'default_title_overlay', 'true', '默认显示标题', '新建视频任务时的默认值', 'select', '["true","false"]', 11),
+    ('video', 'default_title_overlay', 'false', '默认显示标题', '新建视频任务时的默认值', 'select', '["true","false"]', 11),
 
     # ---- Publish: Douyin ----
     ('publish_douyin', 'enabled', 'true', '启用抖音发布',
@@ -797,6 +797,7 @@ def init_db():
     # 强制校正品牌内容运营关键设置（修正旧默认值）
     _upsert_setting(cur, 'system', 'fixed_ending',
                     '祁实说实话，替你的保单说话，给你最放心的选择。关注我，来找我。')
+    _upsert_setting(cur, 'video', 'default_title_overlay', 'false')
 
     # 股票情报：更新文案，去掉微信推送开关
     for item in DEFAULT_SETTINGS:

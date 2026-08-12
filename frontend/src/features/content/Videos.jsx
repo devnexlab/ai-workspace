@@ -276,7 +276,7 @@ export default function Videos() {
       render_quality: prefs.render_quality || videoDefaults.default_render_quality || 'high',
       video_engine: prefs.video_engine || videoDefaults.default_video_engine || 'moviepy',
       fade_transition: prefs.fade_transition || videoDefaults.default_fade_transition || 'true',
-      title_overlay: prefs.title_overlay || videoDefaults.default_title_overlay || 'true',
+      title_overlay: prefs.title_overlay || videoDefaults.default_title_overlay || 'false',
       compose_layout: layout,
       voice: prefs.voice || undefined,
       voice_rate: prefs.voice_rate || undefined,

@@ -10,7 +10,7 @@ import {
   TeamOutlined, CloudDownloadOutlined, BarChartOutlined, StockOutlined,
   RobotOutlined, ReadOutlined,
 } from '@ant-design/icons'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { hotTopicsApi, stocksApi } from '../../api'
 import { formatDateTime } from '../../utils/date'
 import BriefMarkdown from './BriefMarkdown'
@@ -618,6 +618,9 @@ function VideoIntelPanel() {
 }
 
 export default function HotTopics() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = searchParams.get('tab') === 'stock' ? 'stock' : 'video'
+
   return (
     <div>
       <div className="page-title">内容情报</div>
@@ -626,19 +629,14 @@ export default function HotTopics() {
       </div>
 
       <Tabs
-        defaultActiveKey="stock"
+        activeKey={tab}
+        onChange={(key) => {
+          const next = new URLSearchParams(searchParams)
+          if (key === 'stock') next.set('tab', 'stock')
+          else next.set('tab', 'video')
+          setSearchParams(next, { replace: true })
+        }}
         items={[
-          {
-            key: 'stock',
-            label: (
-              <span>
-                <StockOutlined />
-                {' '}
-                股票情报
-              </span>
-            ),
-            children: <StockIntelPanel />,
-          },
           {
             key: 'video',
             label: (
@@ -649,6 +647,17 @@ export default function HotTopics() {
               </span>
             ),
             children: <VideoIntelPanel />,
+          },
+          {
+            key: 'stock',
+            label: (
+              <span>
+                <StockOutlined />
+                {' '}
+                股票情报
+              </span>
+            ),
+            children: <StockIntelPanel />,
           },
         ]}
       />

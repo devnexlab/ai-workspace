@@ -267,8 +267,17 @@ def _wrap_text_lines(text, font, max_width, draw):
     return lines
 
 
-def _render_subtitle_pil(text, font_path, font_size, color, stroke_color, stroke_width, max_w):
-    """Render subtitle to RGBA numpy array via Pillow (reliable Chinese fallback)."""
+def _draw_cjk_text(draw, xy, text, font, fill, stroke_fill=None, stroke_width=0):
+    """CJK-safe: one soft drop-shadow + one fill (no Pillow stroke / dense rings)."""
+    x, y = xy
+    if stroke_fill is not None and int(stroke_width or 0) > 0:
+        draw.text((x + 2, y + 2), text, font=font, fill=stroke_fill)
+    draw.text((x, y), text, font=font, fill=fill)
+
+
+def _render_subtitle_pil(text, font_path, font_size, color, stroke_color, stroke_width, max_w,
+                         with_box=True):
+    """Render subtitle/title to RGBA numpy array via Pillow (reliable Chinese)."""
     from PIL import Image, ImageDraw, ImageFont
 
     try:
@@ -279,7 +288,6 @@ def _render_subtitle_pil(text, font_path, font_size, color, stroke_color, stroke
         except Exception:
             font = ImageFont.load_default()
 
-    # Measure with a temp image
     tmp = Image.new('RGBA', (max_w, font_size * 8), (0, 0, 0, 0))
     draw = ImageDraw.Draw(tmp)
     lines = _wrap_text_lines(text, font, max_w - 24, draw)
@@ -292,7 +300,9 @@ def _render_subtitle_pil(text, font_path, font_size, color, stroke_color, stroke
         bbox = draw.textbbox((0, 0), line, font=font)
         line_widths.append(bbox[2] - bbox[0])
         line_heights.append(bbox[3] - bbox[1])
-    pad_x, pad_y = 18, 12
+    # Dark box already gives contrast; skip outline to avoid CJK ghosting
+    sw = 0 if with_box else (1 if int(stroke_width or 0) > 0 else 0)
+    pad_x, pad_y = 18 + (2 if sw else 0), 12 + (2 if sw else 0)
     gap = max(4, font_size // 8)
     text_h = sum(line_heights) + gap * (len(lines) - 1)
     text_w = max(line_widths) if line_widths else max_w
@@ -301,28 +311,21 @@ def _render_subtitle_pil(text, font_path, font_size, color, stroke_color, stroke
 
     img = Image.new('RGBA', (img_w, img_h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
-    # Soft dark box
-    draw.rounded_rectangle(
-        [(0, 0), (img_w - 1, img_h - 1)],
-        radius=10,
-        fill=(0, 0, 0, 150),
-    )
+    if with_box:
+        draw.rounded_rectangle(
+            [(0, 0), (img_w - 1, img_h - 1)],
+            radius=10,
+            fill=(0, 0, 0, 150),
+        )
 
-    fill = _hex_or_name_to_rgb(color)
-    stroke = _hex_or_name_to_rgb(stroke_color, (0, 0, 0))
+    fill = _hex_or_name_to_rgb(color) + (255,)
+    stroke = _hex_or_name_to_rgb(stroke_color, (0, 0, 0)) + (255,)
     y = pad_y
     for i, line in enumerate(lines):
         bbox = draw.textbbox((0, 0), line, font=font)
         lw = bbox[2] - bbox[0]
         x = (img_w - lw) // 2
-        draw.text(
-            (x, y),
-            line,
-            font=font,
-            fill=fill + (255,),
-            stroke_width=max(0, int(stroke_width or 0)),
-            stroke_fill=stroke + (255,),
-        )
+        _draw_cjk_text(draw, (x, y), line, font, fill, stroke_fill=stroke, stroke_width=sw)
         y += line_heights[i] + gap
 
     return np.array(img)
@@ -338,23 +341,39 @@ def _parse_srt(srt_path):
     if not srt_path or not os.path.exists(srt_path):
         return []
 
-    with open(srt_path, 'r', encoding='utf-8') as f:
+    with open(srt_path, 'r', encoding='utf-8-sig') as f:
         content = f.read()
 
-    segments = []
-    pattern = re.compile(
-        r'(\d+)\s*\n'
-        r'(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})\s*\n'
-        r'((?:.*\n)*?)',
-        re.MULTILINE
-    )
+    # Windows TTS/SRT often uses CRLF; normalize so block splits work
+    content = content.replace('\r\n', '\n').replace('\r', '\n').strip()
+    if not content:
+        return []
 
-    for match in pattern.finditer(content):
-        start = _srt_time_to_seconds(match.group(2))
-        end = _srt_time_to_seconds(match.group(3))
-        text = match.group(4).strip()
+    segments = []
+    for block in re.split(r'\n\s*\n+', content):
+        lines = [ln.strip() for ln in block.strip().split('\n') if ln.strip()]
+        if len(lines) < 2:
+            continue
+        # Optional numeric index on first line
+        if '-->' in lines[0]:
+            time_line, text_lines = lines[0], lines[1:]
+        elif '-->' in lines[1]:
+            time_line, text_lines = lines[1], lines[2:]
+        else:
+            continue
+        m = re.match(
+            r'(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})',
+            time_line,
+        )
+        if not m:
+            continue
+        text = '\n'.join(text_lines).strip()
         if text:
-            segments.append({'start': start, 'end': end, 'text': text})
+            segments.append({
+                'start': _srt_time_to_seconds(m.group(1)),
+                'end': _srt_time_to_seconds(m.group(2)),
+                'text': text,
+            })
 
     return segments
 
@@ -587,7 +606,7 @@ def _create_subtitle_clips(srt_path, style, target_w, target_h, fps):
         font_size = max(font_size, 44)
     sub_color = style.get('sub_color', 'white')
     stroke_color = style.get('sub_stroke_color', 'black')
-    stroke_width = style.get('sub_stroke_width', 3)
+    stroke_width = style.get('sub_stroke_width', 2)
 
     text_max_w = target_w - 80
     # 贴屏幕下方：按字幕块高度 + 底部安全边距定位（避免误放顶部）
@@ -608,7 +627,7 @@ def _create_subtitle_clips(srt_path, style, target_w, target_h, fps):
                 continue
             sub_h = int(arr.shape[0])
             sub_y = max(0, target_h - sub_h - bottom_margin)
-            clip = ImageClip(arr, duration=dur).with_position(('center', sub_y))
+            clip = ImageClip(arr, duration=dur, transparent=True).with_position(('center', sub_y))
             clip = clip.with_start(seg['start']).with_fps(fps)
             fade_dur = min(0.2, dur / 4)
             clip = clip.with_effects([FadeIn(fade_dur), FadeOut(fade_dur)])
@@ -746,8 +765,8 @@ def _create_talking_head_base(bg_path, person_path, duration, width, height, fps
     return base, video_refs
 
 def _create_title_clip(title_text, style, duration, target_w, fps):
-    """Create an animated title overlay at the top."""
-    from moviepy import TextClip
+    """Create an animated title overlay at the top (Pillow — no MoviePy CJK stroke ghost)."""
+    from moviepy import ImageClip
     from moviepy.video.fx import FadeIn, FadeOut
 
     if not title_text:
@@ -755,21 +774,24 @@ def _create_title_clip(title_text, style, duration, target_w, fps):
 
     font_path = _get_font_path(style.get('sub_font', 'msyh.ttc'))
     title_color = style.get('title_color', 'white')
-    title_size = style.get('title_font_size', 42)
+    title_size = int(style.get('title_font_size', 42) or 42)
+    max_w = max(200, int(target_w) - 80)
 
     try:
-        title_clip = TextClip(
-            text=title_text,
-            font=font_path,
-            font_size=title_size,
-            color=title_color,
-            stroke_color='black',
-            stroke_width=2,
-            duration=min(duration, 5),  # Title shows for max 5 seconds
-            text_align='center',
-            size=(target_w - 100, None),
-            method='caption',
+        arr = _render_subtitle_pil(
+            title_text,
+            font_path,
+            title_size,
+            title_color,
+            'black',
+            0,
+            max_w,
+            with_box=True,
         )
+        if arr is None:
+            return None
+        title_clip = ImageClip(arr, duration=min(duration, 5), transparent=True)
+        title_clip = title_clip.with_fps(fps)
         title_clip = title_clip.with_position(('center', 60))
         title_clip = title_clip.with_effects([FadeIn(0.5), FadeOut(0.5)])
         return title_clip
@@ -828,7 +850,8 @@ def compose_video_moviepy(audio_path, subtitle_path, image_paths, output_path,
     fps = int(tp.get('fps') or config.get('default_fps', '30') or '30')
     render_quality = tp.get('render_quality') or config.get('default_render_quality', 'high') or 'high'
     fade_enabled = tp.get('fade_transition') or config.get('default_fade_transition', 'true') or 'true'
-    show_title = tp.get('title_overlay') or config.get('default_title_overlay', 'true') or 'true'
+    # 产品需求：成片不叠标题（口播字幕已够用）
+    show_title = 'false'
     if render_quality == 'preview':
         # Fast preview: 480p @ 24fps
         base_w, base_h = map(int, resolution.split('x'))
@@ -1081,10 +1104,23 @@ def compose_video_moviepy(audio_path, subtitle_path, image_paths, output_path,
         bottom_bar = bottom_bar.with_position((0, height - bar_h)).with_fps(fps)
         underlays.extend([top_bar, bottom_bar])
 
-    if show_title == 'true':
-        title_clip = _create_title_clip(title_text, style, duration, width, fps)
-        if title_clip:
-            overlays.append(title_clip)
+    if show_title == 'true' and title_text:
+        # Avoid double text: title often equals first SRT cue
+        first_sub = ''
+        try:
+            segs = _parse_srt(subtitle_path)
+            if segs:
+                first_sub = (segs[0].get('text') or '').replace('\n', '').strip()
+        except Exception:
+            pass
+        t_norm = ''.join((title_text or '').split())
+        s_norm = ''.join(first_sub.split())
+        if t_norm and s_norm and (t_norm == s_norm or t_norm in s_norm or s_norm in t_norm):
+            print('[VideoComposer] Skip title overlay (duplicates first subtitle)')
+        else:
+            title_clip = _create_title_clip(title_text, style, duration, width, fps)
+            if title_clip:
+                overlays.append(title_clip)
 
     sub_clips = _create_subtitle_clips(subtitle_path, style, width, height, fps)
     overlays.extend(sub_clips)

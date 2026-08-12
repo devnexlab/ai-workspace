@@ -188,7 +188,7 @@ def _video_defaults():
         'fps': prefs.get('fps') or '30',
         'render_quality': prefs.get('render_quality') or 'high',
         'fade_transition': prefs.get('fade_transition') or 'true',
-        'title_overlay': prefs.get('title_overlay') or 'true',
+        'title_overlay': prefs.get('title_overlay') or 'false',
         'video_engine': prefs.get('video_engine') or 'moviepy',
         'voice': prefs.get('voice') or '',
         'voice_rate': prefs.get('voice_rate') or '',
@@ -203,7 +203,7 @@ def enqueue_videos_for_scripts(script_ids, start_produce=True):
     为文案创建视频任务；若已有关联任务则复用。
     start_produce=True 时后台启动 step=all。
     """
-    from routes.video.videos import _run_video_step_background
+    from routes.video.videos import _run_video_step_background, _mark_compose_start
     import threading
 
     defaults = _video_defaults()
@@ -270,12 +270,13 @@ def enqueue_videos_for_scripts(script_ids, start_produce=True):
 
         started = False
         if start_produce and task_dict.get('export_status') != 'done':
-            # 标记 processing，避免重复点
+            # 标记 processing，避免重复点；并记录合成开始时间（否则「用时」会一直是 -）
             conn.execute(
                 '''UPDATE video_task SET voice_status=?, subtitle_status=?,
                    video_status=?, export_status=?, error_msg=? WHERE id=?''',
                 ('processing', 'processing', 'processing', 'processing', '', video_id)
             )
+            _mark_compose_start(conn, video_id)
             conn.commit()
             thread = threading.Thread(
                 target=_run_video_step_background,

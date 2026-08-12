@@ -345,7 +345,7 @@ def produce_script(id):
          pick('video_style', 'default'), material_ids,
          pick('resolution', '1080x1920'), pick('fps', '30'),
          pick('render_quality', 'high'), pick('fade_transition', 'true'),
-         pick('title_overlay', 'true'), pick('video_engine', 'moviepy'),
+         pick('title_overlay', 'false'), pick('video_engine', 'moviepy'),
          pick('narration_prompt', ''), pick('voice', ''), pick('voice_rate', ''),
          layout, person_id, bg_id,
          'pending', 'pending', 'pending', 'pending')
