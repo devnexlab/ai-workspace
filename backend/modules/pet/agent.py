@@ -13,12 +13,14 @@ from modules.ai.writer import call_llm
 from modules.pet.rag import search_vectors
 from modules.pet.tools_finance import tool_finance_market
 from modules.pet.tools_insurance import tool_insurance_knowledge
+from modules.pet.tools_ops import try_run_ops
 
 MODE_SOURCES = {
     'auto': ['knowledge', 'script', 'stock_brief'],
     'knowledge': ['knowledge'],
     'script': ['script'],
     'stock': ['stock_brief'],
+    'ops': [],
 }
 
 SOURCE_PATH = {
@@ -29,6 +31,7 @@ SOURCE_PATH = {
     'alert': '/stocks/watchlist',
     'finance_tool': '/stocks',
     'insurance_tool': '/knowledge',
+    'ops_tool': '/videos',
 }
 
 # 口播/文案创作意图
@@ -56,7 +59,6 @@ _WATCHLIST_KEYS = (
     '持仓', '自选', '跌破成本', '目标价', '预警', '仓位', '我的股票',
 )
 
-
 def _step(text: str, state: str = 'ok') -> dict:
     return {'text': text, 'state': state}
 
@@ -67,7 +69,7 @@ def _has_any(text: str, keys: tuple[str, ...]) -> bool:
 
 
 def _resolve_intents(question: str, mode: str) -> dict[str, bool]:
-    """根据问题与模式决定启用哪些工具 / 检索源。"""
+    """根据问题与模式决定启用哪些工具 / 检索源。运营动作由 LLM 路由，不在此用关键词硬判。"""
     q = question or ''
     write = _has_any(q, _CONTENT_WRITE_KEYS)
     insurance = _has_any(q, _INSURANCE_KEYS) or mode == 'knowledge'
@@ -80,6 +82,7 @@ def _resolve_intents(question: str, mode: str) -> dict[str, bool]:
             'insurance': insurance or write,
             'finance': False,
             'watch': False,
+            'ops': False,
             'vector_knowledge': True,
             'vector_script': True,
             'vector_brief': False,
@@ -91,6 +94,7 @@ def _resolve_intents(question: str, mode: str) -> dict[str, bool]:
             'insurance': _has_any(q, _INSURANCE_KEYS),
             'finance': False,
             'watch': False,
+            'ops': False,
             'vector_knowledge': True,
             'vector_script': True,
             'vector_brief': False,
@@ -102,19 +106,29 @@ def _resolve_intents(question: str, mode: str) -> dict[str, bool]:
             'insurance': False,
             'finance': True,
             'watch': True,
+            'ops': False,
             'vector_knowledge': False,
             'vector_script': False,
             'vector_brief': True,
         }
 
-    # auto
-    # 纯创作且无行情词：不开金融工具
+    if mode == 'ops':
+        return {
+            'write': False,
+            'insurance': False,
+            'finance': False,
+            'watch': False,
+            'ops': True,
+            'vector_knowledge': False,
+            'vector_script': False,
+            'vector_brief': False,
+        }
+
+    # auto：运营工具是否执行由 try_run_ops(LLM) 决定，这里先标 ops 待解析
     if write and not finance:
         finance = False
-    # 保险常识问法默认开保险工具；若同时写口播也开
     if write and _has_any(q, _INSURANCE_KEYS):
         insurance = True
-    # 「知识库」字样但不一定是保险
     if '知识库' in q and not finance:
         insurance = insurance or _has_any(q, _INSURANCE_KEYS)
 
@@ -123,6 +137,7 @@ def _resolve_intents(question: str, mode: str) -> dict[str, bool]:
         'insurance': insurance,
         'finance': finance,
         'watch': watch,
+        'ops': mode in ('auto', 'ops'),  # auto 下也尝试 LLM 路由
         'vector_knowledge': (not finance) or insurance or write or (not finance and not watch),
         'vector_script': write or insurance or (not finance and not watch),
         'vector_brief': finance and not write,
@@ -142,7 +157,9 @@ def _resolve_sources(intents: dict[str, bool], mode: str) -> tuple[list[str], st
         sources.append('stock_brief')
 
     if not sources:
-        if intents.get('finance') or intents.get('watch'):
+        if mode == 'ops':
+            sources = []
+        elif intents.get('finance') or intents.get('watch'):
             sources = ['stock_brief']
         else:
             sources = ['knowledge', 'script']
@@ -154,6 +171,8 @@ def _resolve_sources(intents: dict[str, bool], mode: str) -> tuple[list[str], st
         reasons.append('保险常识')
     if intents.get('watch'):
         reasons.append('自选股')
+    if intents.get('ops'):
+        reasons.append('运营操作')
     if intents.get('write'):
         reasons.append('内容创作')
     return sources, ('识别：' + ' + '.join(reasons)) if reasons else '默认知识库/文案'
@@ -296,6 +315,7 @@ def run_pet_agent(
         'knowledge': '偏知识库',
         'script': '偏文案',
         'stock': '偏股票',
+        'ops': '偏运营',
     }.get(mode, mode)
     steps.append(_step(f'理解问题 · 模式「{mode_label}」'))
 
@@ -305,6 +325,37 @@ def run_pet_agent(
 
     hits: list[dict] = []
     tool_blocks: list[str] = []
+    ops_ran = False
+
+    # —— 运营操作：LLM 理解意图选工具（客户随便说，不靠关键词清单）——
+    if intents.get('ops'):
+        try:
+            ops_result = try_run_ops(
+                q,
+                history=history,
+                force=(mode == 'ops'),
+            )
+            if ops_result:
+                c, text, step_label = ops_result
+                steps.append(_step(step_label))
+                cites.extend(c)
+                tool_blocks.append(text)
+                ops_ran = True
+                # 已执行运营动作时，跳过易冲突的检索
+                intents['finance'] = False
+                intents['watch'] = False
+                intents['insurance'] = False
+                intents['vector_knowledge'] = False
+                intents['vector_script'] = False
+                intents['vector_brief'] = False
+                sources = []
+            elif mode == 'ops':
+                steps.append(_step('运营路由 · 未匹配到可执行工具'))
+            else:
+                steps.append(_step('运营路由 · 判定为普通问答'))
+        except Exception as e:
+            steps.append(_step(f'运营工具失败：{e}'))
+            tool_blocks.append(f'运营操作失败：{e}')
 
     # —— 工具调用 ——
     if intents.get('finance'):
@@ -334,8 +385,11 @@ def run_pet_agent(
         except Exception as e:
             tool_blocks.append(f'保险常识工具失败：{e}')
 
-    # —— 向量检索（保险工具已含知识库召回时，auto 下可减少重复）——
-    skip_vector = bool(intents.get('insurance') and not intents.get('write') and not intents.get('finance'))
+    # —— 向量检索 ——
+    skip_vector = bool(
+        ops_ran
+        or (intents.get('insurance') and not intents.get('write') and not intents.get('finance'))
+    )
     if not skip_vector and sources:
         label_map = {
             'knowledge': '知识库',
@@ -346,11 +400,12 @@ def run_pet_agent(
         steps.append(_step(f'向量检索 · {src_names}'))
         min_score = 0.30
         if intents.get('finance'):
-            # 金融问法主要靠工具；简报仅作补充且阈值更高
             min_score = 0.35
         hits = search_vectors(q, source_types=sources, top_k=5, min_score=min_score)
         for h in hits:
             cites.append(_cite_from_hit(h))
+    elif skip_vector and ops_ran:
+        steps.append(_step('向量检索 · 运营指令已由工具处理，跳过'))
     elif skip_vector:
         steps.append(_step('向量检索 · 已由保险工具覆盖，跳过重复召回'))
 
@@ -371,15 +426,15 @@ def run_pet_agent(
 
     has_refs = bool(hits) or bool(tool_blocks)
     system_prompt = (
-        '你是「智仔」，智能运营台内的数据问答助手。'
-        '优先使用【系统工具结果】中的实时数据与保险常识；不要编造数字或条款。'
-        '问北向资金/行业流入时，只依据金融实时工具数据作答；不要拿无关新闻标题充数。'
-        '若工具写明北向「未披露」，必须如实说暂未披露，禁止把 0 或空值说成「净流入 0 亿元」。'
-        '行业资金有数据时可照常回答流入最多的行业。'
-        '问保险常识时，可综合内置常识与知识库召回；条款细节以用户知识库与产品合同为准。'
-        '若资料与问题无关，必须忽略并说明不足。'
+        '你是「智仔」，智能运营台的运营总控助手（对标 WorkBuddy：对话即操作）。'
+        '优先使用【系统工具结果】；工具已执行的操作要如实告知结果，不要装作还没做。'
+        '可协助：知识库/口播、股票、日更出片、视频任务、发布概览、定时任务。'
+        '涉及出片/日更等写操作时，以工具返回为准；不要编造任务 ID。'
+        '发布默认半自动（准备发布），提醒用户在官方页确认发表，勿怂恿全自动狂发。'
+        '问北向资金/行业流入时，只依据金融实时工具数据作答。'
+        '若工具写明北向「未披露」，必须如实说暂未披露。'
         '不要在正文里罗列引用清单；系统会单独展示引用卡片。'
-        '涉及股票/资金时声明不构成投资建议；涉及保险时声明不构成销售误导。'
+        '涉及股票时声明不构成投资建议；涉及保险时声明不构成销售误导。'
         '不要输出 JSON。'
     )
     ref_hint = (
@@ -446,6 +501,82 @@ def create_session(title: str = '') -> int:
         conn.close()
 
 
+def list_sessions(limit: int = 30) -> list[dict]:
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            '''SELECT s.id, s.title, s.created_at, s.updated_at,
+                      (SELECT COUNT(*) FROM pet_chat_message m WHERE m.session_id=s.id) AS msg_count,
+                      (SELECT content FROM pet_chat_message m
+                       WHERE m.session_id=s.id AND m.role='user'
+                       ORDER BY m.id DESC LIMIT 1) AS last_user
+               FROM pet_chat_session s
+               ORDER BY s.updated_at DESC NULLS LAST, s.id DESC
+               LIMIT %s''',
+            (limit,),
+        ).fetchall()
+        out = []
+        for r in rows:
+            out.append({
+                'id': r['id'],
+                'title': (r['title'] or '智仔对话')[:60],
+                'created_at': str(r['created_at'] or ''),
+                'updated_at': str(r['updated_at'] or ''),
+                'msg_count': int(r['msg_count'] or 0),
+                'preview': ((r['last_user'] or r['title'] or '')[:48]),
+            })
+        return out
+    finally:
+        conn.close()
+
+
+def load_session_messages(session_id: int, limit: int = 100) -> list[dict]:
+    """返回前端可用的消息列表（含 meta）。"""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            '''SELECT id, role, content, meta_json, created_at
+               FROM pet_chat_message
+               WHERE session_id=%s
+               ORDER BY id ASC
+               LIMIT %s''',
+            (session_id, limit),
+        ).fetchall()
+        messages = []
+        for r in rows:
+            meta = {}
+            raw = r.get('meta_json') or ''
+            if raw:
+                try:
+                    meta = json.loads(raw) if isinstance(raw, str) else (raw or {})
+                except Exception:
+                    meta = {}
+            role = r['role']
+            ui_role = 'user' if role == 'user' else 'bot'
+            messages.append({
+                'id': f"db-{r['id']}",
+                'role': ui_role,
+                'content': r['content'] or '',
+                'steps': meta.get('steps') or [],
+                'cites': meta.get('cites') or [],
+                'created_at': str(r.get('created_at') or ''),
+            })
+        return messages
+    finally:
+        conn.close()
+
+
+def session_exists(session_id: int) -> bool:
+    conn = get_db()
+    try:
+        row = conn.execute(
+            'SELECT id FROM pet_chat_session WHERE id=%s', (session_id,)
+        ).fetchone()
+        return bool(row)
+    finally:
+        conn.close()
+
+
 def append_message(session_id: int, role: str, content: str, meta: dict | None = None) -> None:
     conn = get_db()
     try:
@@ -463,7 +594,7 @@ def append_message(session_id: int, role: str, content: str, meta: dict | None =
         conn.close()
 
 
-def load_history(session_id: int, limit: int = 12) -> list[dict]:
+def load_history(session_id: int, limit: int = 20) -> list[dict]:
     conn = get_db()
     try:
         rows = conn.execute(

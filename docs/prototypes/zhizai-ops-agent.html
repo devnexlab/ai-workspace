@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>原型 · 智仔运营总控</title>
+  <style>
+    :root {
+      --primary: #5b5bd6;
+      --sidebar: #1a1a2e;
+      --page: #fafafa;
+      --text: #1e1e2e;
+      --muted: #6b6b80;
+      --tertiary: #9b9bb0;
+      --border: #ededf0;
+      --success: #00b884;
+      --warning: #ff9500;
+      --font: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font);
+      background: #e8e8ee;
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px 48px;
+    }
+    .banner {
+      width: min(1280px, 100%);
+      margin-bottom: 14px;
+      padding: 12px 16px;
+      background: #fff8e6;
+      border: 1px solid #f0d78c;
+      border-radius: 8px;
+      font-size: 13px;
+      line-height: 1.55;
+      color: #5c4a12;
+    }
+    .banner strong { color: #3d320c; }
+    .shell {
+      width: min(1280px, 100%);
+      min-height: 820px;
+      display: grid;
+      grid-template-columns: 220px 1fr 300px;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 12px 40px rgba(26,26,46,.12);
+      background: var(--page);
+    }
+    .sider { background: var(--sidebar); color: #c8c8d4; padding: 16px 12px; }
+    .brand {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 10px 18px;
+      border-bottom: 1px solid rgba(255,255,255,.06);
+      margin-bottom: 14px;
+    }
+    .brand-mark {
+      width: 28px; height: 28px; border-radius: 8px;
+      background: var(--primary); color: #fff;
+      display: grid; place-items: center; font-weight: 700; font-size: 14px;
+    }
+    .brand-name { color: #fff; font-size: 14px; font-weight: 600; }
+    .nav-label { font-size: 11px; color: #6b6b80; padding: 0 10px 6px; margin-top: 10px; }
+    .nav-item { padding: 8px 10px; border-radius: 6px; font-size: 13px; margin-bottom: 2px; }
+    .nav-item.active { background: rgba(91,91,214,.22); color: #fff; }
+
+    .main { display: flex; flex-direction: column; min-width: 0; background: #fff; border-right: 1px solid var(--border); }
+    .main-head {
+      padding: 16px 20px; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 12px;
+    }
+    .avatar {
+      width: 40px; height: 40px; border-radius: 12px;
+      background: linear-gradient(145deg, #7d7dff, #5b5bd6);
+      display: grid; place-items: center; color: #fff; font-weight: 700;
+    }
+    .main-head h1 { font-size: 16px; }
+    .main-head p { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .badge {
+      margin-left: auto; font-size: 11px; padding: 4px 8px; border-radius: 999px;
+      background: #e8faf3; color: #0a8f66;
+    }
+
+    .chat {
+      flex: 1; overflow: auto; padding: 16px 20px;
+      background: radial-gradient(ellipse 60% 30% at 50% 0%, rgba(91,91,214,.06), transparent), #fafafa;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .msg { max-width: 88%; font-size: 13px; line-height: 1.55; }
+    .msg.bot { align-self: flex-start; }
+    .msg.user { align-self: flex-end; }
+    .bubble {
+      padding: 10px 14px; border-radius: 12px;
+      background: #fff; border: 1px solid var(--border);
+    }
+    .msg.user .bubble {
+      background: var(--primary); color: #fff; border-color: var(--primary);
+    }
+    .msg .meta { font-size: 11px; color: var(--tertiary); margin-bottom: 4px; }
+    .steps {
+      margin-top: 8px; padding: 8px 10px; border-radius: 8px;
+      background: #f6f6fa; font-size: 12px; color: var(--muted);
+    }
+    .steps div { margin: 3px 0; }
+    .steps .ok::before { content: "✓ "; color: var(--success); }
+    .steps .run::before { content: "… "; color: var(--primary); }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .chip {
+      font-size: 12px; padding: 6px 10px; border-radius: 999px;
+      border: 1px solid var(--border); background: #fff; cursor: pointer;
+      font-family: inherit; color: var(--text);
+    }
+    .chip:hover { border-color: var(--primary); color: var(--primary); }
+
+    .composer {
+      padding: 12px 16px; border-top: 1px solid var(--border); background: #fff;
+      display: flex; gap: 8px;
+    }
+    .composer input {
+      flex: 1; padding: 10px 12px; border: 1px solid var(--border);
+      border-radius: 10px; font-size: 13px; font-family: inherit;
+    }
+    .composer input:focus { outline: none; border-color: var(--primary); }
+    .btn {
+      border: none; background: var(--primary); color: #fff;
+      border-radius: 10px; padding: 0 16px; font-size: 13px; cursor: pointer;
+      font-family: inherit;
+    }
+
+    .side {
+      background: var(--page); padding: 14px; overflow: auto;
+      display: flex; flex-direction: column; gap: 12px;
+    }
+    .card {
+      background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 12px;
+    }
+    .card h3 { font-size: 13px; margin-bottom: 8px; }
+    .cap {
+      display: flex; align-items: flex-start; gap: 8px;
+      padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 12px;
+    }
+    .cap:last-child { border-bottom: none; }
+    .cap-dot {
+      width: 8px; height: 8px; border-radius: 50%; margin-top: 4px; flex-shrink: 0;
+    }
+    .cap-dot.now { background: var(--success); }
+    .cap-dot.next { background: var(--warning); }
+    .cap-dot.later { background: #d0d0dc; }
+    .cap b { display: block; font-size: 12px; margin-bottom: 2px; }
+    .cap span { color: var(--muted); line-height: 1.4; }
+    .sched {
+      font-size: 12px; padding: 8px; border-radius: 8px; background: #f6f6fa;
+      margin-bottom: 6px; display: flex; justify-content: space-between; gap: 8px;
+    }
+    .sched em { font-style: normal; color: var(--primary); font-size: 11px; }
+    .legend { font-size: 11px; color: var(--tertiary); display: flex; gap: 10px; margin-top: 6px; }
+    .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+    .legend .now { background: var(--success); }
+    .legend .next { background: var(--warning); }
+    .legend .later { background: #d0d0dc; }
+
+    .toast {
+      position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(12px);
+      background: #1e1e2e; color: #fff; padding: 10px 14px; border-radius: 8px;
+      font-size: 13px; opacity: 0; transition: .2s; z-index: 20; pointer-events: none;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    @media (max-width: 1000px) {
+      .shell { grid-template-columns: 1fr; }
+      .sider, .side { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="banner">
+    <strong>产品方向调整（原型）</strong> —
+    客户要的 WorkBuddy 能力，由本系统<strong>智仔</strong>承担：对话即操作。
+    系统里有的功能（内容、视频、发布、股票、客户、定时任务）都尽量能跟智仔说着办。
+    比腾讯 WorkBuddy 更贴你们业务；不必强绑手机端 WorkBuddy（本机系统仍优先电脑用）。
+  </div>
+
+  <div class="shell">
+    <aside class="sider">
+      <div class="brand">
+        <div class="brand-mark">智</div>
+        <div class="brand-name">智能运营台</div>
+      </div>
+      <div class="nav-label">总览</div>
+      <div class="nav-item">运营仪表盘</div>
+      <div class="nav-label">内容运营</div>
+      <div class="nav-item">内容工作台</div>
+      <div class="nav-item">视频生产</div>
+      <div class="nav-item">发布中心</div>
+      <div class="nav-label">AI</div>
+      <div class="nav-item active">智仔总控</div>
+    </aside>
+
+    <section class="main">
+      <div class="main-head">
+        <div class="avatar">仔</div>
+        <div>
+          <h1>智仔 · 运营总控</h1>
+          <p>对标 WorkBuddy：对话执行任务 · 覆盖本系统全部业务能力</p>
+        </div>
+        <span class="badge">本机助手</span>
+      </div>
+
+      <div class="chat" id="chat"></div>
+
+      <div class="composer">
+        <input id="input" type="text" placeholder="例如：每天早上 8 点帮我跑日更并出片…" />
+        <button class="btn" type="button" onclick="send()">发送</button>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="card">
+        <h3>能力覆盖（对标系统功能）</h3>
+        <div class="cap"><div class="cap-dot now"></div><div><b>问答 / 知识库 / 写口播</b><span>已有：智仔当前能力</span></div></div>
+        <div class="cap"><div class="cap-dot now"></div><div><b>股票行情 / 自选 / 情报</b><span>已有：金融工具 + 情报检索</span></div></div>
+        <div class="cap"><div class="cap-dot next"></div><div><b>定时任务</b><span>下一期：日更、同步数据、盯盘提醒</span></div></div>
+        <div class="cap"><div class="cap-dot next"></div><div><b>视频制作 / 合成</b><span>下一期：对话触发配音、字幕、合成</span></div></div>
+        <div class="cap"><div class="cap-dot next"></div><div><b>发布 / 内容工作台</b><span>下一期：同步平台数据、准备发布</span></div></div>
+        <div class="cap"><div class="cap-dot later"></div><div><b>剪辑细调 / 自动互动</b><span>更后：分镜调整、半自动回复（可控）</span></div></div>
+        <div class="legend">
+          <span><i class="now"></i>已有</span>
+          <span><i class="next"></i>下一期</span>
+          <span><i class="later"></i>后续</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>定时任务（示意）</h3>
+        <div class="sched"><span>每天 08:00 日更出片</span><em>已开启</em></div>
+        <div class="sched"><span>每 2 小时同步平台数据</span><em>已开启</em></div>
+        <div class="sched"><span>自选股跌破成本提醒</span><em>已开启</em></div>
+        <button class="chip" style="width:100%;margin-top:4px;justify-content:center" type="button" onclick="ask('帮我加一个每天晚上 9 点同步视频号数据的任务')">+ 用对话添加</button>
+      </div>
+
+      <div class="card">
+        <h3>和腾讯 WorkBuddy 对比</h3>
+        <div class="cap"><div class="cap-dot now"></div><div><b>对话执行任务</b><span>两边都能做</span></div></div>
+        <div class="cap"><div class="cap-dot now"></div><div><b>贴合本系统业务</b><span>智仔可直接操作你们的视频/发布/股票</span></div></div>
+        <div class="cap"><div class="cap-dot later"></div><div><b>手机远程</b><span>本机系统需上云/穿透后才能接手机</span></div></div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const SUGGESTS = [
+      '分析一下今天北向资金和我自选股',
+      '根据知识库写一条医保口播开头',
+      '把文案「公积金开户」一键出片',
+      '同步抖音和视频号数据，找出互动弱的',
+      '每天早上 8 点自动跑日更并出片',
+      '帮我准备发布最新成片到视频号',
+    ];
+
+    const REPLIES = {
+      '分析一下今天北向资金和我自选股': {
+        text: '已拉取北向资金与自选股概况（原型模拟）。\n\n北向今日净流入约 +32 亿，金融、医药流入居前。自选里有 1 只跌破成本，建议在「自选股」里看预警详情。',
+        steps: ['检索行情工具', '读取自选与预警', '汇总回答'],
+      },
+      '根据知识库写一条医保口播开头': {
+        text: '口播开头草案：\n「医保账户里的钱，很多人只会看病花——其实还有更划算的用法。今天用三分钟说清楚。」\n\n可直接去文案管理保存，或说「用这条出片」。',
+        steps: ['检索知识库', '生成口播钩子', '等待你确认'],
+      },
+      '把文案「公积金开户」一键出片': {
+        text: '已创建视频任务并开始全流程（原型）：配音 → 字幕 → 合成。\n完成后我会在智仔里提醒你，也可在「视频生产」查看进度。',
+        steps: ['匹配文案', '创建视频任务', '后台执行合成'],
+      },
+      '同步抖音和视频号数据，找出互动弱的': {
+        text: '同步完成（原型）。共检查 740 条作品，标出 46 条「互动弱/掉量」。\n可说「打开内容工作台看问题列表」，或「给最差的 3 条生成改进建议」。',
+        steps: ['检查登录态', '同步平台数据', '诊断筛选'],
+      },
+      '每天早上 8 点自动跑日更并出片': {
+        text: '已添加定时任务：每天 08:00 执行「日更流水线」（采热点 → 写文案 → 出片）。\n可在右侧定时任务里看到；说「暂停日更」可关闭。',
+        steps: ['解析时间与动作', '写入定时任务', '确认开启'],
+      },
+      '帮我准备发布最新成片到视频号': {
+        text: '已选最新成片，复制标题/话题，并打开视频号创作者页准备流程（原型）。\n请在浏览器确认后点发表——自动狂发有封号风险，默认半自动。',
+        steps: ['定位最新成片', '准备发布文案', '打开创作者页'],
+      },
+      '帮我加一个每天晚上 9 点同步视频号数据的任务': {
+        text: '已添加：每天 21:00 同步视频号作品数据。登录过期时会提醒你重新扫码。',
+        steps: ['创建定时同步', '绑定视频号', '开启'],
+      },
+    };
+
+    function toast(m) {
+      const el = document.getElementById('toast');
+      el.textContent = m;
+      el.classList.add('show');
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => el.classList.remove('show'), 2000);
+    }
+
+    function addMsg(role, html, steps) {
+      const chat = document.getElementById('chat');
+      const div = document.createElement('div');
+      div.className = 'msg ' + role;
+      let body = `<div class="meta">${role === 'bot' ? '智仔' : '你'}</div><div class="bubble">${html.replace(/\n/g, '<br>')}`;
+      if (steps) {
+        body += `<div class="steps">${steps.map((s, i) =>
+          `<div class="${i < steps.length - 1 ? 'ok' : 'run'}">${s}</div>`).join('')}</div>`;
+      }
+      body += '</div>';
+      div.innerHTML = body;
+      chat.appendChild(div);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    function showWelcome() {
+      addMsg('bot',
+        '你好，我是智仔。客户要的 WorkBuddy 能力，由我在本系统里统一承担：你说话，我执行。\n\n现在能问知识库、写口播、看股票；下一期补齐定时任务、出片、同步平台数据、准备发布——系统有的功能，都尽量能跟我对话操作。');
+      const wrap = document.createElement('div');
+      wrap.className = 'msg bot';
+      wrap.innerHTML = `<div class="bubble"><div class="meta">试试这样说</div><div class="chips">${
+        SUGGESTS.map(s => `<button class="chip" type="button" onclick='ask(${JSON.stringify(s)})'>${s}</button>`).join('')
+      }</div></div>`;
+      document.getElementById('chat').appendChild(wrap);
+    }
+
+    function ask(text) {
+      document.getElementById('input').value = text;
+      send();
+    }
+
+    function send() {
+      const input = document.getElementById('input');
+      const text = (input.value || '').trim();
+      if (!text) return;
+      input.value = '';
+      addMsg('user', text);
+      const hit = REPLIES[text];
+      setTimeout(() => {
+        if (hit) addMsg('bot', hit.text, hit.steps);
+        else addMsg('bot',
+          '已理解（原型）。落地后会匹配系统能力：内容 / 视频 / 发布 / 股票 / 客户 / 定时任务。\n若指令涉及写操作（出片、发布、改设置），我会先确认再执行。',
+          ['理解意图', '匹配系统能力', '确认后执行']);
+        toast('智仔已响应（原型模拟）');
+      }, 450);
+    }
+
+    document.getElementById('input').addEventListener('keydown', e => {
+      if (e.key === 'Enter') send();
+    });
+
+    showWelcome();
+  </script>
+</body>
+</html>

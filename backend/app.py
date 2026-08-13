@@ -77,6 +77,11 @@ def create_app():
         start_universe_scheduler()
     except Exception as e:
         print(f'[Server] Universe scheduler not started: {e}')
+    try:
+        from modules.pet.jobs import start_pet_job_scheduler
+        start_pet_job_scheduler()
+    except Exception as e:
+        print(f'[Server] Pet job scheduler not started: {e}')
 
     return app
 

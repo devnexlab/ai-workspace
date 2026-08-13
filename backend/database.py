@@ -409,6 +409,22 @@ CREATE TABLE IF NOT EXISTS pet_chat_message (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS pet_job (
+    id SERIAL PRIMARY KEY,
+    title TEXT DEFAULT '',
+    action TEXT NOT NULL,
+    enabled BOOLEAN DEFAULT TRUE,
+    hour INTEGER,
+    minute INTEGER DEFAULT 0,
+    interval_hours INTEGER,
+    params_json TEXT DEFAULT '{}',
+    last_run_at TIMESTAMP,
+    last_run_date TEXT DEFAULT '',
+    last_result TEXT DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Script V1.2 enhancements (columns added via migration)
 -- Added as separate ALTER for existing tables
 """
@@ -793,6 +809,25 @@ def init_db():
     _add_column_if_not_exists(cur, 'video_task', 'compose_started_at', 'TIMESTAMP')
     _add_column_if_not_exists(cur, 'video_task', 'compose_elapsed_sec', 'REAL DEFAULT 0')
     _add_column_if_not_exists(cur, 'knowledge_item', 'source_file', "TEXT DEFAULT ''")
+
+    # 智仔定时任务表
+    cur.execute(
+        '''CREATE TABLE IF NOT EXISTS pet_job (
+            id SERIAL PRIMARY KEY,
+            title TEXT DEFAULT '',
+            action TEXT NOT NULL,
+            enabled BOOLEAN DEFAULT TRUE,
+            hour INTEGER,
+            minute INTEGER DEFAULT 0,
+            interval_hours INTEGER,
+            params_json TEXT DEFAULT '{}',
+            last_run_at TIMESTAMP,
+            last_run_date TEXT DEFAULT '',
+            last_result TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )'''
+    )
 
     # 强制校正品牌内容运营关键设置（修正旧默认值）
     _upsert_setting(cur, 'system', 'fixed_ending',
