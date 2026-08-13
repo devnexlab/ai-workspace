@@ -162,7 +162,20 @@ def parse_schedule_from_text(text: str) -> dict[str, Any] | None:
 
     action = 'daily_pipeline'
     title = '定时日更出片'
-    if any(k in q for k in ('同步发布', '同步数据', '平台数据', '同步视频号', '同步抖音')):
+    params: dict[str, Any] = {}
+    if any(k in q for k in ('同步发布', '同步数据', '平台数据', '同步视频号', '同步抖音', '同步小红书', '同步工作台', '作品同步')):
+        action = 'workbench_sync'
+        title = '定时同步内容工作台'
+        if any(k in q for k in ('小红书', 'xiaohongshu', 'xhs')):
+            params['platform'] = 'xiaohongshu'
+            title = '定时同步小红书工作台'
+        elif any(k in q for k in ('视频号', 'shipinhao')):
+            params['platform'] = 'shipinhao'
+            title = '定时同步视频号工作台'
+        elif any(k in q for k in ('抖音', 'douyin')):
+            params['platform'] = 'douyin'
+            title = '定时同步抖音工作台'
+    elif any(k in q for k in ('发布概览', '查看发布')):
         action = 'publish_overview'
         title = '定时查看发布数据'
     elif any(k in q for k in ('股票简报', '财经新闻', '早间简报')):
@@ -192,7 +205,7 @@ def parse_schedule_from_text(text: str) -> dict[str, Any] | None:
             'interval_hours': iv,
             'hour': None,
             'minute': 0,
-            'params': {},
+            'params': params,
         }
 
     # 每天 HH 点
@@ -230,7 +243,7 @@ def parse_schedule_from_text(text: str) -> dict[str, Any] | None:
         'hour': hour,
         'minute': minute,
         'interval_hours': None,
-        'params': {},
+        'params': params,
     }
 
 
@@ -294,6 +307,11 @@ def _execute_action(action: str, params: dict | None = None) -> str:
         from modules.pet.tools_ops import tool_list_publish_overview
         _c, text = tool_list_publish_overview(5)
         return text[:400]
+    if action == 'workbench_sync':
+        from modules.pet.tools_ops import tool_sync_workbench
+        plat = str(params.get('platform') or '')
+        _c, text = tool_sync_workbench(platform=plat, limit=int(params.get('limit') or 40))
+        return text[:500]
     return f'未知动作: {action}'
 
 

@@ -130,6 +130,7 @@ def pet_chat():
         {
             'steps': result.get('steps') or [],
             'cites': result.get('cites') or [],
+            'choices': result.get('choices') or [],
             'mode': result.get('mode') or mode,
         },
     )
@@ -140,5 +141,6 @@ def pet_chat():
         'answer': result.get('answer') or '',
         'steps': result.get('steps') or [],
         'cites': result.get('cites') or [],
+        'choices': result.get('choices') or [],
         'mode': result.get('mode') or mode,
     })

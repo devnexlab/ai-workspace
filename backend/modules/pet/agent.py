@@ -326,8 +326,10 @@ def run_pet_agent(
     hits: list[dict] = []
     tool_blocks: list[str] = []
     ops_ran = False
+    choices: list[dict] = []
+    clarify_only = False
 
-    # —— 运营操作：LLM 理解意图选工具（客户随便说，不靠关键词清单）——
+    # —— 运营操作：理解意图；含糊则追问选项，明确才执行工具 ——
     if intents.get('ops'):
         try:
             ops_result = try_run_ops(
@@ -336,12 +338,15 @@ def run_pet_agent(
                 force=(mode == 'ops'),
             )
             if ops_result:
-                c, text, step_label = ops_result
+                c = ops_result.get('cites') or []
+                text = ops_result.get('text') or ''
+                step_label = ops_result.get('step') or '运营工具'
+                choices = list(ops_result.get('choices') or [])
+                clarify_only = bool(ops_result.get('clarify'))
                 steps.append(_step(step_label))
                 cites.extend(c)
                 tool_blocks.append(text)
                 ops_ran = True
-                # 已执行运营动作时，跳过易冲突的检索
                 intents['finance'] = False
                 intents['watch'] = False
                 intents['insurance'] = False
@@ -356,6 +361,7 @@ def run_pet_agent(
         except Exception as e:
             steps.append(_step(f'运营工具失败：{e}'))
             tool_blocks.append(f'运营操作失败：{e}')
+
 
     # —— 工具调用 ——
     if intents.get('finance'):
@@ -417,6 +423,27 @@ def run_pet_agent(
 
     steps.append(_step('汇总并标注引用'))
 
+    def _uniq_cites(items: list[dict]) -> list[dict]:
+        out: list[dict] = []
+        seen: set[tuple] = set()
+        for c in items:
+            key = (c.get('source_type'), c.get('source_id'), c.get('title'))
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(c)
+        return out[:10]
+
+    # 澄清选项：直接返回引导文案，避免二次改写冲掉选项
+    if clarify_only and tool_blocks:
+        return {
+            'answer': tool_blocks[0],
+            'steps': steps,
+            'cites': _uniq_cites(cites),
+            'mode': mode,
+            'choices': choices,
+        }
+
     context = _build_context(hits, tool_blocks)
     hist_lines = []
     for m in (history or [])[-6:]:
@@ -428,7 +455,9 @@ def run_pet_agent(
     system_prompt = (
         '你是「智仔」，智能运营台的运营总控助手（对标 WorkBuddy：对话即操作）。'
         '优先使用【系统工具结果】；工具已执行的操作要如实告知结果，不要装作还没做。'
-        '可协助：知识库/口播、股票、日更出片、视频任务、发布概览、定时任务。'
+        '意图不清时会先给选项请用户确认；不要替用户瞎猜成刷热点或乱执行。'
+        '可协助：知识库/口播、股票、日更出片、视频任务、内容工作台、发布概览、定时任务。'
+        '「全网热点/热搜」与「自己账号的作品数据」是两件事，回答时不要混淆。'
         '涉及出片/日更等写操作时，以工具返回为准；不要编造任务 ID。'
         '发布默认半自动（准备发布），提醒用户在官方页确认发表，勿怂恿全自动狂发。'
         '问北向资金/行业流入时，只依据金融实时工具数据作答。'
@@ -470,20 +499,12 @@ def run_pet_agent(
                 f'未能完成回答：{e}。请配置大模型，或稍后重试金融/保险工具。'
             )
 
-    uniq: list[dict] = []
-    seen: set[tuple] = set()
-    for c in cites:
-        key = (c.get('source_type'), c.get('source_id'), c.get('title'))
-        if key in seen:
-            continue
-        seen.add(key)
-        uniq.append(c)
-
     return {
         'answer': answer,
         'steps': steps,
-        'cites': uniq[:10],
+        'cites': _uniq_cites(cites),
         'mode': mode,
+        'choices': choices,
     }
 
 
@@ -559,6 +580,7 @@ def load_session_messages(session_id: int, limit: int = 100) -> list[dict]:
                 'content': r['content'] or '',
                 'steps': meta.get('steps') or [],
                 'cites': meta.get('cites') or [],
+                'choices': meta.get('choices') or [],
                 'created_at': str(r.get('created_at') or ''),
             })
         return messages
@@ -598,11 +620,25 @@ def load_history(session_id: int, limit: int = 20) -> list[dict]:
     conn = get_db()
     try:
         rows = conn.execute(
-            '''SELECT role, content FROM pet_chat_message
+            '''SELECT role, content, meta_json FROM pet_chat_message
                WHERE session_id=%s
                ORDER BY id DESC LIMIT %s''',
             (session_id, limit),
         ).fetchall()
-        return [{'role': r['role'], 'content': r['content']} for r in reversed(list(rows))]
+        out = []
+        for r in reversed(list(rows)):
+            meta = {}
+            raw = r.get('meta_json') or ''
+            if raw:
+                try:
+                    meta = json.loads(raw) if isinstance(raw, str) else (raw or {})
+                except Exception:
+                    meta = {}
+            out.append({
+                'role': r['role'],
+                'content': r['content'],
+                'meta': meta,
+            })
+        return out
     finally:
         conn.close()

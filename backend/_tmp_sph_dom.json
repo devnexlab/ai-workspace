@@ -1,0 +1,254 @@
+{
+  "page_url": "https://channels.weixin.qq.com/platform/post/list",
+  "frames": [
+    {
+      "url": "https://channels.weixin.qq.com/platform/post/list",
+      "name": ""
+    },
+    {
+      "url": "https://channels.weixin.qq.com/micro/content/post/list",
+      "name": "content"
+    }
+  ],
+  "micro": {
+    "text_head": "视频管理\n特效创作工具\n视频 (0)\n合集 (0)\n你还没有发表过视频\n发表视频\n关于腾讯微信视频号运营规范问题咨询\n© 1998-2026 Tencent Inc. All Rights Reserved.",
+    "text_len": 104,
+    "html_len": 12281,
+    "html_head": "\n<noscript>\n  <strong>We're sorry but finder-helper-web doesn't work\n    properly without JavaScript enabled. Please enable it to\n    continue.</strong>\n</noscript>\n<div id=\"app\" class=\"finder-page PostList\" style=\"--Finder-primary: #fa9d3b; --Finder-primary_hover: #faa64e; --Finder-primary_active: #e08c34;\"><div class=\"app-body\"><div id=\"container-wrap\" class=\"container-wrap\"><div data-v-10a05624=\"\" class=\"wrap\" style=\"display: none;\"><img data-v-10a05624=\"\" src=\"data:image/png;base64,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",
+    "iframes": [],
+    "tabs": [
+      "视频管理\n特效创作工具",
+      "视频管理",
+      "视频 (0)\n合集 (0)",
+      "视频 (0)\n合集 (0)",
+      "视频 (0)\n合集 (0)",
+      "视频 (0)\n合集 (0)",
+      "视频 (0)\n合集 (0)",
+      "视频 (0)",
+      "视频 (0)",
+      "你还没有发表过视频\n发表视频",
+      "你还没有发表过视频\n发表视频",
+      "你还没有发表过视频",
+      "发表视频",
+      "发表视频",
+      "发表视频",
+      "特别发表",
+      "特别发表",
+      "特别发表",
+      "关于腾讯微信视频号运营规范问题咨询",
+      "微信视频号运营规范"
+    ],
+    "imgs": [
+      {
+        "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAKAAAACgCAMAAAC8EZcfAAAAolBMVEUAAAD6nj37nTz7nT79qUL7nkX7nT36qEH6m0D7o0H7oD37nTz6nD37nkH6nUH6njz7oUL7n0D6njz7nj37oUD7nTv5nzv6nTv7nz77nT",
+        "w": 0,
+        "h": 0,
+        "alt": "加载中……"
+      },
+      {
+        "src": "https://res.wx.qq.com/t/fed_upload/a7c0ca79-3095-453a-aa22-1d114154ed83/special-post-guide.png",
+        "w": 0,
+        "h": 0,
+        "alt": ""
+      },
+      {
+        "src": "https://res.wx.qq.com/t/fed_upload/2e71356757eb9419c55fce4868a439c2/feedback-qrcode.png",
+        "w": 0,
+        "h": 0,
+        "alt": ""
+      }
+    ],
+    "candidates": [
+      {
+        "cls": "finder-page PostList",
+        "tag": "DIV",
+        "len": 104,
+        "sample": "视频管理 特效创作工具 视频 (0) 合集 (0) 你还没有发表过视频 发表视频 关于腾讯微信视频号运营规范问题咨询 © 1998-2026 Tencent Inc. All Rights Reserved."
+      },
+      {
+        "cls": "app-body",
+        "tag": "DIV",
+        "len": 104,
+        "sample": "视频管理 特效创作工具 视频 (0) 合集 (0) 你还没有发表过视频 发表视频 关于腾讯微信视频号运营规范问题咨询 © 1998-2026 Tencent Inc. All Rights Reserved."
+      },
+      {
+        "cls": "container-wrap",
+        "tag": "DIV",
+        "len": 104,
+        "sample": "视频管理 特效创作工具 视频 (0) 合集 (0) 你还没有发表过视频 发表视频 关于腾讯微信视频号运营规范问题咨询 © 1998-2026 Tencent Inc. All Rights Reserved."
+      },
+      {
+        "cls": "container-center",
+        "tag": "DIV",
+        "len": 104,
+        "sample": "视频管理 特效创作工具 视频 (0) 合集 (0) 你还没有发表过视频 发表视频 关于腾讯微信视频号运营规范问题咨询 © 1998-2026 Tencent Inc. All Rights Reserved."
+      },
+      {
+        "cls": "post-view router-view",
+        "tag": "DIV",
+        "len": 40,
+        "sample": "视频管理 特效创作工具 视频 (0) 合集 (0) 你还没有发表过视频 发表视频"
+      },
+      {
+        "cls": "main-body-wrap",
+        "tag": "DIV",
+        "len": 40,
+        "sample": "视频管理 特效创作工具 视频 (0) 合集 (0) 你还没有发表过视频 发表视频"
+      },
+      {
+        "cls": "weui-desktop-block main-card",
+        "tag": "DIV",
+        "len": 28,
+        "sample": "视频 (0) 合集 (0) 你还没有发表过视频 发表视频"
+      },
+      {
+        "cls": "weui-desktop-block__content",
+        "tag": "DIV",
+        "len": 28,
+        "sample": "视频 (0) 合集 (0) 你还没有发表过视频 发表视频"
+      },
+      {
+        "cls": "post-list",
+        "tag": "DIV",
+        "len": 28,
+        "sample": "视频 (0) 合集 (0) 你还没有发表过视频 发表视频"
+      },
+      {
+        "cls": "",
+        "tag": "DIV",
+        "len": 97,
+        "sample": "创建合集暂无合集创建合集 填写合集标题 0/20 描述清晰具体的标题，更能吸引他人点开播放。有引流性质的标题，将会驳回并处罚。合集创建之后，标题每年只能修改5次。 取消创建"
+      },
+      {
+        "cls": "",
+        "tag": "DIV",
+        "len": 97,
+        "sample": "创建合集暂无合集创建合集 填写合集标题 0/20 描述清晰具体的标题，更能吸引他人点开播放。有引流性质的标题，将会驳回并处罚。合集创建之后，标题每年只能修改5次。 取消创建"
+      },
+      {
+        "cls": "common-dialog create-collection",
+        "tag": "DIV",
+        "len": 89,
+        "sample": "创建合集 填写合集标题 0/20 描述清晰具体的标题，更能吸引他人点开播放。有引流性质的标题，将会驳回并处罚。合集创建之后，标题每年只能修改5次。 取消创建"
+      },
+      {
+        "cls": "weui-desktop-dialog__wrp",
+        "tag": "DIV",
+        "len": 89,
+        "sample": "创建合集 填写合集标题 0/20 描述清晰具体的标题，更能吸引他人点开播放。有引流性质的标题，将会驳回并处罚。合集创建之后，标题每年只能修改5次。 取消创建"
+      },
+      {
+        "cls": "weui-desktop-dialog",
+        "tag": "DIV",
+        "len": 89,
+        "sample": "创建合集 填写合集标题 0/20 描述清晰具体的标题，更能吸引他人点开播放。有引流性质的标题，将会驳回并处罚。合集创建之后，标题每年只能修改5次。 取消创建"
+      },
+      {
+        "cls": "weui-desktop-dialog__bd",
+        "tag": "DIV",
+        "len": 78,
+        "sample": "填写合集标题 0/20 描述清晰具体的标题，更能吸引他人点开播放。有引流性质的标题，将会驳回并处罚。合集创建之后，标题每年只能修改5次。"
+      },
+      {
+        "cls": "create-collection-dialog-wrap",
+        "tag": "DIV",
+        "len": 78,
+        "sample": "填写合集标题 0/20 描述清晰具体的标题，更能吸引他人点开播放。有引流性质的标题，将会驳回并处罚。合集创建之后，标题每年只能修改5次。"
+      },
+      {
+        "cls": "dot-list",
+        "tag": "DIV",
+        "len": 56,
+        "sample": "描述清晰具体的标题，更能吸引他人点开播放。有引流性质的标题，将会驳回并处罚。合集创建之后，标题每年只能修改5次。"
+      },
+      {
+        "cls": "list-item",
+        "tag": "DIV",
+        "len": 21,
+        "sample": "描述清晰具体的标题，更能吸引他人点开播放。"
+      },
+      {
+        "cls": "weui-desktop-dialog__wrp",
+        "tag": "DIV",
+        "len": 69,
+        "sample": "特别发表 你可以选择发表过的视频，点击「特别发表」按钮发表视频，让你的公众号粉丝在订阅号盒子里看到你的视频。每日最多使用一次。 我知道了"
+      },
+      {
+        "cls": "weui-desktop-dialog",
+        "tag": "DIV",
+        "len": 69,
+        "sample": "特别发表 你可以选择发表过的视频，点击「特别发表」按钮发表视频，让你的公众号粉丝在订阅号盒子里看到你的视频。每日最多使用一次。 我知道了"
+      },
+      {
+        "cls": "no-permission-content",
+        "tag": "DIV",
+        "len": 58,
+        "sample": "你可以选择发表过的视频，点击「特别发表」按钮发表视频，让你的公众号粉丝在订阅号盒子里看到你的视频。每日最多使用一次。"
+      },
+      {
+        "cls": "",
+        "tag": "SECTION",
+        "len": 63,
+        "sample": "关于腾讯微信视频号运营规范问题咨询 © 1998-2026 Tencent Inc. All Rights Reserved."
+      },
+      {
+        "cls": "main-part",
+        "tag": "DIV",
+        "len": 63,
+        "sample": "关于腾讯微信视频号运营规范问题咨询 © 1998-2026 Tencent Inc. All Rights Reserved."
+      }
+    ],
+    "hasDate": false,
+    "hasPlay": false,
+    "emptyHints": [
+      "还没有"
+    ]
+  },
+  "clicked": [
+    {
+      "want": "视频",
+      "text": "视频 (0)\n合集 (0)\n你还没有发表"
+    }
+  ],
+  "after_click": {
+    "text_head": "视频管理\n特效创作工具\n视频 (0)\n合集 (0)\n你还没有发表过视频\n发表视频\n关于腾讯微信视频号运营规范问题咨询\n© 1998-2026 Tencent Inc. All Rights Reserved.",
+    "text_len": 104,
+    "imgs": 3,
+    "trs": 0,
+    "hasDate": false,
+    "hasPlay": false
+  },
+  "rounds": [
+    {
+      "i": 0,
+      "n": 0,
+      "titles": []
+    },
+    {
+      "i": 1,
+      "n": 0,
+      "titles": []
+    },
+    {
+      "i": 2,
+      "n": 0,
+      "titles": []
+    },
+    {
+      "i": 3,
+      "n": 0,
+      "titles": []
+    },
+    {
+      "i": 4,
+      "n": 0,
+      "titles": []
+    },
+    {
+      "i": 5,
+      "n": 0,
+      "titles": []
+    }
+  ],
+  "final_items": []
+}

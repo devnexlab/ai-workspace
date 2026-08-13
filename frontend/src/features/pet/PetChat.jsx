@@ -22,7 +22,7 @@ const SUGGESTS = [
 ]
 
 const WELCOME =
-  '你好，我是智仔。你随便说就行：问知识、写口播、看股票，或让我刷新情报、出片、看任务、设定时——我会自己理解并操作系统。'
+  '你好，我是智仔。你随便说就行。若我不太确定你想做什么，会先给你几个选项确认，再动手——避免搞错。'
 
 const SKIN_KEY = 'pet_chat_skin'
 const POS_KEY = 'pet_chat_pos'
@@ -320,6 +320,7 @@ export default function PetChat() {
             content: res?.answer || '（无回答）',
             steps: res?.steps || [],
             cites: res?.cites || [],
+            choices: res?.choices || [],
           }),
       )
       setExpress('happy')
@@ -527,6 +528,21 @@ export default function PetChat() {
                 ) : (
                   <>
                     <div className="pet-msg-text">{m.content}</div>
+                    {m.choices?.length > 0 && (
+                      <div className="pet-choices">
+                        {m.choices.map((c, i) => (
+                          <button
+                            key={c.id || i}
+                            type="button"
+                            className="pet-choice"
+                            disabled={busy}
+                            onClick={() => send(c.message || c.label)}
+                          >
+                            {c.label || c.message}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     {m.steps?.length > 0 && (
                       <div className="pet-agent-steps">
                         {m.steps.map((s, i) => (
