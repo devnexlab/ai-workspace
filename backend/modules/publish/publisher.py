@@ -784,6 +784,18 @@ def _scrape_manage_page(page, platform, title, navigate=True):
           } else if (nums.length === 1 && !labeledLike) {
             likes = nums[0];
           }
+        } else if (platform === 'xiaohongshu' && (!labeledLike || !labeledComment || !labeledView)) {
+          // 笔记管理常见：浏览 评论 点赞 收藏 分享
+          if (nums.length >= 3) {
+            views = labeledView ? views : nums[0];
+            comments = labeledComment ? comments : nums[1];
+            likes = labeledLike ? likes : nums[2];
+          } else if (nums.length === 2) {
+            views = labeledView ? views : nums[0];
+            likes = labeledLike ? likes : nums[1];
+          } else if (nums.length === 1 && !labeledView) {
+            views = nums[0];
+          }
         } else if (!labeledLike && !labeledComment) {
           if (nums.length >= 2) { likes = nums[0]; comments = nums[1]; }
           else if (nums.length === 1) { likes = nums[0]; }
@@ -802,9 +814,20 @@ def _scrape_manage_page(page, platform, title, navigate=True):
         const t = norm(el.innerText || el.textContent || '');
         if (!t || t.length < 4 || t.length > 800) continue;
         if (!hit(t)) continue;
-        const looksPost = /\\d{4}\\s*年|点赞|评论|播放|分享|置顶|可见权限/.test(t)
+        const looksPost = /\\d{4}\\s*年|\\d{4}[\\/-]\\d{1,2}[\\/-]\\d{1,2}|点赞|评论|播放|分享|浏览|收藏|置顶|可见权限/.test(t)
           || (platform === 'shipinhao' && /#/.test(t));
         if (keys.length && !looksPost && t.length < 20) continue;
+        if (!keys.length && !looksPost) continue;
+        // 标题取首行，去掉日期/数据行
+        const lines = t.split(/\\n+/).map(norm).filter(Boolean);
+        let titleText = lines[0] || t.slice(0, 80);
+        for (const line of lines) {
+          if (/^\\d{4}[\\/-]\\d{1,2}/.test(line)) continue;
+          if (/^(?:\\d+(?:\\.\\d+)?[万wW千kK]?\\s*){2,}$/.test(line)) continue;
+          if (/作品管理|发表视频|数据中心|笔记管理|全部\\s*\\d+/.test(line)) continue;
+          titleText = line.slice(0, 80);
+          break;
+        }
         let href = '';
         const feedId = el.getAttribute && (
           el.getAttribute('data-feed-id') || el.getAttribute('data-feedid') || el.getAttribute('data-id') || ''
@@ -822,22 +845,23 @@ def _scrape_manage_page(page, platform, title, navigate=True):
         if (seen.has(key)) continue;
         seen.add(key);
         cards.push({
-          title: t.slice(0, 120),
+          title: titleText || t.slice(0, 120),
+          raw: t.slice(0, 200),
           url: href || '',
           feedId: feedId || '',
           likes: eng.likes,
           comments: eng.comments,
           views: eng.views,
-          score: (href ? 12 : 0) + (eng.likes + eng.comments > 0 ? 8 : 0) + (looksPost ? 6 : 0),
+          score: (href ? 12 : 0) + (eng.likes + eng.comments > 0 ? 8 : 0) + (eng.views > 0 ? 4 : 0) + (looksPost ? 6 : 0),
         });
-        if (cards.length >= 24) break;
+        if (cards.length >= (payload.maxItems || 24)) break;
       }
       cards.sort((a, b) => (b.score || 0) - (a.score || 0));
       return cards;
     }
     """
 
-    payload = {'keys': title_keys, 'platform': platform or ''}
+    payload = {'keys': title_keys, 'platform': platform or '', 'maxItems': 24}
     items = []
     samples = []
     for root in _scrape_roots(page):
@@ -869,7 +893,7 @@ def _scrape_manage_page(page, platform, title, navigate=True):
     if not items:
         url = _detect_url_from_page(page)
         if url and _is_content_url(url):
-            return {'ok': True, 'publish_url': url, 'likes': 0, 'comments': 0, 'matched': False}
+            return {'ok': True, 'publish_url': url, 'likes': 0, 'comments': 0, 'plays': 0, 'matched': False}
         hint = ''
         if samples:
             titles = '；'.join((s.get('title') or '')[:20] for s in samples[:3] if s.get('title'))
@@ -886,6 +910,10 @@ def _scrape_manage_page(page, platform, title, navigate=True):
             break
 
     likes, comments = _sanitize_engagement(best.get('likes'), best.get('comments'))
+    try:
+        plays = max(0, int(best.get('views') or best.get('plays') or 0))
+    except (TypeError, ValueError):
+        plays = 0
     publish_url = best.get('url') or ''
     if publish_url and not _is_content_url(publish_url):
         publish_url = ''
@@ -900,6 +928,7 @@ def _scrape_manage_page(page, platform, title, navigate=True):
         'publish_url': publish_url,
         'likes': likes,
         'comments': comments,
+        'plays': plays,
         'matched': True,
         'matched_title': best.get('title') or '',
     }
@@ -1067,6 +1096,362 @@ def sync_publish_engagement(task):
 def apply_engagement_to_consult(likes, comments):
     """点赞或评论/回复视为「有咨询」（互动代理，非真实私信）。"""
     return int(likes or 0) > 0 or int(comments or 0) > 0
+
+
+def scrape_platform_library(platform, max_items=80):
+    """
+    打开创作者作品/笔记管理页，抓取可见列表（用于工作台导入）。
+    需要本系统 browser_profiles/<platform> 已登录。
+    """
+    platform = (platform or '').strip()
+    if not platform:
+        return {'ok': False, 'error': '缺少平台', 'items': []}
+    if not check_playwright():
+        return {'ok': False, 'error': 'Playwright 未安装', 'items': []}
+    manage = MANAGE_URLS.get(platform)
+    if not manage:
+        return {'ok': False, 'error': f'{platform} 暂不支持从创作者后台拉取作品列表', 'items': []}
+
+    meta = _platform_meta(platform)
+    label = meta.get('label') or platform
+    profile = _profile_dir(platform)
+    if not os.path.isdir(profile) or not os.listdir(profile):
+        return {
+            'ok': False,
+            'error': f'{label} 尚未在本系统浏览器登录。请先在工作台点「登录」并在弹出窗口扫码',
+            'items': [],
+        }
+
+    _stop_platform_sessions(platform)
+    time.sleep(1.0)
+
+    from playwright.sync_api import sync_playwright
+    try:
+        with sync_playwright() as p:
+            context = _launch_persistent(p, profile)
+            try:
+                page = context.pages[0] if context.pages else context.new_page()
+                page.set_default_timeout(20000)
+                try:
+                    page.goto(manage, wait_until='domcontentloaded', timeout=60000)
+                    page.wait_for_timeout(3200)
+                    try:
+                        page.wait_for_function(
+                            "() => !!(document.body && document.body.innerText && document.body.innerText.length > 80)",
+                            timeout=12000,
+                        )
+                    except Exception:
+                        pass
+                    # 虚拟列表：多滚几轮，尽量把 20+ 条都加载出来
+                    last_h = 0
+                    for i in range(14):
+                        try:
+                            page.mouse.wheel(0, 1800)
+                            page.wait_for_timeout(650 if i < 8 else 900)
+                            h = page.evaluate('document.documentElement.scrollHeight || 0') or 0
+                            if h and h == last_h and i > 4:
+                                # 再点一次「加载更多」类按钮（若有）
+                                try:
+                                    page.evaluate("""() => {
+                                      const btns = Array.from(document.querySelectorAll('button, a, div, span'));
+                                      for (const b of btns) {
+                                        const t = (b.innerText || '').trim();
+                                        if (/加载更多|查看更多|下一页/.test(t)) { b.click(); return true; }
+                                      }
+                                      return false;
+                                    }""")
+                                    page.wait_for_timeout(1200)
+                                except Exception:
+                                    pass
+                                if i > 8:
+                                    break
+                            last_h = h
+                        except Exception:
+                            break
+                    try:
+                        page.evaluate('window.scrollTo(0, 0)')
+                        page.wait_for_timeout(600)
+                    except Exception:
+                        pass
+                except Exception as e:
+                    return {'ok': False, 'error': f'打开{label}管理页失败: {_nav_error_hint(e)}', 'items': []}
+
+                if _page_looks_like_login_or_qr(page) or _looks_like_login(page, platform):
+                    return {
+                        'ok': False,
+                        'error': f'{label} 创作者后台未登录。请在工作台点「登录」，在弹出的系统浏览器扫码后再同步',
+                        'items': [],
+                    }
+
+                items = _collect_manage_cards(page, platform, max_items=max_items)
+                if not items:
+                    body = ''
+                    try:
+                        body = (page.evaluate('document.body ? document.body.innerText : ""') or '')[:200]
+                    except Exception:
+                        pass
+                    return {
+                        'ok': False,
+                        'error': f'未在{label}管理页解析到笔记/作品。页上文本片段：{body[:80] or "（空）"}',
+                        'items': [],
+                    }
+                return {'ok': True, 'items': items, 'count': len(items)}
+            finally:
+                try:
+                    context.close()
+                except Exception:
+                    pass
+    except Exception as e:
+        return {'ok': False, 'error': _launch_error_hint(e, profile, label), 'items': []}
+
+
+def _collect_manage_cards(page, platform, max_items=80):
+    """从当前管理页收集作品卡片（封面优先定位，过滤状态文案假标题）。"""
+    scrape_js = r"""
+    (payload) => {
+      const platform = (payload && payload.platform) || '';
+      const maxItems = (payload && payload.maxItems) || 80;
+      const norm = (s) => (s || '').replace(/\s+/g, ' ').trim();
+      const parseNum = (s) => {
+        s = String(s || '').trim().replace(/,/g, '');
+        if (!s) return 0;
+        const m = s.match(/^([\d.]+)\s*([万wW千kK])?$/);
+        if (!m) return 0;
+        let n = parseFloat(m[1]);
+        if (!isFinite(n)) return 0;
+        const u = (m[2] || '').toLowerCase();
+        if (u === '万' || u === 'w') n *= 10000;
+        if (u === '千' || u === 'k') n *= 1000;
+        return Math.round(n);
+      };
+      const pad = (n) => String(n).padStart(2, '0');
+      const parseDate = (text) => {
+        const s = norm(text);
+        let m = s.match(/(20\d{2})[\/-](\d{1,2})[\/-](\d{1,2})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+        if (m) {
+          return m[1] + '-' + pad(m[2]) + '-' + pad(m[3])
+            + (m[4] != null ? (' ' + pad(m[4]) + ':' + pad(m[5]) + ':' + pad(m[6] || 0)) : '');
+        }
+        m = s.match(/(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日(?:\s*(\d{1,2})\s*[:：]\s*(\d{2}))?/);
+        if (m) {
+          return m[1] + '-' + pad(m[2]) + '-' + pad(m[3])
+            + (m[4] != null ? (' ' + pad(m[4]) + ':' + pad(m[5]) + ':00') : '');
+        }
+        return '';
+      };
+      const STATUS = new Set([
+        '部分人不可见','公开','仅自己可见','好友可见','已发布','未通过','审核中','审核失败',
+        '草稿','定时发布','视频','图文','笔记','置顶','播放','点赞','评论','浏览','收藏','分享',
+        '全部','回收站','精华','推荐','私密','自己可见','粉丝可见'
+      ]);
+      const isStatus = (line) => {
+        const s = norm(line);
+        if (!s) return true;
+        if (STATUS.has(s)) return true;
+        if (/^(公开|私密|可见|不可见|已发布|未通过|审核)/.test(s) && s.length <= 10) return true;
+        return false;
+      };
+      const absUrl = (src) => {
+        if (!src || src.startsWith('data:')) return '';
+        if (src.startsWith('//')) return 'https:' + src;
+        return src.startsWith('http') ? src : '';
+      };
+      const pickCoverFromImg = (img) => {
+        let src = img.currentSrc || img.src || img.getAttribute('data-src')
+          || img.getAttribute('data-original') || img.getAttribute('data-url') || '';
+        if (!src && img.getAttribute('srcset')) {
+          src = String(img.getAttribute('srcset')).split(',')[0].trim().split(' ')[0];
+        }
+        src = absUrl(src);
+        if (!src) return '';
+        if (/avatar|icon|logo|emoji|sprite|blank|placeholder|qrcode|qr\.|favicon/i.test(src)) return '';
+        return src;
+      };
+      const cardRootFromImg = (img) => {
+        let el = img;
+        for (let i = 0; i < 8 && el; i++) {
+          const cls = (el.className && String(el.className)) || '';
+          const role = el.getAttribute && el.getAttribute('role');
+          if (/note|card|item|feed|post|video|row|cell/i.test(cls) || role === 'listitem') {
+            const t = norm(el.innerText || '');
+            if (t.length >= 8 && t.length <= 1200) return el;
+          }
+          el = el.parentElement;
+        }
+        // fallback: climb to a box that has both img+date-like text
+        el = img.parentElement;
+        for (let i = 0; i < 6 && el; i++) {
+          const t = norm(el.innerText || '');
+          if (t.length >= 12 && /(20\d{2}[\/-]\d{1,2}|点赞|评论|浏览|播放)/.test(t)) return el;
+          el = el.parentElement;
+        }
+        return img.parentElement;
+      };
+
+      const cards = [];
+      const seenCover = new Set();
+      const seenTitle = new Set();
+      const imgs = Array.from(document.querySelectorAll('img'));
+      for (const img of imgs) {
+        const cover = pickCoverFromImg(img);
+        if (!cover) continue;
+        const rect = img.getBoundingClientRect ? img.getBoundingClientRect() : {width:0,height:0};
+        // 过小图标跳过
+        if ((rect.width && rect.width < 40) || (rect.height && rect.height < 40)) continue;
+        const root = cardRootFromImg(img);
+        if (!root) continue;
+        const raw = root.innerText || root.textContent || '';
+        const t = norm(raw);
+        if (!t || t.length < 6) continue;
+
+        const lines = raw.split(/\n+/).map(norm).filter(Boolean);
+        let publishedAt = '';
+        const candidates = [];
+        for (const line of lines) {
+          const d = parseDate(line);
+          if (d && !publishedAt) publishedAt = d;
+          if (isStatus(line)) continue;
+          if (/^20\d{2}[\/-]\d{1,2}/.test(line)) continue;
+          if (/^(?:\d+(?:\.\d+)?[万wW千kK]?\s*){2,}$/.test(line)) continue;
+          if (/^\d{2}:\d{2}/.test(line) && line.length <= 8) continue;
+          if (/笔记管理|数据看板|创作学院|发布笔记|作品管理|内容管理|全部\s*\d+|回收站|草稿箱/.test(line)) continue;
+          if (line.length < 2 || line.length > 80) continue;
+          candidates.push(line);
+        }
+        // 选最像标题的：优先较长、且不含「可见/发布」等
+        let title = '';
+        candidates.sort((a, b) => b.length - a.length);
+        for (const c of candidates) {
+          if (isStatus(c)) continue;
+          title = c.slice(0, 80);
+          break;
+        }
+        if (!title || isStatus(title)) continue;
+        if (!publishedAt) publishedAt = parseDate(t);
+
+        // 互动数字：只取「日期之后」的数字行，避免标题/日期污染（如 08-11 14:00、标题里的95）
+        const stripDateNoise = (s) => String(s || '')
+          .replace(/20\d{2}\s*[年\/\-]\s*\d{1,2}\s*[月\/\-]\s*\d{1,2}\s*日?/g, ' ')
+          .replace(/\d{1,2}\s*[:：]\s*\d{2}(?:\s*[:：]\s*\d{2})?/g, ' ')
+          .replace(/\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}/g, ' ');
+        let likes = 0, comments = 0, views = 0, favorites = 0;
+        const labeledLike = t.match(/(?:点赞|赞|喜欢)\s*[:：]?\s*([\d.]+\s*[万wW千kK]?)/);
+        const labeledComment = t.match(/(?:评论|回复)\s*[:：]?\s*([\d.]+\s*[万wW千kK]?)/);
+        const labeledView = t.match(/(?:播放|观看|浏览|阅读|曝光)\s*[:：]?\s*([\d.]+\s*[万wW千kK]?)/);
+        const labeledFav = t.match(/(?:收藏|收藏数)\s*[:：]?\s*([\d.]+\s*[万wW千kK]?)/);
+        if (labeledLike) likes = parseNum(labeledLike[1]);
+        if (labeledComment) comments = parseNum(labeledComment[1]);
+        if (labeledView) views = parseNum(labeledView[1]);
+        if (labeledFav) favorites = parseNum(labeledFav[1]);
+
+        let dateIdx = -1;
+        for (let i = 0; i < lines.length; i++) {
+          if (parseDate(lines[i])) { dateIdx = i; break; }
+        }
+        const statsNums = [];
+        const startIdx = dateIdx >= 0 ? dateIdx + 1 : 0;
+        for (let i = startIdx; i < lines.length; i++) {
+          const line = lines[i];
+          if (isStatus(line)) continue;
+          if (line === title) continue;
+          const cleaned = stripDateNoise(line).trim();
+          if (!cleaned) continue;
+          // 纯数字行（可多值）或单值数字
+          if (!/^(?:\d+(?:\.\d+)?[万wW千kK]?\s*)+$/.test(cleaned)) {
+            if (statsNums.length >= 3) break;
+            continue;
+          }
+          const arr = (cleaned.match(/\d+(?:\.\d+)?\s*[万wW千kK]?/g) || []).map(parseNum);
+          statsNums.push(...arr);
+          if (statsNums.length >= 5) break;
+        }
+        const nums = statsNums.filter(n => n >= 0 && n < 100000000);
+        if (platform === 'xiaohongshu') {
+          // 笔记管理常见：浏览 评论 点赞 收藏 分享
+          if (!labeledView && nums.length >= 1) views = nums[0];
+          if (!labeledComment && nums.length >= 2) comments = nums[1];
+          if (!labeledLike && nums.length >= 3) likes = nums[2];
+          if (!labeledFav && nums.length >= 4) favorites = nums[3];
+          if (!labeledLike && likes === 0 && favorites > 0) likes = favorites;
+        } else if (platform === 'shipinhao' && nums.length >= 3) {
+          if (!labeledView) views = nums[0];
+          if (!labeledComment) comments = nums[Math.min(2, nums.length - 1)];
+          if (!labeledLike) likes = nums[nums.length - 1];
+        } else if (platform === 'douyin' && nums.length >= 3) {
+          if (!labeledView) views = nums[0];
+          if (!labeledLike) likes = nums[1];
+          if (!labeledComment) comments = nums[2];
+        }
+
+        let href = '';
+        const anchors = root.querySelectorAll ? Array.from(root.querySelectorAll('a[href]')) : [];
+        for (const a of anchors) {
+          const u = (a.href || '').toLowerCase();
+          if (/xiaohongshu\.com\/(explore|discovery\/item)/.test(u) || /xhslink\.com/.test(u)
+              || /douyin\.com\/video/.test(u) || /v\.douyin\.com/.test(u)
+              || /weixin\.qq\.com\/sph/.test(u)) {
+            href = a.href; break;
+          }
+        }
+
+        const coverKey = cover.split('?')[0];
+        if (seenCover.has(coverKey) || seenTitle.has(title)) continue;
+        seenCover.add(coverKey);
+        seenTitle.add(title);
+        cards.push({
+          title, url: href || '', cover_url: cover,
+          published_at: publishedAt || '',
+          likes, comments, views, plays: views,
+        });
+        if (cards.length >= maxItems) break;
+      }
+      return cards;
+    }
+    """
+    items = []
+    for root in _scrape_roots(page):
+        try:
+            found = root.evaluate(scrape_js, {'platform': platform or '', 'maxItems': max_items}) or []
+            items.extend(found)
+        except Exception:
+            continue
+    uniq, seen = [], set()
+    for it in items:
+        title = (it.get('title') or '').strip()
+        if not title or _is_junk_platform_title(title):
+            continue
+        k = (it.get('cover_url') or '').split('?')[0] + '|' + title[:60]
+        if k in seen:
+            continue
+        seen.add(k)
+        uniq.append({
+            'title': title[:120],
+            'url': (it.get('url') or '').strip(),
+            'cover_url': (it.get('cover_url') or '').strip(),
+            'published_at': (it.get('published_at') or '').strip(),
+            'likes': int(it.get('likes') or 0),
+            'comments': int(it.get('comments') or 0),
+            'plays': int(it.get('views') or it.get('plays') or 0),
+        })
+        if len(uniq) >= max_items:
+            break
+    return uniq
+
+
+def _is_junk_platform_title(title: str) -> bool:
+    t = (title or '').strip()
+    if not t:
+        return True
+    junk = {
+        '部分人不可见', '公开', '仅自己可见', '好友可见', '已发布', '未通过', '审核中', '审核失败',
+        '草稿', '定时发布', '视频', '图文', '笔记', '置顶', '播放', '点赞', '评论', '浏览', '收藏',
+        '分享', '全部', '回收站', '精华', '推荐', '私密', '自己可见', '粉丝可见',
+    }
+    if t in junk:
+        return True
+    if len(t) <= 8 and any(k in t for k in ('可见', '已发布', '未通过', '审核', '草稿')):
+        return True
+    return False
 
 
 def _nav_error_hint(err):
@@ -1548,11 +1933,196 @@ def get_publish_status(platform):
     meta = _platform_meta(platform)
     config = get_publish_config(platform)
     profile = os.path.join(BASE_DIR, 'data', 'browser_profiles', platform)
+    has_profile = os.path.isdir(profile) and bool(os.listdir(profile))
+    profile_login = _profile_looks_logged_in(profile)
+    live_login = False
+    with _SESSIONS_LOCK:
+        for s in _SESSIONS.values():
+            if s.get('platform') == platform and s.get('status') not in ('closed', 'error'):
+                if s.get('logged_in'):
+                    live_login = True
+                    break
     return {
         'enabled': config.get('enabled') == 'true',
         'has_cookies': bool(config.get('cookies')),
-        'has_profile': os.path.isdir(profile) and bool(os.listdir(profile)),
+        'has_profile': has_profile,
+        'profile_login': profile_login,
+        'logged_in': bool(live_login or profile_login),
         'playwright_installed': check_playwright(),
         'platform_name': meta['label'],
         'creator_url': meta['creator_url'],
+        'manage_url': MANAGE_URLS.get(platform) or meta['creator_url'],
     }
+
+
+def _profile_looks_logged_in(profile):
+    """本系统 Chromium 配置目录是否已有可用登录痕迹（与日常 Chrome 不互通）。"""
+    if not profile or not os.path.isdir(profile):
+        return False
+    candidates = [
+        os.path.join(profile, 'Default', 'Network', 'Cookies'),
+        os.path.join(profile, 'Default', 'Cookies'),
+        os.path.join(profile, 'Default', 'Login Data'),
+        os.path.join(profile, 'Default', 'Local Storage', 'leveldb'),
+    ]
+    for path in candidates:
+        try:
+            if os.path.isfile(path) and os.path.getsize(path) > 64:
+                return True
+            if os.path.isdir(path) and any(os.scandir(path)):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def start_creator_login(platform):
+    """
+    打开本系统专用 Chromium（data/browser_profiles/<platform>）供扫码登录。
+    日常浏览器里登录过不算数——同步/发布只认这份配置。
+    """
+    meta = _platform_meta(platform)
+    label = meta['label']
+    if not meta.get('creator_url'):
+        return {'ok': False, 'error': f'{label} 未配置创作者后台地址'}
+    if not check_playwright():
+        return {
+            'ok': False,
+            'error': 'Playwright 未安装。请运行: pip install playwright && playwright install chromium',
+        }
+
+    session = _new_session(platform, label)
+    session['purpose'] = 'login'
+    session['title'] = ''
+    session['detected_url'] = ''
+    threading.Thread(
+        target=_login_session_worker,
+        args=(session, meta, get_publish_config(platform).get('cookies', '')),
+        daemon=True,
+    ).start()
+
+    session['ready'].wait(timeout=90)
+
+    if session['status'] in ('error', 'page_error'):
+        return {
+            'ok': False,
+            'error': session.get('message') or '打开登录浏览器失败',
+            'session_id': session['id'],
+        }
+
+    logged_in = bool(session.get('logged_in'))
+    return {
+        'ok': True,
+        'logged_in': logged_in,
+        'status': session.get('status'),
+        'session_id': session['id'],
+        'message': session.get('message') or (
+            f'{label} 已登录' if logged_in
+            else f'已打开{label}创作者页，请在弹出的系统浏览器中扫码登录（与日常 Chrome 登录态不互通）'
+        ),
+        'creator_url': meta.get('creator_url') or '',
+    }
+
+
+def _login_session_worker(session, meta, cookies_str):
+    from playwright.sync_api import sync_playwright
+
+    platform = session['platform']
+    label = session['label']
+    context = None
+    try:
+        _stop_platform_sessions(platform, except_id=session['id'])
+        profile = _profile_dir(platform)
+        had_profile = bool(os.path.isdir(profile) and os.listdir(profile))
+        with sync_playwright() as p:
+            try:
+                context = _launch_persistent(p, profile)
+            except Exception as e:
+                session['status'] = 'error'
+                session['message'] = _launch_error_hint(e, profile, label)
+                session['ready'].set()
+                return
+
+            if not had_profile and cookies_str:
+                cookies = _parse_cookies(cookies_str, platform, cookie_domain=meta.get('cookie_domain'))
+                if cookies:
+                    try:
+                        context.add_cookies(cookies)
+                    except Exception:
+                        pass
+
+            try:
+                page = context.pages[0] if context.pages else context.new_page()
+            except Exception as e:
+                session['status'] = 'error'
+                session['message'] = _launch_error_hint(e, profile, label)
+                session['ready'].set()
+                try:
+                    context.close()
+                except Exception:
+                    pass
+                return
+
+            page.set_default_timeout(20000)
+            target = meta.get('creator_url') or PLATFORM_URLS.get(platform, '')
+            try:
+                page.goto(target, wait_until='domcontentloaded', timeout=60000)
+            except Exception as e:
+                session['status'] = 'page_error'
+                session['message'] = _nav_error_hint(e)
+                session['ready'].set()
+                # 仍保持浏览器打开便于用户处理
+            else:
+                if _looks_like_login(page, platform):
+                    session['status'] = 'need_login'
+                    session['logged_in'] = False
+                    session['message'] = (
+                        f'请在已打开的系统浏览器中完成{label}扫码登录；'
+                        f'登录成功后本页会自动识别（勿用日常 Chrome，登录态不互通）'
+                    )
+                    session['ready'].set()
+                    logged = _wait_until_logged_in(page, platform, session, timeout_sec=300)
+                    if logged:
+                        session['logged_in'] = True
+                        session['status'] = 'logged_in'
+                        session['message'] = f'{label} 登录成功，可关闭浏览器窗口或回来点同步'
+                        try:
+                            # 进作品管理页确认态
+                            manage = MANAGE_URLS.get(platform) or target
+                            if manage:
+                                page.goto(manage, wait_until='domcontentloaded', timeout=60000)
+                        except Exception:
+                            pass
+                else:
+                    session['logged_in'] = True
+                    session['status'] = 'logged_in'
+                    session['message'] = f'{label} 已处于登录态'
+                    session['ready'].set()
+
+            # 保持打开，让用户操作 / cookie 落盘
+            keep = _keep_open_seconds()
+            deadline = time.time() + keep
+            while time.time() < deadline and not session['stop'].is_set():
+                try:
+                    if not session.get('logged_in') and not _looks_like_login(page, platform):
+                        session['logged_in'] = True
+                        session['status'] = 'logged_in'
+                        session['message'] = f'{label} 登录成功'
+                except Exception:
+                    pass
+                try:
+                    page.wait_for_timeout(2000)
+                except Exception:
+                    time.sleep(2)
+    except Exception as e:
+        session['status'] = 'error'
+        session['message'] = f'{label} 登录浏览器异常: {e}'
+        session['ready'].set()
+    finally:
+        try:
+            if context:
+                context.close()
+        except Exception:
+            pass
+        session['status'] = 'closed' if session.get('status') != 'error' else session['status']
+        _drop_session(session['id'])

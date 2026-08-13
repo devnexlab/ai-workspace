@@ -18,9 +18,13 @@ def list_publish():
     pageSize = int(request.args.get('pageSize', 20))
     status = request.args.get('status', '')
     platform = request.args.get('platform', '')
+    # 平台导入的作品归「内容工作台」，默认不进发布中心队列
+    include_platform = str(request.args.get('include_platform', '')).lower() in ('1', 'true', 'yes')
 
     where = []
     params = []
+    if not include_platform:
+        where.append("(COALESCE(p.source, 'app') <> 'platform')")
     if status:
         where.append('p.status=?')
         params.append(status)
@@ -285,6 +289,7 @@ def sync_publish(id):
 
     likes = int(result.get('likes') or 0)
     comments = int(result.get('comments') or 0)
+    plays = int(result.get('plays') or result.get('views') or 0)
     url = (result.get('publish_url') or '').strip()
     got = apply_engagement_to_consult(likes, comments)
 
@@ -300,8 +305,8 @@ def sync_publish(id):
         clear_bad_url = bool(old_url and not _is_content_url(old_url) and not url)
 
     conn = _db()
-    fields = ['likes=?', 'comments=?', 'engagement_synced_at=CURRENT_TIMESTAMP']
-    params = [likes, comments]
+    fields = ['likes=?', 'comments=?', 'plays=?', 'engagement_synced_at=CURRENT_TIMESTAMP']
+    params = [likes, comments, plays]
     if url:
         fields.append('publish_url=?')
         params.append(url)
@@ -323,11 +328,13 @@ def sync_publish(id):
     return jsonify({
         'message': (
             f'已同步：赞 {likes} / 评 {comments}'
+            + (f' / 播放 {plays}' if plays else '')
             + ('，已自动标记有咨询' if got else '')
             + ('，已回填作品链接' if url else '')
         ),
         'likes': likes,
         'comments': comments,
+        'plays': plays,
         'publish_url': url or updated.get('publish_url') or '',
         'got_consult': bool(updated.get('got_consult')),
         'matched': result.get('matched'),
@@ -342,13 +349,13 @@ def update_publish(id):
     fields = []
     params = []
     for k in ['title', 'description', 'cover_text', 'tags', 'platform', 'scheduled_time',
-              'status', 'publish_url', 'error_msg', 'got_consult', 'likes', 'comments']:
+              'status', 'publish_url', 'error_msg', 'got_consult', 'likes', 'comments', 'plays']:
         if k in data:
             fields.append(f'{k}=?')
             val = data[k]
             if k == 'got_consult':
                 val = bool(val)
-            if k in ('likes', 'comments'):
+            if k in ('likes', 'comments', 'plays'):
                 val = int(val or 0)
             params.append(val)
     if fields:
@@ -438,3 +445,72 @@ def publish_status():
         statuses[p['key']] = get_publish_status(p['key'])
     statuses['playwright_installed'] = check_playwright()
     return jsonify(statuses)
+
+
+@bp.route('/api/publish/workbench')
+def publish_workbench():
+    """内容工作台：已发布作品列表 + 诊断 + KPI。"""
+    from modules.publish.workbench import build_workbench
+
+    platform = (request.args.get('platform') or '').strip()
+    q = (request.args.get('q') or '').strip()
+    diag = (request.args.get('diag') or 'all').strip()
+    sort = (request.args.get('sort') or 'date').strip()
+    sort_dir = (request.args.get('sortDir') or 'desc').strip()
+    page = int(request.args.get('page', 1) or 1)
+    page_size = int(request.args.get('pageSize', 20) or 20)
+    range_raw = (request.args.get('range') or 'all').strip()
+    try:
+        range_days = 0 if range_raw in ('', 'all') else int(range_raw)
+    except ValueError:
+        range_days = 0
+
+    conn = _db()
+    try:
+        data = build_workbench(
+            conn,
+            platform=platform,
+            q=q,
+            diag=diag,
+            range_days=range_days,
+            sort=sort,
+            sort_dir=sort_dir,
+            page=page,
+            page_size=page_size,
+        )
+    finally:
+        conn.close()
+    return jsonify(data)
+
+
+@bp.route('/api/publish/workbench/sync', methods=['POST'])
+def publish_workbench_sync():
+    """批量同步：指定平台时先从创作者后台导入笔记/作品，再刷新互动。"""
+    from modules.publish.workbench import batch_sync_workbench
+
+    data = request.get_json(silent=True) or {}
+    platform = (data.get('platform') or '').strip()
+    limit = data.get('limit', 5)
+    conn = _db()
+    try:
+        result = batch_sync_workbench(conn, platform=platform, limit=limit)
+    finally:
+        conn.close()
+    if result.get('ok') is False:
+        return jsonify({'error': result.get('error') or result.get('message') or '同步失败', **result}), 400
+    return jsonify(result)
+
+
+@bp.route('/api/publish/workbench/login', methods=['POST'])
+def publish_workbench_login():
+    """打开本系统专用浏览器，供平台扫码登录（与日常 Chrome 登录态不互通）。"""
+    from modules.publish.publisher import start_creator_login
+
+    data = request.get_json(silent=True) or {}
+    platform = (data.get('platform') or '').strip()
+    if not platform:
+        return jsonify({'error': '缺少 platform'}), 400
+    result = start_creator_login(platform)
+    if not result.get('ok'):
+        return jsonify({'error': result.get('error') or '打开登录失败', **result}), 400
+    return jsonify(result)

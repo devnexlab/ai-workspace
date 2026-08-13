@@ -20,6 +20,7 @@ import {
   CloseOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { APP_NAME } from '../config'
@@ -37,6 +38,7 @@ const pageTitleMap = {
   '/hot-topics': '热点情报',
   '/scripts': '文案管理',
   '/videos': '视频生产',
+  '/workbench': '内容工作台',
   '/publish': '发布中心',
   '/customers': '客户列表',
   '/leads': '线索池',
@@ -53,6 +55,7 @@ const sectionLabelMap = {
   '/hot-topics': '内容运营',
   '/scripts': '内容运营',
   '/videos': '内容运营',
+  '/workbench': '内容运营',
   '/publish': '内容运营',
   '/customers': '客户管理',
   '/leads': '客户管理',
@@ -75,6 +78,7 @@ const navGroups = [
       { key: '/hot-topics', icon: <FireOutlined />, label: '热点情报' },
       { key: '/scripts', icon: <FileTextOutlined />, label: '文案管理' },
       { key: '/videos', icon: <VideoCameraOutlined />, label: '视频生产' },
+      { key: '/workbench', icon: <AppstoreOutlined />, label: '内容工作台' },
       { key: '/publish', icon: <RocketOutlined />, label: '发布中心' },
     ],
   },

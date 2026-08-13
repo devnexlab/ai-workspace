@@ -232,17 +232,50 @@ export default function Publish() {
 
   const columns = [
     { title: 'ID', dataIndex: 'id', width: 60 },
-    { title: '视频', dataIndex: 'video_title', width: 140, ellipsis: true,
-      render: v => v || '-' },
-    { title: '标题', dataIndex: 'title', ellipsis: true },
+    {
+      title: '封面',
+      key: 'cover',
+      width: 64,
+      render: (_, r) => (
+        r.cover_url
+          ? (
+            <img
+              src={r.cover_url}
+              alt=""
+              referrerPolicy="no-referrer"
+              style={{ width: 40, height: 54, objectFit: 'cover', borderRadius: 4, display: 'block' }}
+            />
+          )
+          : <div style={{ width: 40, height: 54, borderRadius: 4, background: '#f0f0f4', fontSize: 10, color: '#999', display: 'grid', placeItems: 'center' }}>无</div>
+      ),
+    },
+    {
+      title: '标题',
+      dataIndex: 'title',
+      width: 200,
+      ellipsis: true,
+      render: (v, r) => v || r.video_title || '—',
+    },
     {
       title: '平台', dataIndex: 'platform', width: 100,
       render: v => v
         ? <Tag color={platformColors[v]}>{platformLabels[v] || v}</Tag>
-        : '-',
+        : '—',
     },
-    { title: '描述', dataIndex: 'description', width: 200, ellipsis: true },
-    { title: '标签', dataIndex: 'tags', width: 120, ellipsis: true },
+    {
+      title: '描述',
+      dataIndex: 'description',
+      width: 200,
+      ellipsis: true,
+      render: (v) => (v && String(v).trim() ? v : '—'),
+    },
+    {
+      title: '标签',
+      dataIndex: 'tags',
+      width: 120,
+      ellipsis: true,
+      render: (v) => (v && String(v).trim() ? v : '—'),
+    },
     {
       title: '状态', dataIndex: 'status', width: 90,
       render: v => <Tag color={statusColors[v]}>{statusLabels[v] || v}</Tag>
@@ -278,13 +311,13 @@ export default function Publish() {
       title: '作品链接', dataIndex: 'publish_url', width: 140, ellipsis: true,
       render: (v) => (v
         ? <a href={v} target="_blank" rel="noreferrer"><LinkOutlined /> 查看</a>
-        : '-'),
+        : '—'),
     },
     {
       title: '失败原因', dataIndex: 'error_msg', width: 160, ellipsis: true,
       render: (v, r) => (r.status === 'failed' || r.status === 'reviewing'
-        ? <Tooltip title={v}><span style={{ color: r.status === 'failed' ? '#cf1322' : '#64748b', fontSize: 12 }}>{v || '-'}</span></Tooltip>
-        : '-'),
+        ? <Tooltip title={v}><span style={{ color: r.status === 'failed' ? '#cf1322' : '#64748b', fontSize: 12 }}>{v || '—'}</span></Tooltip>
+        : '—'),
     },
     { title: '发布时间', dataIndex: 'published_at', width: 160, render: v => formatDateTime(v) },
     { title: '定时', dataIndex: 'scheduled_time', width: 160, render: v => formatDateTime(v) },
@@ -352,7 +385,8 @@ export default function Publish() {
     <div>
       <div className="page-title">发布中心</div>
       <div className="page-desc">
-        安全流程：点「准备发布」→ 自动复制文案并打开官方创作者页 → 你在平台上传成片并点发表 → 回本系统「确认已发」。火箭按钮是高级自动填充（易封号，不推荐）。
+        待发 / 确认发布队列。平台已发布作品的封面、播放与诊断请到 <Link to="/workbench">内容工作台</Link> 查看。
+        安全流程：点「准备发布」→ 复制文案并打开官方创作者页 → 平台点发表 → 回本系统「确认已发」。
       </div>
 
       <Alert

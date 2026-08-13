@@ -6,6 +6,7 @@ import HotTopics from './features/content/HotTopics'
 import Scripts from './features/content/Scripts'
 import Videos from './features/content/Videos'
 import Publish from './features/content/Publish'
+import ContentWorkbench from './features/content/ContentWorkbench'
 import Customers from './features/crm/Customers'
 import Leads from './features/crm/Leads'
 import KnowledgeBase from './features/knowledge/KnowledgeBase'
@@ -30,6 +31,7 @@ export default function App() {
           <Route path="hot-topics" element={<HotTopics />} />
           <Route path="scripts" element={<Scripts />} />
           <Route path="videos" element={<Videos />} />
+          <Route path="workbench" element={<ContentWorkbench />} />
           <Route path="publish" element={<Publish />} />
           <Route path="customers" element={<Customers />} />
           <Route path="leads" element={<Leads />} />

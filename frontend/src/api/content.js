@@ -72,4 +72,7 @@ export const publishApi = {
   analytics: (params) => api.get('/publish/analytics', { params }),
   sessions: () => api.get('/publish/sessions'),
   closeSession: (sid) => api.post(`/publish/sessions/${sid}/close`),
+  workbench: (params) => api.get('/publish/workbench', { params }),
+  workbenchSync: (data) => api.post('/publish/workbench/sync', data || {}, { timeout: API_LONG_TIMEOUT * 5 }),
+  workbenchLogin: (data) => api.post('/publish/workbench/login', data || {}, { timeout: API_LONG_TIMEOUT * 2 }),
 }
