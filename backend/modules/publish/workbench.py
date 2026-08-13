@@ -125,6 +125,8 @@ def apply_sync_result_to_task(conn, task: dict, result: dict) -> dict:
     likes = _num(result.get('likes'))
     comments = _num(result.get('comments'))
     plays = _num(result.get('plays') or result.get('views'))
+    shares = _num(result.get('shares'))
+    favorites = _num(result.get('favorites'))
     url = (result.get('publish_url') or '').strip()
     got = apply_engagement_to_consult(likes, comments)
 
@@ -137,8 +139,11 @@ def apply_sync_result_to_task(conn, task: dict, result: dict) -> dict:
     elif old_url and not _is_content_url(old_url) and not url:
         clear_bad_url = True
 
-    fields = ['likes=?', 'comments=?', 'plays=?', 'engagement_synced_at=CURRENT_TIMESTAMP']
-    params: list = [likes, comments, plays]
+    fields = [
+        'likes=?', 'comments=?', 'plays=?', 'shares=?', 'favorites=?',
+        'engagement_synced_at=CURRENT_TIMESTAMP',
+    ]
+    params: list = [likes, comments, plays, shares, favorites]
     if url:
         fields.append('publish_url=?')
         params.append(url)
@@ -260,6 +265,10 @@ def build_workbench(conn, *, platform='', q='', diag='all', range_days=0,
             return _num(item.get('likes'))
         if sort_key == 'comments':
             return _num(item.get('comments'))
+        if sort_key == 'shares':
+            return _num(item.get('shares'))
+        if sort_key == 'favorites':
+            return _num(item.get('favorites'))
         # date
         return item.get('published_ts') or ''
 
@@ -334,6 +343,8 @@ def import_platform_posts(conn, platform: str, items: list[dict]) -> dict:
         likes = _num(it.get('likes'))
         comments = _num(it.get('comments'))
         plays = _num(it.get('plays') or it.get('views'))
+        shares = _num(it.get('shares'))
+        favorites = _num(it.get('favorites'))
         published_at = _normalize_published_at(it.get('published_at'))
 
         existing = None
@@ -357,13 +368,13 @@ def import_platform_posts(conn, platform: str, items: list[dict]) -> dict:
 
         if existing:
             fields = [
-                'title=?', 'likes=?', 'comments=?', 'plays=?',
+                'title=?', 'likes=?', 'comments=?', 'plays=?', 'shares=?', 'favorites=?',
                 'got_consult=FALSE',
                 'engagement_synced_at=CURRENT_TIMESTAMP',
                 "source=COALESCE(NULLIF(source,''), 'platform')",
                 "status='done'",
             ]
-            params: list = [title, likes, comments, plays]
+            params: list = [title, likes, comments, plays, shares, favorites]
             if url:
                 fields.append('publish_url=?')
                 params.append(url)
@@ -383,11 +394,11 @@ def import_platform_posts(conn, platform: str, items: list[dict]) -> dict:
             conn.execute(
                 '''INSERT INTO publish_task
                    (title, platform, status, publish_url, cover_url, likes, comments, plays,
-                    got_consult, source, published_at, engagement_synced_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?, CURRENT_TIMESTAMP)''',
+                    shares, favorites, got_consult, source, published_at, engagement_synced_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, CURRENT_TIMESTAMP)''',
                 (
                     title, platform, 'done', url, cover_url, likes, comments, plays,
-                    False, 'platform', published_at,
+                    shares, favorites, False, 'platform', published_at,
                 ),
             )
             inserted += 1

@@ -392,6 +392,12 @@
   gap: 8px;
 }
 
+@media (min-width: 380px) {
+  .wb-metric-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}
+
 .wb-metric {
   background: var(--color-bg-layout, #fafafa);
   border-radius: 8px;

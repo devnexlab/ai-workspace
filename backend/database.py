@@ -797,6 +797,8 @@ def init_db():
     _add_column_if_not_exists(cur, 'publish_task', 'likes', 'INTEGER DEFAULT 0')
     _add_column_if_not_exists(cur, 'publish_task', 'comments', 'INTEGER DEFAULT 0')
     _add_column_if_not_exists(cur, 'publish_task', 'plays', 'INTEGER DEFAULT 0')
+    _add_column_if_not_exists(cur, 'publish_task', 'shares', 'INTEGER DEFAULT 0')
+    _add_column_if_not_exists(cur, 'publish_task', 'favorites', 'INTEGER DEFAULT 0')
     _add_column_if_not_exists(cur, 'publish_task', 'session_id', "TEXT DEFAULT ''")
     _add_column_if_not_exists(cur, 'publish_task', 'engagement_synced_at', 'TIMESTAMP')
     _add_column_if_not_exists(cur, 'publish_task', 'source', "TEXT DEFAULT 'app'")

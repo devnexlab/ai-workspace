@@ -914,6 +914,14 @@ def _scrape_manage_page(page, platform, title, navigate=True):
         plays = max(0, int(best.get('views') or best.get('plays') or 0))
     except (TypeError, ValueError):
         plays = 0
+    try:
+        shares = max(0, int(best.get('shares') or 0))
+    except (TypeError, ValueError):
+        shares = 0
+    try:
+        favorites = max(0, int(best.get('favorites') or 0))
+    except (TypeError, ValueError):
+        favorites = 0
     publish_url = best.get('url') or ''
     if publish_url and not _is_content_url(publish_url):
         publish_url = ''
@@ -929,6 +937,8 @@ def _scrape_manage_page(page, platform, title, navigate=True):
         'likes': likes,
         'comments': comments,
         'plays': plays,
+        'shares': shares,
+        'favorites': favorites,
         'matched': True,
         'matched_title': best.get('title') or '',
     }
@@ -1506,8 +1516,10 @@ def _shipinhao_row_to_item(row) -> dict | None:
         return 0
 
     plays = _n('readCount', 'read_count', 'playCount', 'play_count', 'viewCount')
-    likes = _n('likeCount', 'like_count', 'favCount', 'fav_count', 'diggCount')
+    likes = _n('likeCount', 'like_count', 'diggCount', 'digg_count')
     comments = _n('commentCount', 'comment_count', 'replyCount')
+    shares = _n('forwardCount', 'forward_count', 'shareCount', 'share_count')
+    favorites = _n('favCount', 'fav_count', 'collectCount', 'collect_count', 'favoriteCount')
 
     return {
         'title': title[:120],
@@ -1518,6 +1530,8 @@ def _shipinhao_row_to_item(row) -> dict | None:
         'comments': comments,
         'plays': plays,
         'views': plays,
+        'shares': shares,
+        'favorites': favorites,
     }
 
 
@@ -1721,6 +1735,8 @@ def _douyin_row_to_item(row) -> dict | None:
     plays = int(stats.get('play_count') or stats.get('playCount') or row.get('play_count') or 0)
     likes = int(stats.get('digg_count') or stats.get('diggCount') or stats.get('like_count') or row.get('digg_count') or 0)
     comments = int(stats.get('comment_count') or stats.get('commentCount') or row.get('comment_count') or 0)
+    shares = int(stats.get('share_count') or stats.get('shareCount') or stats.get('forward_count') or row.get('share_count') or 0)
+    favorites = int(stats.get('collect_count') or stats.get('collectCount') or stats.get('favorite_count') or row.get('collect_count') or 0)
 
     create = row.get('create_time') or row.get('public_time') or row.get('createTime') or 0
     published_at = ''
@@ -1742,6 +1758,8 @@ def _douyin_row_to_item(row) -> dict | None:
         'comments': comments,
         'plays': plays,
         'views': plays,
+        'shares': shares,
+        'favorites': favorites,
     }
 
 
@@ -1955,15 +1973,17 @@ def _collect_manage_cards(page, platform, max_items=80):
           .replace(/20\d{2}\s*[年\/\-]\s*\d{1,2}\s*[月\/\-]\s*\d{1,2}\s*日?/g, ' ')
           .replace(/\d{1,2}\s*[:：]\s*\d{2}(?:\s*[:：]\s*\d{2})?/g, ' ')
           .replace(/\d{4}[\/\-]\d{1,2}[\/\-]\d{1,2}/g, ' ');
-        let likes = 0, comments = 0, views = 0, favorites = 0;
+        let likes = 0, comments = 0, views = 0, favorites = 0, shares = 0;
         const labeledLike = t.match(/(?:点赞|赞|喜欢)\s*[:：]?\s*([\d.]+\s*[万wW千kK]?)/);
         const labeledComment = t.match(/(?:评论|回复)\s*[:：]?\s*([\d.]+\s*[万wW千kK]?)/);
         const labeledView = t.match(/(?:播放|观看|浏览|阅读|曝光)\s*[:：]?\s*([\d.]+\s*[万wW千kK]?)/);
         const labeledFav = t.match(/(?:收藏|收藏数)\s*[:：]?\s*([\d.]+\s*[万wW千kK]?)/);
+        const labeledShare = t.match(/(?:转发|分享|分享数)\s*[:：]?\s*([\d.]+\s*[万wW千kK]?)/);
         if (labeledLike) likes = parseNum(labeledLike[1]);
         if (labeledComment) comments = parseNum(labeledComment[1]);
         if (labeledView) views = parseNum(labeledView[1]);
         if (labeledFav) favorites = parseNum(labeledFav[1]);
+        if (labeledShare) shares = parseNum(labeledShare[1]);
 
         let dateIdx = -1;
         for (let i = 0; i < lines.length; i++) {
@@ -1996,19 +2016,22 @@ def _collect_manage_cards(page, platform, max_items=80):
           if (!labeledView && nums.length >= 1) views = nums[0];
           if (!labeledLike && nums.length >= 2) likes = nums[1];
           if (!labeledComment && nums.length >= 3) comments = nums[2];
-          if (!labeledLike && likes === 0 && nums.length >= 3) likes = nums[nums.length - 1];
+          if (!labeledShare && nums.length >= 4) shares = nums[3];
+          if (!labeledFav && nums.length >= 5) favorites = nums[4];
         } else if (platform === 'douyin' && nums.length >= 3) {
           if (!labeledView) views = nums[0];
           if (!labeledLike) likes = nums[1];
           if (!labeledComment) comments = nums[2];
+          if (!labeledShare && nums.length >= 4) shares = nums[3];
+          if (!labeledFav && nums.length >= 5) favorites = nums[4];
         }
-        return { title, publishedAt, likes, comments, views, favorites };
+        return { title, publishedAt, likes, comments, views, favorites, shares };
       };
 
       const cards = [];
       const seenCover = new Set();
       const seenTitle = new Set();
-      const pushCard = (title, cover, href, publishedAt, likes, comments, views) => {
+      const pushCard = (title, cover, href, publishedAt, likes, comments, views, favorites, shares) => {
         if (!title || isStatus(title) || seenTitle.has(title)) return false;
         const coverKey = (cover || '').split('?')[0];
         if (coverKey && seenCover.has(coverKey)) return false;
@@ -2018,6 +2041,7 @@ def _collect_manage_cards(page, platform, max_items=80):
           title, url: href || '', cover_url: cover || '',
           published_at: publishedAt || '',
           likes: likes || 0, comments: comments || 0, views: views || 0, plays: views || 0,
+          favorites: favorites || 0, shares: shares || 0,
         });
         return true;
       };
@@ -2044,7 +2068,7 @@ def _collect_manage_cards(page, platform, max_items=80):
             href = a.href; break;
           }
         }
-        pushCard(parsed.title, cover, href, parsed.publishedAt, parsed.likes, parsed.comments, parsed.views);
+        pushCard(parsed.title, cover, href, parsed.publishedAt, parsed.likes, parsed.comments, parsed.views, parsed.favorites, parsed.shares);
       }
 
       // 视频号/抖音：列表常是表格/行，封面可能是背景图或懒加载未出，补文本行兜底
@@ -2076,7 +2100,7 @@ def _collect_manage_cards(page, platform, max_items=80):
             const u = (a.href || '').toLowerCase();
             if (/weixin\.qq\.com\/sph|channels\.weixin|douyin\.com\/video|v\.douyin\.com/.test(u)) { href = a.href; break; }
           }
-          pushCard(parsed.title, cover, href, parsed.publishedAt, parsed.likes, parsed.comments, parsed.views);
+          pushCard(parsed.title, cover, href, parsed.publishedAt, parsed.likes, parsed.comments, parsed.views, parsed.favorites, parsed.shares);
         }
       }
       return cards;
@@ -2106,6 +2130,8 @@ def _collect_manage_cards(page, platform, max_items=80):
             'likes': int(it.get('likes') or 0),
             'comments': int(it.get('comments') or 0),
             'plays': int(it.get('views') or it.get('plays') or 0),
+            'shares': int(it.get('shares') or 0),
+            'favorites': int(it.get('favorites') or 0),
         })
         if len(uniq) >= max_items:
             break

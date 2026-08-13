@@ -497,11 +497,14 @@ def tool_compare_workbench(
         title = (r.get('title') or r.get('video_title') or '未命名')[:28]
         src = '平台导入' if (r.get('source') or '') == 'platform' else '本系统发布'
         return (
-            f"- {title} · 播放{int(r.get('plays') or 0)} · "
-            f"赞{int(r.get('likes') or 0)} · 评{int(r.get('comments') or 0)}"
+            f"- {title}\n"
+            f"  播放 {int(r.get('plays') or 0)} · 点赞 {int(r.get('likes') or 0)} · "
+            f"评论 {int(r.get('comments') or 0)} · 转发 {int(r.get('shares') or 0)} · "
+            f"收藏 {int(r.get('favorites') or 0)}"
             f" · {r.get('diag_tag') or r.get('diag') or ''} · {src}"
         )
 
+    by_shares = sorted(rows, key=lambda x: int(x.get('shares') or 0), reverse=True)
     lines = [
         f'【{label}作品对比 · 来源：内容工作台数据库】共 {data.get("total") or len(rows)} 条'
         f'（预警 {kpi.get("warn", 0)} · 有咨询倾向 {kpi.get("consult", 0)}）',
@@ -512,8 +515,12 @@ def tool_compare_workbench(
     lines.append(f'播放 TOP{min(limit, len(by_plays))}：')
     lines.extend(_line(r) for r in by_plays[:limit])
     lines.append('')
-    lines.append(f'互动 TOP{min(min(5, limit), len(by_eng))}：')
+    lines.append(f'点赞 TOP{min(min(5, limit), len(by_eng))}：')
     lines.extend(_line(r) for r in by_eng[: min(5, limit)])
+    if any(int(r.get('shares') or 0) > 0 for r in by_shares[:5]):
+        lines.append('')
+        lines.append(f'转发 TOP{min(5, len(by_shares))}：')
+        lines.extend(_line(r) for r in by_shares[:5])
     if warn:
         lines.append('')
         lines.append(f'需关注（掉量/互动弱）{min(5, len(warn))} 条：')
@@ -748,6 +755,8 @@ def _snapshot_workbench(platform: str = '') -> dict:
         'plays_sum': 0,
         'likes_sum': 0,
         'comments_sum': 0,
+        'shares_sum': 0,
+        'favorites_sum': 0,
         'last_synced_at': '',
         'logged_in': None,
         'sample_titles': [],
@@ -763,6 +772,8 @@ def _snapshot_workbench(platform: str = '') -> dict:
                          COALESCE(SUM(plays),0) AS plays_sum,
                          COALESCE(SUM(likes),0) AS likes_sum,
                          COALESCE(SUM(comments),0) AS comments_sum,
+                         COALESCE(SUM(shares),0) AS shares_sum,
+                         COALESCE(SUM(favorites),0) AS favorites_sum,
                          MAX(engagement_synced_at) AS last_synced_at
                   FROM publish_task WHERE {' AND '.join(where)}'''
         row = conn.execute(sql, params).fetchone()
@@ -770,9 +781,11 @@ def _snapshot_workbench(platform: str = '') -> dict:
         snap['plays_sum'] = int(row['plays_sum'] or 0)
         snap['likes_sum'] = int(row['likes_sum'] or 0)
         snap['comments_sum'] = int(row['comments_sum'] or 0)
+        snap['shares_sum'] = int(row['shares_sum'] or 0)
+        snap['favorites_sum'] = int(row['favorites_sum'] or 0)
         snap['last_synced_at'] = str(row['last_synced_at'] or '')[:19]
         samples = conn.execute(
-            f'''SELECT title, plays, likes, comments FROM publish_task
+            f'''SELECT title, plays, likes, comments, shares, favorites FROM publish_task
                 WHERE {' AND '.join(where)}
                 ORDER BY COALESCE(plays,0) DESC, id DESC LIMIT 3''',
             params,
@@ -783,6 +796,8 @@ def _snapshot_workbench(platform: str = '') -> dict:
                 'plays': int(r['plays'] or 0),
                 'likes': int(r['likes'] or 0),
                 'comments': int(r['comments'] or 0),
+                'shares': int(r.get('shares') or 0),
+                'favorites': int(r.get('favorites') or 0),
             }
             for r in samples
         ]
@@ -814,13 +829,16 @@ def _snapshot_blurb(snap: dict) -> str:
     sync = snap.get('last_synced_at') or '未知'
     parts = [
         f'内容工作台里已有 {n} 条{label}作品',
-        f'播放合计 {snap.get("plays_sum") or 0}、赞 {snap.get("likes_sum") or 0}、评 {snap.get("comments_sum") or 0}',
+        f'播放合计 {snap.get("plays_sum") or 0}、赞 {snap.get("likes_sum") or 0}、'
+        f'评 {snap.get("comments_sum") or 0}、转发 {snap.get("shares_sum") or 0}、'
+        f'收藏 {snap.get("favorites_sum") or 0}',
         f'最近同步 {sync}',
     ]
     samples = snap.get('sample_titles') or []
     if samples:
         tops = '；'.join(
-            f"「{s['title']}」播{s['plays']}/赞{s['likes']}" for s in samples[:2]
+            f"「{s['title']}」播{s['plays']}/赞{s['likes']}/转{s.get('shares') or 0}"
+            for s in samples[:2]
         )
         parts.append(f'播得较多的如：{tops}')
     return '；'.join(parts) + '。'

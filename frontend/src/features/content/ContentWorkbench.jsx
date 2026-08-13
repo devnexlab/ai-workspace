@@ -6,6 +6,7 @@ import {
 import {
   ReloadOutlined, RocketOutlined, LinkOutlined, SyncOutlined,
   AppstoreOutlined, EyeOutlined, LikeOutlined, MessageOutlined,
+  ShareAltOutlined, StarOutlined,
 } from '@ant-design/icons'
 import { publishApi } from '../../api'
 import { API_LONG_TIMEOUT } from '../../config'
@@ -360,8 +361,10 @@ export default function ContentWorkbench() {
             options={[
               { value: 'date', label: '按发布时间' },
               { value: 'plays', label: '按播放' },
-              { value: 'likes', label: '按赞' },
+              { value: 'likes', label: '按点赞' },
               { value: 'comments', label: '按评论' },
+              { value: 'shares', label: '按转发' },
+              { value: 'favorites', label: '按收藏' },
             ]}
           />
           <Select
@@ -431,8 +434,10 @@ export default function ContentWorkbench() {
                         </div>
                         <div className="wb-card-meta">
                           <span><EyeOutlined /> {fmtNum(item.plays)}</span>
-                          <span><LikeOutlined /> {Number(item.likes) || 0}</span>
-                          <span><MessageOutlined /> {Number(item.comments) || 0}</span>
+                          <span><LikeOutlined /> {fmtNum(item.likes)}</span>
+                          <span><MessageOutlined /> {fmtNum(item.comments)}</span>
+                          <span><ShareAltOutlined /> {fmtNum(item.shares)}</span>
+                          <span><StarOutlined /> {fmtNum(item.favorites)}</span>
                         </div>
                         <div className="wb-card-date">{fmtPubDate(item.published_at)}</div>
                       </div>
@@ -489,8 +494,10 @@ export default function ContentWorkbench() {
               <h4>数据</h4>
               <div className="wb-metric-grid">
                 <div className="wb-metric"><div className="v">{fmtNum(drawer.plays)}</div><div className="l">播放</div></div>
-                <div className="wb-metric"><div className="v">{Number(drawer.likes) || 0}</div><div className="l">赞</div></div>
-                <div className="wb-metric"><div className="v">{Number(drawer.comments) || 0}</div><div className="l">评</div></div>
+                <div className="wb-metric"><div className="v">{fmtNum(drawer.likes)}</div><div className="l">点赞</div></div>
+                <div className="wb-metric"><div className="v">{fmtNum(drawer.comments)}</div><div className="l">评论</div></div>
+                <div className="wb-metric"><div className="v">{fmtNum(drawer.shares)}</div><div className="l">转发</div></div>
+                <div className="wb-metric"><div className="v">{fmtNum(drawer.favorites)}</div><div className="l">收藏</div></div>
               </div>
             </div>
             <div className="wb-drawer-section">
