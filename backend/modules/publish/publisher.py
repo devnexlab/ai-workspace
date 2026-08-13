@@ -1102,6 +1102,7 @@ def scrape_platform_library(platform, max_items=80):
     """
     打开创作者作品/笔记管理页，抓取可见列表（用于工作台导入）。
     需要本系统 browser_profiles/<platform> 已登录。
+    视频号/抖音优先拦作品列表接口翻页；其余平台边滚边采（虚拟列表）。
     """
     platform = (platform or '').strip()
     if not platform:
@@ -1122,8 +1123,57 @@ def scrape_platform_library(platform, max_items=80):
             'items': [],
         }
 
+    # 作品多的平台抬高上限
+    if platform == 'shipinhao':
+        max_items = max(int(max_items or 80), 300)
+    elif platform == 'douyin':
+        max_items = max(int(max_items or 80), 200)
+    else:
+        max_items = max(int(max_items or 80), 80)
+
     _stop_platform_sessions(platform)
     time.sleep(1.0)
+
+    scroll_js = """
+    () => {
+      const score = (el) => {
+        try {
+          const st = window.getComputedStyle(el);
+          const oy = st.overflowY || '';
+          if (!(oy === 'auto' || oy === 'scroll' || oy === 'overlay')) return 0;
+          const delta = (el.scrollHeight || 0) - (el.clientHeight || 0);
+          return delta > 80 ? delta : 0;
+        } catch (e) { return 0; }
+      };
+      const nodes = Array.from(document.querySelectorAll('div, section, main, ul, tbody, [class*="list"], [class*="scroll"]'));
+      nodes.sort((a, b) => score(b) - score(a));
+      let moved = 0;
+      for (const el of nodes.slice(0, 4)) {
+        if (score(el) <= 0) continue;
+        const before = el.scrollTop;
+        const step = Math.max(Math.floor((el.clientHeight || 400) * 0.85), 500);
+        el.scrollTop = Math.min((el.scrollTop || 0) + step, el.scrollHeight || 0);
+        if ((el.scrollTop || 0) > before + 8) moved += 1;
+      }
+      const y0 = window.scrollY || document.documentElement.scrollTop || 0;
+      window.scrollBy(0, 1000);
+      const y1 = window.scrollY || document.documentElement.scrollTop || 0;
+      if (y1 > y0 + 8) moved += 1;
+      try {
+        const btns = Array.from(document.querySelectorAll('button, a, span, div'));
+        for (const b of btns) {
+          const t = ((b.innerText || b.textContent || '') + '').trim();
+          if (!t || t.length > 12) continue;
+          if (/^下一页$|^下页$|加载更多|查看更多|>$|›$/.test(t)) {
+            b.click();
+            moved += 1;
+            break;
+          }
+        }
+      } catch (e) {}
+      return moved;
+    }
+    """
 
     from playwright.sync_api import sync_playwright
     try:
@@ -1132,9 +1182,51 @@ def scrape_platform_library(platform, max_items=80):
             try:
                 page = context.pages[0] if context.pages else context.new_page()
                 page.set_default_timeout(20000)
+
+                api_bucket = {'items': [], 'seen': set(), 'total': 0, 'page_size': 20}
+
+                def _push_api_items(parsed):
+                    for it in parsed.get('items') or []:
+                        title = (it.get('title') or '').strip()
+                        if not title or _is_junk_platform_title(title):
+                            continue
+                        key = (it.get('url') or '') + '|' + (it.get('cover_url') or '').split('?')[0] + '|' + title[:60]
+                        if key in api_bucket['seen']:
+                            continue
+                        api_bucket['seen'].add(key)
+                        api_bucket['items'].append(it)
+                    if parsed.get('total'):
+                        api_bucket['total'] = max(api_bucket['total'], int(parsed['total']))
+                    if parsed.get('page_size'):
+                        api_bucket['page_size'] = max(1, int(parsed['page_size']))
+
+                def _on_resp(resp):
+                    try:
+                        url = (resp.url or '').lower()
+                        if resp.status != 200:
+                            return
+                        is_sph = any(k in url for k in ('post_list', 'post-list', 'getpostlist'))
+                        is_dy = 'work_list' in url or 'aweme/post' in url or 'item/list' in url
+                        if platform == 'shipinhao' and not is_sph:
+                            return
+                        if platform == 'douyin' and not is_dy:
+                            return
+                        if platform not in ('shipinhao', 'douyin'):
+                            return
+                        data = resp.json()
+                    except Exception:
+                        return
+                    if platform == 'shipinhao':
+                        _push_api_items(_parse_shipinhao_post_list_payload(data))
+                    elif platform == 'douyin':
+                        _push_api_items(_parse_douyin_work_list_payload(data))
+
+                if platform in ('shipinhao', 'douyin'):
+                    page.on('response', _on_resp)
+
                 try:
                     page.goto(manage, wait_until='domcontentloaded', timeout=60000)
-                    page.wait_for_timeout(3200)
+                    page.wait_for_timeout(3500)
                     try:
                         page.wait_for_function(
                             "() => !!(document.body && document.body.innerText && document.body.innerText.length > 80)",
@@ -1142,37 +1234,47 @@ def scrape_platform_library(platform, max_items=80):
                         )
                     except Exception:
                         pass
-                    # 虚拟列表：多滚几轮，尽量把 20+ 条都加载出来
-                    last_h = 0
-                    for i in range(14):
-                        try:
-                            page.mouse.wheel(0, 1800)
-                            page.wait_for_timeout(650 if i < 8 else 900)
-                            h = page.evaluate('document.documentElement.scrollHeight || 0') or 0
-                            if h and h == last_h and i > 4:
-                                # 再点一次「加载更多」类按钮（若有）
-                                try:
-                                    page.evaluate("""() => {
-                                      const btns = Array.from(document.querySelectorAll('button, a, div, span'));
-                                      for (const b of btns) {
-                                        const t = (b.innerText || '').trim();
-                                        if (/加载更多|查看更多|下一页/.test(t)) { b.click(); return true; }
-                                      }
-                                      return false;
-                                    }""")
-                                    page.wait_for_timeout(1200)
-                                except Exception:
-                                    pass
-                                if i > 8:
+                    if platform == 'shipinhao':
+                        for _ in range(20):
+                            try:
+                                if any('/micro/' in (f.url or '') for f in page.frames):
+                                    page.wait_for_timeout(1800)
                                     break
-                            last_h = h
+                            except Exception:
+                                pass
+                            page.wait_for_timeout(400)
+                    if platform == 'douyin':
+                        # 等作品列表区出现「作品 (N)」或卡片加载
+                        for _ in range(25):
+                            try:
+                                ready = page.evaluate(
+                                    """() => {
+                                      const t = (document.body && document.body.innerText) || '';
+                                      if (/作品\\s*[(（]\\s*\\d+/.test(t)) return true;
+                                      return document.querySelectorAll('img').length > 8;
+                                    }"""
+                                )
+                                if ready:
+                                    page.wait_for_timeout(1500)
+                                    break
+                            except Exception:
+                                pass
+                            page.wait_for_timeout(400)
+                        # 点「已发布」优先拉公开作品
+                        try:
+                            page.evaluate(
+                                """() => {
+                                  const els = Array.from(document.querySelectorAll('div,span,a,button,li'));
+                                  for (const el of els) {
+                                    const t = ((el.innerText || el.textContent || '') + '').trim();
+                                    if (t === '已发布' || t === '全部') { el.click(); return t; }
+                                  }
+                                  return '';
+                                }"""
+                            )
+                            page.wait_for_timeout(1200)
                         except Exception:
-                            break
-                    try:
-                        page.evaluate('window.scrollTo(0, 0)')
-                        page.wait_for_timeout(600)
-                    except Exception:
-                        pass
+                            pass
                 except Exception as e:
                     return {'ok': False, 'error': f'打开{label}管理页失败: {_nav_error_hint(e)}', 'items': []}
 
@@ -1183,8 +1285,86 @@ def scrape_platform_library(platform, max_items=80):
                         'items': [],
                     }
 
-                items = _collect_manage_cards(page, platform, max_items=max_items)
-                if not items:
+                merged = []
+                seen = set()
+
+                def _merge(batch):
+                    added = 0
+                    for it in batch or []:
+                        title = (it.get('title') or '').strip()
+                        if not title or _is_junk_platform_title(title):
+                            continue
+                        key = (
+                            (it.get('cover_url') or '').split('?')[0]
+                            + '|'
+                            + (it.get('url') or '')
+                            + '|'
+                            + title[:60]
+                        )
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        merged.append(it)
+                        added += 1
+                        if len(merged) >= max_items:
+                            break
+                    return added
+
+                # 视频号 / 抖音：接口翻页拿全量（DOM 虚拟列表只能看到首屏）
+                if platform in ('shipinhao', 'douyin'):
+                    page.wait_for_timeout(1200)
+                    _merge(api_bucket['items'])
+                    if platform == 'shipinhao':
+                        _merge(_shipinhao_fetch_post_list_pages(page, max_items=max_items, start_page=1))
+                    else:
+                        _merge(_douyin_fetch_work_list_pages(page, max_items=max_items, start_page=1))
+                    stagnant = 0
+                    for _ in range(40 if platform == 'shipinhao' else 30):
+                        if len(merged) >= max_items:
+                            break
+                        before = len(merged)
+                        moved = 0
+                        for root in _scrape_roots(page):
+                            try:
+                                moved += int(root.evaluate(scroll_js) or 0)
+                            except Exception:
+                                continue
+                        page.wait_for_timeout(900)
+                        _merge(api_bucket['items'])
+                        if len(merged) == before:
+                            stagnant += 1
+                        else:
+                            stagnant = 0
+                        if stagnant >= 4 and not moved:
+                            break
+                        if stagnant >= 8:
+                            break
+
+                # DOM 兜底 / 其他平台：边滚边采
+                if len(merged) < max_items:
+                    stagnant = 0
+                    rounds = 24 if platform in ('shipinhao', 'douyin') else 16
+                    for _ in range(rounds):
+                        if len(merged) >= max_items:
+                            break
+                        added = _merge(_collect_manage_cards(page, platform, max_items=max_items))
+                        if added == 0:
+                            stagnant += 1
+                        else:
+                            stagnant = 0
+                        moved = 0
+                        for root in _scrape_roots(page):
+                            try:
+                                moved += int(root.evaluate(scroll_js) or 0)
+                            except Exception:
+                                continue
+                        page.wait_for_timeout(900 if platform in ('shipinhao', 'douyin') else 700)
+                        if stagnant >= 3 and not moved:
+                            break
+                        if stagnant >= 6:
+                            break
+
+                if not merged:
                     body = ''
                     try:
                         body = (page.evaluate('document.body ? document.body.innerText : ""') or '')[:200]
@@ -1195,7 +1375,7 @@ def scrape_platform_library(platform, max_items=80):
                         'error': f'未在{label}管理页解析到笔记/作品。页上文本片段：{body[:80] or "（空）"}',
                         'items': [],
                     }
-                return {'ok': True, 'items': items, 'count': len(items)}
+                return {'ok': True, 'items': merged[:max_items], 'count': len(merged[:max_items])}
             finally:
                 try:
                     context.close()
@@ -1203,6 +1383,451 @@ def scrape_platform_library(platform, max_items=80):
                     pass
     except Exception as e:
         return {'ok': False, 'error': _launch_error_hint(e, profile, label), 'items': []}
+
+
+def _parse_shipinhao_post_list_payload(data) -> dict:
+    """解析视频号 post_list JSON → items/total/page_size。"""
+    if not isinstance(data, dict):
+        return {'items': [], 'total': 0, 'page_size': 20}
+
+    root = data.get('data') if isinstance(data.get('data'), dict) else data
+    rows = None
+    for key in ('list', 'feeds', 'postList', 'posts', 'objectList', 'items'):
+        val = root.get(key) if isinstance(root, dict) else None
+        if isinstance(val, list):
+            rows = val
+            break
+    if rows is None and isinstance(data.get('list'), list):
+        rows = data.get('list')
+    if not isinstance(rows, list):
+        rows = []
+
+    total = 0
+    for key in ('totalCount', 'total', 'feedsCount', 'count', 'totalNum'):
+        try:
+            v = root.get(key) if isinstance(root, dict) else None
+            if v is None and isinstance(data, dict):
+                v = data.get(key)
+            if v is not None:
+                total = int(v)
+                break
+        except Exception:
+            continue
+
+    page_size = 20
+    for key in ('pageSize', 'page_size', 'limit'):
+        try:
+            v = root.get(key) if isinstance(root, dict) else None
+            if v is None and isinstance(data, dict):
+                v = data.get(key)
+            if v:
+                page_size = int(v)
+                break
+        except Exception:
+            continue
+    if rows and not total:
+        total = len(rows)
+
+    items = []
+    for row in rows:
+        it = _shipinhao_row_to_item(row)
+        if it:
+            items.append(it)
+    return {'items': items, 'total': total, 'page_size': page_size or 20}
+
+
+def _shipinhao_row_to_item(row) -> dict | None:
+    if not isinstance(row, dict):
+        return None
+    desc = row.get('desc') if isinstance(row.get('desc'), dict) else {}
+    title = (
+        (desc.get('description') if desc else '')
+        or (desc.get('title') if desc else '')
+        or row.get('description')
+        or row.get('title')
+        or row.get('descText')
+        or row.get('content')
+        or ''
+    )
+    if isinstance(title, dict):
+        title = title.get('description') or title.get('text') or ''
+    title = re.sub(r'\s+', ' ', str(title or '')).strip()
+    if not title:
+        return None
+
+    cover = ''
+    media = desc.get('media') if desc else None
+    if isinstance(media, list) and media:
+        m0 = media[0] if isinstance(media[0], dict) else {}
+        cover = (
+            m0.get('coverUrl')
+            or m0.get('thumbUrl')
+            or m0.get('url')
+            or m0.get('fullUrl')
+            or ''
+        )
+    cover = cover or row.get('coverUrl') or row.get('cover_url') or row.get('thumbUrl') or ''
+
+    url = (
+        row.get('shareUrl')
+        or row.get('exportId')
+        or row.get('shortLink')
+        or row.get('url')
+        or ''
+    )
+    if url and not str(url).startswith('http'):
+        # exportId 等非链接时先留空，避免脏 URL
+        if 'http' not in str(url):
+            url = ''
+
+    create = row.get('createTime') or row.get('create_time') or row.get('publishTime') or 0
+    published_at = ''
+    try:
+        ts = float(create)
+        if ts > 1e12:
+            ts = ts / 1000.0
+        if ts > 1e9:
+            published_at = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))
+    except Exception:
+        published_at = ''
+
+    def _n(*keys):
+        for k in keys:
+            if k in row and row.get(k) is not None:
+                try:
+                    return int(row.get(k) or 0)
+                except Exception:
+                    continue
+            if desc and k in desc and desc.get(k) is not None:
+                try:
+                    return int(desc.get(k) or 0)
+                except Exception:
+                    continue
+        return 0
+
+    plays = _n('readCount', 'read_count', 'playCount', 'play_count', 'viewCount')
+    likes = _n('likeCount', 'like_count', 'favCount', 'fav_count', 'diggCount')
+    comments = _n('commentCount', 'comment_count', 'replyCount')
+
+    return {
+        'title': title[:120],
+        'url': str(url or '').strip(),
+        'cover_url': str(cover or '').strip(),
+        'published_at': published_at,
+        'likes': likes,
+        'comments': comments,
+        'plays': plays,
+        'views': plays,
+    }
+
+
+def _shipinhao_fetch_post_list_pages(page, max_items=300, start_page=1) -> list:
+    """在已登录页面里主动请求 post_list 翻页，避免只拿到首屏 DOM。"""
+    fetch_js = r"""
+    async ({ pageNum, pageSize }) => {
+      const paths = [
+        '/cgi-bin/mmfinderassistant-bin/post/post_list',
+        '/micro/content/cgi-bin/mmfinderassistant-bin/post/post_list',
+        'https://channels.weixin.qq.com/cgi-bin/mmfinderassistant-bin/post/post_list',
+        'https://channels.weixin.qq.com/micro/content/cgi-bin/mmfinderassistant-bin/post/post_list',
+      ];
+      const body = {
+        currentPage: pageNum,
+        pageSize: pageSize,
+        timestamp: Date.now(),
+        userpageType: 11,
+      };
+      const errors = [];
+      for (const path of paths) {
+        try {
+          const resp = await fetch(path, {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/json',
+              'Accept': 'application/json, text/plain, */*',
+            },
+            body: JSON.stringify(body),
+          });
+          if (!resp.ok) { errors.push(path + ':' + resp.status); continue; }
+          const data = await resp.json();
+          return { ok: true, path, data };
+        } catch (e) {
+          errors.push(path + ':' + String(e && e.message || e));
+        }
+      }
+      return { ok: false, errors };
+    }
+    """
+    items = []
+    seen = set()
+    page_size = 20
+    total = max_items
+    max_pages = max(1, min(80, (int(max_items) + page_size - 1) // page_size + 2))
+
+    roots = _scrape_roots(page)
+    # micro frame 优先（带同源 cookie）
+    roots = list(roots) or [page]
+
+    for page_num in range(max(1, int(start_page or 1)), max_pages + 1):
+        if len(items) >= max_items:
+            break
+        payload = None
+        for root in roots:
+            try:
+                payload = root.evaluate(fetch_js, {'pageNum': page_num, 'pageSize': page_size})
+                if payload and payload.get('ok'):
+                    break
+            except Exception:
+                continue
+        if not payload or not payload.get('ok'):
+            break
+        parsed = _parse_shipinhao_post_list_payload(payload.get('data') or {})
+        batch = parsed.get('items') or []
+        if parsed.get('total'):
+            total = max(total, int(parsed['total']))
+            max_pages = max(max_pages, min(80, (total + page_size - 1) // page_size + 1))
+        if parsed.get('page_size'):
+            page_size = max(1, int(parsed['page_size']))
+        if not batch:
+            break
+        added = 0
+        for it in batch:
+            title = (it.get('title') or '').strip()
+            if not title or _is_junk_platform_title(title):
+                continue
+            key = (it.get('url') or '') + '|' + (it.get('cover_url') or '').split('?')[0] + '|' + title[:60]
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(it)
+            added += 1
+            if len(items) >= max_items:
+                break
+        if added == 0:
+            break
+        # 已覆盖 total 则停
+        if total and len(items) >= total:
+            break
+        time.sleep(0.25)
+    return items[:max_items]
+
+
+def _parse_douyin_work_list_payload(data) -> dict:
+    """解析抖音创作者 work_list JSON → items/total/page_size。"""
+    if not isinstance(data, dict):
+        return {'items': [], 'total': 0, 'page_size': 20}
+
+    root = data.get('data') if isinstance(data.get('data'), dict) else data
+    rows = None
+    for key in ('work_list', 'aweme_list', 'item_list', 'list', 'works', 'items'):
+        val = None
+        if isinstance(root, dict):
+            val = root.get(key)
+        if val is None and isinstance(data, dict):
+            val = data.get(key)
+        if isinstance(val, list):
+            rows = val
+            break
+    if not isinstance(rows, list):
+        rows = []
+
+    total = 0
+    for key in ('total', 'total_count', 'count', 'totalCount'):
+        try:
+            v = root.get(key) if isinstance(root, dict) else None
+            if v is None:
+                v = data.get(key)
+            if v is not None:
+                total = int(v)
+                break
+        except Exception:
+            continue
+    if rows and not total:
+        total = len(rows)
+
+    page_size = 20
+    for key in ('page_size', 'pageSize', 'limit'):
+        try:
+            v = root.get(key) if isinstance(root, dict) else None
+            if v is None:
+                v = data.get(key)
+            if v:
+                page_size = int(v)
+                break
+        except Exception:
+            continue
+
+    items = []
+    for row in rows:
+        it = _douyin_row_to_item(row)
+        if it:
+            items.append(it)
+    return {'items': items, 'total': total, 'page_size': page_size or 20}
+
+
+def _douyin_row_to_item(row) -> dict | None:
+    if not isinstance(row, dict):
+        return None
+    aweme_id = str(row.get('aweme_id') or row.get('item_id') or row.get('id') or '').strip()
+    title = row.get('desc') or row.get('title') or row.get('caption') or ''
+    if isinstance(title, dict):
+        title = title.get('text') or title.get('desc') or ''
+    title = re.sub(r'\s+', ' ', str(title or '')).strip()
+    if not title and aweme_id:
+        title = f'作品 {aweme_id}'
+    if not title:
+        return None
+
+    cover = ''
+    for path in (
+        ('cover', 'url_list'),
+        ('video', 'cover', 'url_list'),
+        ('video', 'origin_cover', 'url_list'),
+        ('images',),
+    ):
+        cur = row
+        ok = True
+        for p in path:
+            if isinstance(cur, dict) and p in cur:
+                cur = cur[p]
+            else:
+                ok = False
+                break
+        if not ok:
+            continue
+        if isinstance(cur, list) and cur:
+            first = cur[0]
+            if isinstance(first, str) and first.startswith('http'):
+                cover = first
+                break
+            if isinstance(first, dict):
+                cover = first.get('url') or first.get('url_list', [''])[0] if isinstance(first.get('url_list'), list) else first.get('url') or ''
+                if cover:
+                    break
+        if isinstance(cur, str) and cur.startswith('http'):
+            cover = cur
+            break
+    cover = cover or row.get('cover_url') or row.get('coverUrl') or ''
+
+    url = ''
+    if aweme_id:
+        url = f'https://www.douyin.com/video/{aweme_id}'
+    share = row.get('share_url') or row.get('shareUrl') or ''
+    if isinstance(share, str) and share.startswith('http'):
+        url = share
+
+    stats = row.get('statistics') if isinstance(row.get('statistics'), dict) else {}
+    plays = int(stats.get('play_count') or stats.get('playCount') or row.get('play_count') or 0)
+    likes = int(stats.get('digg_count') or stats.get('diggCount') or stats.get('like_count') or row.get('digg_count') or 0)
+    comments = int(stats.get('comment_count') or stats.get('commentCount') or row.get('comment_count') or 0)
+
+    create = row.get('create_time') or row.get('public_time') or row.get('createTime') or 0
+    published_at = ''
+    try:
+        ts = float(create)
+        if ts > 1e12:
+            ts = ts / 1000.0
+        if ts > 1e9:
+            published_at = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(ts))
+    except Exception:
+        published_at = ''
+
+    return {
+        'title': title[:120],
+        'url': str(url or '').strip(),
+        'cover_url': str(cover or '').strip(),
+        'published_at': published_at,
+        'likes': likes,
+        'comments': comments,
+        'plays': plays,
+        'views': plays,
+    }
+
+
+def _douyin_fetch_work_list_pages(page, max_items=200, start_page=1) -> list:
+    """在已登录的抖音创作者页主动请求 work_list 翻页。"""
+    fetch_js = r"""
+    async ({ pageNum, pageSize, status }) => {
+      const urls = [
+        `https://creator.douyin.com/janus/douyin/creator/pc/work_list?page_size=${pageSize}&page_num=${pageNum}&status=${status}`,
+        `/janus/douyin/creator/pc/work_list?page_size=${pageSize}&page_num=${pageNum}&status=${status}`,
+      ];
+      const errors = [];
+      for (const url of urls) {
+        try {
+          const resp = await fetch(url, {
+            method: 'GET',
+            credentials: 'include',
+            headers: { 'Accept': 'application/json, text/plain, */*' },
+          });
+          if (!resp.ok) { errors.push(url + ':' + resp.status); continue; }
+          const data = await resp.json();
+          return { ok: true, url, data };
+        } catch (e) {
+          errors.push(url + ':' + String(e && e.message || e));
+        }
+      }
+      return { ok: false, errors };
+    }
+    """
+    items = []
+    seen = set()
+    page_size = 20
+    # status=0 全部，1 已发布
+    statuses = (0, 1)
+    max_pages = max(1, min(60, (int(max_items) + page_size - 1) // page_size + 2))
+    roots = list(_scrape_roots(page)) or [page]
+
+    for status in statuses:
+        if len(items) >= max_items:
+            break
+        for page_num in range(max(1, int(start_page or 1)), max_pages + 1):
+            if len(items) >= max_items:
+                break
+            payload = None
+            for root in roots:
+                try:
+                    payload = root.evaluate(fetch_js, {
+                        'pageNum': page_num,
+                        'pageSize': page_size,
+                        'status': status,
+                    })
+                    if payload and payload.get('ok'):
+                        break
+                except Exception:
+                    continue
+            if not payload or not payload.get('ok'):
+                break
+            parsed = _parse_douyin_work_list_payload(payload.get('data') or {})
+            batch = parsed.get('items') or []
+            if parsed.get('total'):
+                total = int(parsed['total'])
+                max_pages = max(max_pages, min(60, (total + page_size - 1) // page_size + 1))
+            if parsed.get('page_size'):
+                page_size = max(1, int(parsed['page_size']))
+            if not batch:
+                break
+            added = 0
+            for it in batch:
+                title = (it.get('title') or '').strip()
+                if not title or _is_junk_platform_title(title):
+                    continue
+                key = (it.get('url') or '') + '|' + (it.get('cover_url') or '').split('?')[0] + '|' + title[:60]
+                if key in seen:
+                    continue
+                seen.add(key)
+                items.append(it)
+                added += 1
+                if len(items) >= max_items:
+                    break
+            if added == 0:
+                break
+            time.sleep(0.2)
+        # 全部 status=0 已够则不必再拉已发布
+        if len(items) >= min(max_items, 20):
+            break
+    return items[:max_items]
 
 
 def _collect_manage_cards(page, platform, max_items=80):
@@ -1264,15 +1889,25 @@ def _collect_manage_cards(page, platform, max_items=80):
         }
         src = absUrl(src);
         if (!src) return '';
-        if (/avatar|icon|logo|emoji|sprite|blank|placeholder|qrcode|qr\.|favicon/i.test(src)) return '';
+        if (/avatar|icon|logo|emoji|sprite|blank|placeholder|qrcode|qr\.|favicon|special-post-guide|feedback-qrcode/i.test(src)) return '';
         return src;
+      };
+      const pickCoverFromBg = (el) => {
+        try {
+          const bg = (window.getComputedStyle(el).backgroundImage || '');
+          const m = bg.match(/url\(["']?(https?:\/\/[^"')]+)["']?\)/i);
+          if (!m) return '';
+          const src = absUrl(m[1]);
+          if (!src || /avatar|icon|logo|emoji|sprite|blank|placeholder|qrcode|favicon|special-post-guide|feedback-qrcode/i.test(src)) return '';
+          return src;
+        } catch (e) { return ''; }
       };
       const cardRootFromImg = (img) => {
         let el = img;
         for (let i = 0; i < 8 && el; i++) {
           const cls = (el.className && String(el.className)) || '';
           const role = el.getAttribute && el.getAttribute('role');
-          if (/note|card|item|feed|post|video|row|cell/i.test(cls) || role === 'listitem') {
+          if (/note|card|item|feed|post|video|row|cell|tr/i.test(cls) || role === 'listitem' || el.tagName === 'TR') {
             const t = norm(el.innerText || '');
             if (t.length >= 8 && t.length <= 1200) return el;
           }
@@ -1288,23 +1923,9 @@ def _collect_manage_cards(page, platform, max_items=80):
         return img.parentElement;
       };
 
-      const cards = [];
-      const seenCover = new Set();
-      const seenTitle = new Set();
-      const imgs = Array.from(document.querySelectorAll('img'));
-      for (const img of imgs) {
-        const cover = pickCoverFromImg(img);
-        if (!cover) continue;
-        const rect = img.getBoundingClientRect ? img.getBoundingClientRect() : {width:0,height:0};
-        // 过小图标跳过
-        if ((rect.width && rect.width < 40) || (rect.height && rect.height < 40)) continue;
-        const root = cardRootFromImg(img);
-        if (!root) continue;
-        const raw = root.innerText || root.textContent || '';
+      const extractStats = (raw, titleHint) => {
         const t = norm(raw);
-        if (!t || t.length < 6) continue;
-
-        const lines = raw.split(/\n+/).map(norm).filter(Boolean);
+        const lines = String(raw || '').split(/\n+/).map(norm).filter(Boolean);
         let publishedAt = '';
         const candidates = [];
         for (const line of lines) {
@@ -1314,22 +1935,22 @@ def _collect_manage_cards(page, platform, max_items=80):
           if (/^20\d{2}[\/-]\d{1,2}/.test(line)) continue;
           if (/^(?:\d+(?:\.\d+)?[万wW千kK]?\s*){2,}$/.test(line)) continue;
           if (/^\d{2}:\d{2}/.test(line) && line.length <= 8) continue;
-          if (/笔记管理|数据看板|创作学院|发布笔记|作品管理|内容管理|全部\s*\d+|回收站|草稿箱/.test(line)) continue;
+          if (/笔记管理|数据看板|创作学院|发布笔记|作品管理|内容管理|全部\s*\d+|回收站|草稿箱|发表视频|视频动态/.test(line)) continue;
           if (line.length < 2 || line.length > 80) continue;
           candidates.push(line);
         }
-        // 选最像标题的：优先较长、且不含「可见/发布」等
-        let title = '';
-        candidates.sort((a, b) => b.length - a.length);
-        for (const c of candidates) {
-          if (isStatus(c)) continue;
-          title = c.slice(0, 80);
-          break;
+        let title = titleHint || '';
+        if (!title) {
+          candidates.sort((a, b) => b.length - a.length);
+          for (const c of candidates) {
+            if (isStatus(c)) continue;
+            title = c.slice(0, 80);
+            break;
+          }
         }
-        if (!title || isStatus(title)) continue;
+        if (!title || isStatus(title)) return null;
         if (!publishedAt) publishedAt = parseDate(t);
 
-        // 互动数字：只取「日期之后」的数字行，避免标题/日期污染（如 08-11 14:00、标题里的95）
         const stripDateNoise = (s) => String(s || '')
           .replace(/20\d{2}\s*[年\/\-]\s*\d{1,2}\s*[月\/\-]\s*\d{1,2}\s*日?/g, ' ')
           .replace(/\d{1,2}\s*[:：]\s*\d{2}(?:\s*[:：]\s*\d{2})?/g, ' ')
@@ -1356,7 +1977,6 @@ def _collect_manage_cards(page, platform, max_items=80):
           if (line === title) continue;
           const cleaned = stripDateNoise(line).trim();
           if (!cleaned) continue;
-          // 纯数字行（可多值）或单值数字
           if (!/^(?:\d+(?:\.\d+)?[万wW千kK]?\s*)+$/.test(cleaned)) {
             if (statsNums.length >= 3) break;
             continue;
@@ -1367,22 +1987,53 @@ def _collect_manage_cards(page, platform, max_items=80):
         }
         const nums = statsNums.filter(n => n >= 0 && n < 100000000);
         if (platform === 'xiaohongshu') {
-          // 笔记管理常见：浏览 评论 点赞 收藏 分享
           if (!labeledView && nums.length >= 1) views = nums[0];
           if (!labeledComment && nums.length >= 2) comments = nums[1];
           if (!labeledLike && nums.length >= 3) likes = nums[2];
           if (!labeledFav && nums.length >= 4) favorites = nums[3];
           if (!labeledLike && likes === 0 && favorites > 0) likes = favorites;
-        } else if (platform === 'shipinhao' && nums.length >= 3) {
-          if (!labeledView) views = nums[0];
-          if (!labeledComment) comments = nums[Math.min(2, nums.length - 1)];
-          if (!labeledLike) likes = nums[nums.length - 1];
+        } else if (platform === 'shipinhao' && nums.length >= 1) {
+          if (!labeledView && nums.length >= 1) views = nums[0];
+          if (!labeledLike && nums.length >= 2) likes = nums[1];
+          if (!labeledComment && nums.length >= 3) comments = nums[2];
+          if (!labeledLike && likes === 0 && nums.length >= 3) likes = nums[nums.length - 1];
         } else if (platform === 'douyin' && nums.length >= 3) {
           if (!labeledView) views = nums[0];
           if (!labeledLike) likes = nums[1];
           if (!labeledComment) comments = nums[2];
         }
+        return { title, publishedAt, likes, comments, views, favorites };
+      };
 
+      const cards = [];
+      const seenCover = new Set();
+      const seenTitle = new Set();
+      const pushCard = (title, cover, href, publishedAt, likes, comments, views) => {
+        if (!title || isStatus(title) || seenTitle.has(title)) return false;
+        const coverKey = (cover || '').split('?')[0];
+        if (coverKey && seenCover.has(coverKey)) return false;
+        if (coverKey) seenCover.add(coverKey);
+        seenTitle.add(title);
+        cards.push({
+          title, url: href || '', cover_url: cover || '',
+          published_at: publishedAt || '',
+          likes: likes || 0, comments: comments || 0, views: views || 0, plays: views || 0,
+        });
+        return true;
+      };
+
+      const imgs = Array.from(document.querySelectorAll('img'));
+      for (const img of imgs) {
+        if (cards.length >= maxItems) break;
+        const cover = pickCoverFromImg(img);
+        if (!cover) continue;
+        const rect = img.getBoundingClientRect ? img.getBoundingClientRect() : {width:0,height:0};
+        if ((rect.width && rect.width < 40) || (rect.height && rect.height < 40)) continue;
+        const root = cardRootFromImg(img);
+        if (!root) continue;
+        const raw = root.innerText || root.textContent || '';
+        const parsed = extractStats(raw, '');
+        if (!parsed) continue;
         let href = '';
         const anchors = root.querySelectorAll ? Array.from(root.querySelectorAll('a[href]')) : [];
         for (const a of anchors) {
@@ -1393,17 +2044,40 @@ def _collect_manage_cards(page, platform, max_items=80):
             href = a.href; break;
           }
         }
+        pushCard(parsed.title, cover, href, parsed.publishedAt, parsed.likes, parsed.comments, parsed.views);
+      }
 
-        const coverKey = cover.split('?')[0];
-        if (seenCover.has(coverKey) || seenTitle.has(title)) continue;
-        seenCover.add(coverKey);
-        seenTitle.add(title);
-        cards.push({
-          title, url: href || '', cover_url: cover,
-          published_at: publishedAt || '',
-          likes, comments, views, plays: views,
-        });
-        if (cards.length >= maxItems) break;
+      // 视频号/抖音：列表常是表格/行，封面可能是背景图或懒加载未出，补文本行兜底
+      if ((platform === 'shipinhao' || platform === 'douyin') && cards.length < maxItems) {
+        const rowSel = 'tr, [class*="row"], [class*="item"], [class*="post"], [class*="card"], [class*="list"] > *, [class*="video"], [class*="work"]';
+        const rows = Array.from(document.querySelectorAll(rowSel));
+        for (const row of rows) {
+          if (cards.length >= maxItems) break;
+          const raw = row.innerText || row.textContent || '';
+          const t = norm(raw);
+          if (!t || t.length < 10 || t.length > 1500) continue;
+          if (!/(20\d{2}[\/\-年]\d{1,2}|播放|点赞|评论|赞|浏览)/.test(t)) continue;
+          if (/内容管理|作品管理|全部作品|发表视频|数据中心|创作灵感|作品发布|收入变现|创作服务|AI分身|AI工坊/.test(t) && t.length < 50) continue;
+          let cover = '';
+          const img = row.querySelector && row.querySelector('img');
+          if (img) cover = pickCoverFromImg(img);
+          if (!cover) {
+            const bgNodes = [row].concat(Array.from(row.querySelectorAll ? row.querySelectorAll('div, span') : []).slice(0, 12));
+            for (const n of bgNodes) {
+              cover = pickCoverFromBg(n);
+              if (cover) break;
+            }
+          }
+          const parsed = extractStats(raw, '');
+          if (!parsed) continue;
+          let href = '';
+          const anchors = row.querySelectorAll ? Array.from(row.querySelectorAll('a[href]')) : [];
+          for (const a of anchors) {
+            const u = (a.href || '').toLowerCase();
+            if (/weixin\.qq\.com\/sph|channels\.weixin|douyin\.com\/video|v\.douyin\.com/.test(u)) { href = a.href; break; }
+          }
+          pushCard(parsed.title, cover, href, parsed.publishedAt, parsed.likes, parsed.comments, parsed.views);
+        }
       }
       return cards;
     }
@@ -1446,10 +2120,18 @@ def _is_junk_platform_title(title: str) -> bool:
         '部分人不可见', '公开', '仅自己可见', '好友可见', '已发布', '未通过', '审核中', '审核失败',
         '草稿', '定时发布', '视频', '图文', '笔记', '置顶', '播放', '点赞', '评论', '浏览', '收藏',
         '分享', '全部', '回收站', '精华', '推荐', '私密', '自己可见', '粉丝可见',
+        '你还没有发表过视频', '发表视频', '填写合集标题', '创建合集', '特别发表',
+        '作品发布', '内容管理', '数据中心', '收入变现', '创作服务', 'AI分身', 'AI工坊',
+        '作品合集', '体裁', '首页',
     }
     if t in junk:
         return True
     if len(t) <= 8 and any(k in t for k in ('可见', '已发布', '未通过', '审核', '草稿')):
+        return True
+    if any(k in t for k in (
+        '你还没有发表过', '描述清晰具体的标题', '填写合集标题', '特效创作工具',
+        '关于腾讯微信视频号运营规范',
+    )):
         return True
     return False
 

@@ -416,7 +416,10 @@ def batch_sync_workbench(conn, *, platform='', limit=5) -> dict:
     for plat in platforms:
         if not plat:
             continue
-        scraped = scrape_platform_library(plat, max_items=max(80, limit))
+        scraped = scrape_platform_library(
+            plat,
+            max_items=max(300 if plat == 'shipinhao' else (200 if plat == 'douyin' else 80), limit),
+        )
         if scraped.get('ok'):
             part = import_platform_posts(conn, plat, scraped.get('items') or [])
             imported['inserted'] += part.get('inserted', 0)
