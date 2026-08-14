@@ -75,4 +75,6 @@ export const publishApi = {
   workbench: (params) => api.get('/publish/workbench', { params }),
   workbenchSync: (data) => api.post('/publish/workbench/sync', data || {}, { timeout: API_LONG_TIMEOUT * 5 }),
   workbenchLogin: (data) => api.post('/publish/workbench/login', data || {}, { timeout: API_LONG_TIMEOUT * 2 }),
+  workbenchPrefs: () => api.get('/publish/workbench/prefs'),
+  updateWorkbenchPrefs: (data) => api.put('/publish/workbench/prefs', data || {}),
 }

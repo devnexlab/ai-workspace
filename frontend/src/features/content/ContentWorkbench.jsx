@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Button, Drawer, Input, Select, Space, Spin, Tag, message, Empty, Pagination,
+  Button, Drawer, Input, Select, Space, Spin, Tag, message, Empty, Pagination, Switch, Tooltip,
 } from 'antd'
 import {
   ReloadOutlined, RocketOutlined, LinkOutlined, SyncOutlined,
   AppstoreOutlined, EyeOutlined, LikeOutlined, MessageOutlined,
-  ShareAltOutlined, StarOutlined,
+  ShareAltOutlined, StarOutlined, QuestionCircleOutlined,
 } from '@ant-design/icons'
 import { publishApi } from '../../api'
 import { API_LONG_TIMEOUT } from '../../config'
@@ -64,7 +64,14 @@ export default function ContentWorkbench() {
     total: 0,
     kpi: { total: 0, warn: 0, consult: 0, pending: 0, last_synced_at: '' },
     platforms: [],
+    prefs: {
+      official_auto_reply_shipinhao: false,
+      sync_auto_enabled: false,
+      sync_run_hour: 3,
+      sync_last_run: '',
+    },
   })
+  const [prefsSaving, setPrefsSaving] = useState(false)
   const [tab, setTab] = useState('all')
   const [search, setSearch] = useState('')
   const [q, setQ] = useState('')
@@ -98,6 +105,7 @@ export default function ContentWorkbench() {
           total: res.total || 0,
           kpi: res.kpi || {},
           platforms: res.platforms || [],
+          prefs: res.prefs || {},
         })
       })
       .catch((err) => message.error(err?.error || err?.message || '加载工作台失败'))
@@ -178,6 +186,7 @@ export default function ContentWorkbench() {
         total: next.total || 0,
         kpi: next.kpi || {},
         platforms: next.platforms || [],
+        prefs: next.prefs || {},
       })
       const updated = (next.list || []).find((x) => x.id === id)
       if (updated) setDrawer(updated)
@@ -217,6 +226,7 @@ export default function ContentWorkbench() {
             total: next.total || 0,
             kpi: next.kpi || {},
             platforms: next.platforms || [],
+            prefs: next.prefs || {},
           })
           const ok = (next.platforms || []).find((x) => x.key === key)?.ready
           if (ok || n >= 20) clearInterval(timer)
@@ -241,7 +251,21 @@ export default function ContentWorkbench() {
     }
   }
 
+  const savePrefs = async (patch) => {
+    setPrefsSaving(true)
+    try {
+      const res = await publishApi.updateWorkbenchPrefs(patch)
+      setData((d) => ({ ...d, prefs: res.prefs || { ...d.prefs, ...patch } }))
+      message.success(res.message || '已保存')
+    } catch (err) {
+      message.error(err?.error || err?.message || '保存失败')
+    } finally {
+      setPrefsSaving(false)
+    }
+  }
+
   const kpi = data.kpi || {}
+  const prefs = data.prefs || {}
 
   return (
     <div className="wb-page">
@@ -275,6 +299,52 @@ export default function ContentWorkbench() {
             </button>
           </div>
         ))}
+      </div>
+
+      <div className="wb-safe-bar">
+        <div className="wb-safe-item">
+          <span className="wb-safe-label">
+            视频号官方关注后回复
+            <Tooltip title="请在「视频号助手 → 私信管理」开启官方能力后，在此勾选已开启。本系统不会代发私信。">
+              <QuestionCircleOutlined className="wb-safe-help" />
+            </Tooltip>
+          </span>
+          <Switch
+            size="small"
+            checked={!!prefs.official_auto_reply_shipinhao}
+            loading={prefsSaving}
+            onChange={(v) => savePrefs({ official_auto_reply_shipinhao: v })}
+            checkedChildren="已开"
+            unCheckedChildren="未开"
+          />
+        </div>
+        <div className="wb-safe-item">
+          <span className="wb-safe-label">
+            每日自动同步作品
+            <Tooltip title="只读创作者后台自己的作品数据，默认关闭；开启后每天最多同步一次，建议凌晨时段。">
+              <QuestionCircleOutlined className="wb-safe-help" />
+            </Tooltip>
+          </span>
+          <Switch
+            size="small"
+            checked={!!prefs.sync_auto_enabled}
+            loading={prefsSaving}
+            onChange={(v) => savePrefs({ sync_auto_enabled: v })}
+            checkedChildren="开"
+            unCheckedChildren="关"
+          />
+          <Select
+            size="small"
+            style={{ width: 88 }}
+            value={Number(prefs.sync_run_hour ?? 3)}
+            disabled={!prefs.sync_auto_enabled || prefsSaving}
+            options={Array.from({ length: 24 }, (_, h) => ({
+              value: h,
+              label: `${String(h).padStart(2, '0')}:00`,
+            }))}
+            onChange={(h) => savePrefs({ sync_run_hour: h })}
+          />
+        </div>
       </div>
 
       <div className="wb-kpi-row">

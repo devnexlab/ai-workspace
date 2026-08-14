@@ -501,6 +501,21 @@ def publish_workbench_sync():
     return jsonify(result)
 
 
+@bp.route('/api/publish/workbench/prefs', methods=['GET', 'PUT'])
+def publish_workbench_prefs():
+    """工作台偏好：视频号官方关注后回复勾选、作品每日自动同步（只读数据，不代发）。"""
+    from modules.publish.workbench import get_workbench_prefs, update_workbench_prefs
+
+    if request.method == 'GET':
+        return jsonify(get_workbench_prefs())
+    data = request.get_json(silent=True) or {}
+    try:
+        prefs = update_workbench_prefs(data)
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    return jsonify({'message': '已保存', 'prefs': prefs})
+
+
 @bp.route('/api/publish/workbench/login', methods=['POST'])
 def publish_workbench_login():
     """打开本系统专用浏览器，供平台扫码登录（与日常 Chrome 登录态不互通）。"""

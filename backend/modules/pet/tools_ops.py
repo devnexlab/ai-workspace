@@ -535,6 +535,313 @@ def tool_compare_workbench(
     return [_cite(f'内容工作台·{label}对比', '/workbench', body[:160])], body
 
 
+def _snapshot_leads() -> dict:
+    """线索池快照，供澄清与转化工具使用。"""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            '''SELECT id, nickname, phone, status, source
+               FROM lead ORDER BY id DESC LIMIT 50'''
+        ).fetchall()
+    finally:
+        conn.close()
+    items = [dict(r) for r in rows]
+    convertible = [
+        x for x in items
+        if (x.get('status') or '') not in ('converted', 'invalid')
+    ]
+    return {
+        'total': len(items),
+        'convertible': convertible,
+        'convertible_n': len(convertible),
+        'converted_n': sum(1 for x in items if x.get('status') == 'converted'),
+        'items': items,
+    }
+
+
+def tool_convert_leads(
+    lead_ids: list | None = None,
+    confirm_all: bool = True,
+    question: str = '',
+) -> tuple[list[dict], str]:
+    """把未转化线索转为客户（复用 CRM convert_lead_to_customer）。"""
+    from modules.crm.leads import convert_lead_to_customer, status_label
+
+    snap = _snapshot_leads()
+    targets: list[int] = []
+    if lead_ids:
+        for raw in lead_ids:
+            try:
+                targets.append(int(raw))
+            except (TypeError, ValueError):
+                continue
+    else:
+        targets = [int(x['id']) for x in snap['convertible']]
+
+    if not targets:
+        body = (
+            f'线索池里目前没有可转化的线索'
+            f'（共 {snap["total"]} 条，已转化 {snap["converted_n"]} 条）。'
+            '可先到线索池录入，或把待转化线索标为「待首联/跟进中」。'
+        )
+        return [_cite('线索转客户', '/leads', body[:160])], body
+
+    # 未指定 id 且可转化较多时，若用户未确认全部，先给清单请确认（由路由层通常已 confirm）
+    if not lead_ids and not confirm_all and snap['convertible_n'] > 3:
+        lines = [
+            f'线索池有 {snap["convertible_n"]} 条可转客户，请确认是否全部转化：',
+            '',
+        ]
+        for x in snap['convertible'][:10]:
+            lines.append(
+                f"- #{x['id']} {x.get('nickname') or '未命名'} · "
+                f"{status_label(x.get('status'))}"
+            )
+        if snap['convertible_n'] > 10:
+            lines.append(f'…等共 {snap["convertible_n"]} 条')
+        lines.append('')
+        lines.append('可以说「全部转成客户」或指定编号，例如「把 #3 #5 转成客户」。')
+        return [_cite('线索转客户·待确认', '/leads')], '\n'.join(lines)
+
+    ok, fail = [], []
+    for lid in targets:
+        try:
+            result = convert_lead_to_customer(lid)
+            ok.append(result)
+        except Exception as e:
+            fail.append({'id': lid, 'error': str(e)})
+
+    lines = [f'线索转客户完成：成功 {len(ok)} 条，失败 {len(fail)} 条。']
+    for r in ok[:12]:
+        if r.get('already'):
+            lines.append(f"- 线索 #{r.get('id')} 此前已转化 → 客户 #{r.get('customer_id')}")
+        else:
+            lines.append(f"- 线索 #{r.get('id')} → 客户 #{r.get('customer_id')}（已进客户列表·约访）")
+    for f in fail[:8]:
+        lines.append(f"- 线索 #{f.get('id')} 失败：{f.get('error')}")
+    lines.append('')
+    lines.append('可在「客户列表」查看新客户，或继续说「看看刚转的客户」。')
+    body = '\n'.join(lines)
+    return [_cite('线索转客户', '/customers', body[:180])], body
+
+
+def _resolve_customer(name_or_id: str | int | None) -> tuple[dict | None, list[dict], str]:
+    """按 id 或昵称解析客户。返回 (唯一客户, 候选列表, 说明)。"""
+    conn = get_db()
+    try:
+        if name_or_id is None or str(name_or_id).strip() == '':
+            rows = conn.execute(
+                '''SELECT id, nickname, phone, intention, lifecycle_stage
+                   FROM customer ORDER BY id DESC LIMIT 8'''
+            ).fetchall()
+            cands = [dict(r) for r in rows]
+            return None, cands, '请指定客户（昵称或编号）'
+        raw = str(name_or_id).strip().lstrip('#')
+        if raw.isdigit():
+            row = conn.execute(
+                '''SELECT id, nickname, phone, intention, lifecycle_stage
+                   FROM customer WHERE id=?''',
+                (int(raw),),
+            ).fetchone()
+            if row:
+                return dict(row), [], ''
+            return None, [], f'未找到客户 #{raw}'
+        rows = conn.execute(
+            '''SELECT id, nickname, phone, intention, lifecycle_stage
+               FROM customer
+               WHERE nickname ILIKE %s OR phone LIKE %s OR wechat ILIKE %s
+               ORDER BY id DESC LIMIT 8''',
+            (f'%{raw}%', f'%{raw}%', f'%{raw}%'),
+        ).fetchall()
+        cands = [dict(r) for r in rows]
+        if len(cands) == 1:
+            return cands[0], [], ''
+        if not cands:
+            return None, [], f'未找到昵称/电话含「{raw}」的客户'
+        return None, cands, f'找到 {len(cands)} 位相似客户，请指定编号'
+    finally:
+        conn.close()
+
+
+def tool_list_crm_followups(limit: int = 8) -> tuple[list[dict], str]:
+    """待跟进：久未跟进的客户 + 到期提醒。"""
+    limit = max(1, min(20, int(limit or 8)))
+    conn = get_db()
+    try:
+        stale = conn.execute(
+            '''SELECT c.id, c.nickname, c.intention, c.lifecycle_stage,
+                      MAX(f.created_at) AS last_follow
+               FROM customer c
+               LEFT JOIN follow_record f ON f.customer_id = c.id
+               GROUP BY c.id, c.nickname, c.intention, c.lifecycle_stage
+               HAVING MAX(f.created_at) IS NULL
+                  OR MAX(f.created_at) < NOW() - INTERVAL '3 days'
+               ORDER BY MAX(f.created_at) NULLS FIRST, c.id DESC
+               LIMIT %s''',
+            (limit,),
+        ).fetchall()
+        due = conn.execute(
+            '''SELECT r.id, r.customer_id, r.title, r.remind_date, r.status,
+                      c.nickname
+               FROM reminder r
+               LEFT JOIN customer c ON c.id = r.customer_id
+               WHERE r.customer_id IS NOT NULL
+                 AND COALESCE(r.status,'pending') IN ('pending','open','todo','')
+                 AND (r.remind_date IS NULL OR r.remind_date <= CURRENT_DATE + 1)
+               ORDER BY r.remind_date NULLS FIRST, r.id DESC
+               LIMIT %s''',
+            (limit,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    lines = ['【CRM 待办】']
+    if stale:
+        lines.append(f'久未跟进（≥3天或从未跟进）{len(stale)} 人：')
+        for r in stale:
+            lf = r['last_follow'] or '从未'
+            lines.append(
+                f"- 客户 #{r['id']} {r.get('nickname') or '未命名'} · "
+                f"意向={r.get('intention') or '-'} · 上次跟进={lf}"
+            )
+    else:
+        lines.append('暂无「久未跟进」客户。')
+    if due:
+        lines.append('')
+        lines.append(f'提醒待处理 {len(due)} 条：')
+        for r in due:
+            lines.append(
+                f"- 提醒 #{r['id']} · 客户 #{r.get('customer_id')} "
+                f"{r.get('nickname') or ''} · {r.get('title') or '提醒'} · "
+                f"日期={r.get('remind_date') or '—'}"
+            )
+    lines.append('')
+    lines.append('可以说「跟进客户#3：已电话沟通，约周五面谈」让我写入跟进记录。')
+    body = '\n'.join(lines)
+    return [_cite('CRM待跟进', '/customers', body[:160])], body
+
+
+def tool_add_customer_follow(
+    customer: str | int | None = None,
+    content: str = '',
+    method: str = 'wechat',
+    question: str = '',
+) -> tuple[list[dict], str]:
+    """给指定客户写一条跟进记录（复用 CRM _create_follow_internal）。"""
+    from routes.crm.follows import _create_follow_internal
+
+    cust, cands, hint = _resolve_customer(customer)
+    if not cust:
+        if cands:
+            lines = [hint or '请选择要跟进的客户：', '']
+            for c in cands:
+                lines.append(
+                    f"- #{c['id']} {c.get('nickname') or '未命名'} · "
+                    f"{c.get('intention') or '-'} / {c.get('lifecycle_stage') or '-'}"
+                )
+            lines.append('')
+            lines.append('请再说一次，例如：「跟进客户#1：微信已回复，意向中等」。')
+            return [_cite('跟进客户·待确认', '/customers')], '\n'.join(lines)
+        return [_cite('跟进客户', '/customers')], hint or '未找到客户'
+
+    text = (content or '').strip()
+    if not text:
+        # 从问句里抽「：」或「跟进内容」后的部分
+        q = question or ''
+        for sep in ('：', ':', '，内容', ' 内容'):
+            if sep in q:
+                text = q.split(sep, 1)[-1].strip()
+                break
+        if not text or text == str(customer):
+            text = (question or '智仔代记跟进').strip()[:200]
+
+    payload = {
+        'customer_id': cust['id'],
+        'content': text[:2000],
+        'method': method if method in ('wechat', 'phone', 'offline', 'other') else 'wechat',
+        'operator': '智仔',
+    }
+    result, err, _code = _create_follow_internal(payload)
+    if err:
+        return [_cite('跟进客户', '/customers')], f'跟进写入失败：{err}'
+
+    body = (
+        f"已为客户 #{cust['id']}「{cust.get('nickname') or ''}」写入跟进记录。\n"
+        f"方式：{payload['method']} · 内容：{payload['content'][:120]}\n"
+        f"可在客户详情查看；也可继续说「列出待跟进客户」。"
+    )
+    return [_cite(f"跟进·{cust.get('nickname') or cust['id']}", '/customers', body[:160])], body
+
+
+def tool_generate_script(
+    prompt: str = '',
+    content_type: str = 'traffic',
+    question: str = '',
+) -> tuple[list[dict], str]:
+    """按主题/提示生成口播文案并入库（复用文案生成逻辑）。"""
+    from config import get_ai_config, get_db as _gdb
+    from modules.ai.writer import (
+        call_llm, build_script_prompt, parse_script_response,
+        apply_brand_ending, SYSTEM_PROMPT,
+    )
+    from routes.content.scripts import _save_script
+
+    topic = (prompt or '').strip()
+    if not topic:
+        q = (question or '').strip()
+        topic = re.sub(
+            r'^(帮我|请|立刻|马上)?(写|生成|来)?(一?[条篇]?)?(口播|文案|脚本)?[：:\s]*',
+            '',
+            q,
+        ).strip() or q
+    if not topic:
+        return [_cite('生成文案', '/scripts')], '请告诉我文案主题，例如「写一条养老金避坑口播」。'
+
+    ai_config = get_ai_config() or {}
+    audience = ai_config.get('default_audience', '') or ''
+    tone = ai_config.get('default_tone', 'casual') or 'casual'
+    ctype = content_type if content_type in ('traffic', 'insurance') else 'traffic'
+
+    try:
+        full_prompt = build_script_prompt(
+            topic, style='干货分享', duration='60秒',
+            audience=audience, tone=tone, extra_req='',
+            content_type=ctype, age_band='all',
+        )
+        result, tokens, model = call_llm(full_prompt, system_prompt=SYSTEM_PROMPT)
+        script = parse_script_response(result)
+        apply_brand_ending(script)
+        script['tokens_used'] = tokens
+        script['model_name'] = model
+    except Exception as e:
+        return [_cite('生成文案', '/scripts')], f'文案生成失败：{e}'
+
+    conn = _gdb()
+    try:
+        script_id = _save_script(conn, script, None, ctype, 'all')
+        conn.commit()
+    except Exception as e:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return [_cite('生成文案', '/scripts')], f'文案已生成但保存失败：{e}'
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+    title = (script.get('title') or topic)[:60]
+    opening = (script.get('hook') or script.get('content') or '')[:80]
+    body = (
+        f'已生成并保存文案 #{script_id}《{title}》。\n'
+        f'开头：{opening or "（见文案库）"}\n'
+        f'可说「把这条文案出片」或到文案库查看全文。'
+    )
+    return [_cite(f'文案#{script_id}', '/scripts', title)], body
+
+
 # ---------- 工具目录（给模型选）----------
 
 TOOL_SPECS: list[dict[str, Any]] = [
@@ -626,7 +933,42 @@ TOOL_SPECS: list[dict[str, Any]] = [
         'desc': '关闭系统每日自动日更并暂停相关定时',
         'args': {},
     },
+    {
+        'name': 'convert_leads',
+        'desc': '把线索池里的线索转为客户（写入客户列表）。适用于：转客户、线索转客户、批量转化。默认转所有未转化线索；可指定 lead_ids',
+        'args': {
+            'lead_ids': '可选，线索 id 数组；空则转全部未转化（非 invalid、非 converted）',
+            'confirm_all': 'bool，用户已明确要全部转时为 true',
+        },
+    },
+    {
+        'name': 'list_crm_followups',
+        'desc': '查看待跟进客户与到期提醒。适用于：谁该跟进了、待跟进清单、提醒中心待办',
+        'args': {'limit': '条数，默认 8'},
+    },
+    {
+        'name': 'add_customer_follow',
+        'desc': '给客户写跟进记录。适用于：跟进客户、记一笔沟通、电话/微信回访。需客户昵称或编号 + 跟进内容',
+        'args': {
+            'customer': '客户 id 或昵称',
+            'content': '跟进内容',
+            'method': 'wechat|phone|offline|other，默认 wechat',
+        },
+    },
+    {
+        'name': 'generate_script',
+        'desc': '按主题生成口播文案并保存到文案库。适用于：写文案、生成口播、根据主题写脚本。出片请再用 produce_script',
+        'args': {
+            'prompt': '文案主题或要求',
+            'content_type': 'traffic|insurance，默认 traffic',
+        },
+    },
 ]
+
+# 股票筛选/自选、CRM 写操作、发布准备等扩展工具
+from modules.pet import tools_biz as _tools_biz  # noqa: E402
+
+TOOL_SPECS.extend(_tools_biz.TOOL_SPECS)
 
 
 def _run_named_tool(name: str, args: dict | None, question: str) -> tuple[list[dict], str]:
@@ -688,6 +1030,33 @@ def _run_named_tool(name: str, args: dict | None, question: str) -> tuple[list[d
         return tool_enable_daily_schedule(int(h) if h is not None else 8)
     if name == 'disable_daily_auto':
         return tool_disable_daily_schedule()
+    if name == 'convert_leads':
+        ids = args.get('lead_ids') or args.get('ids') or []
+        if isinstance(ids, str):
+            ids = [x.strip() for x in ids.split(',') if x.strip()]
+        return tool_convert_leads(
+            lead_ids=ids or None,
+            confirm_all=bool(args.get('confirm_all', True)),
+            question=question,
+        )
+    if name == 'list_crm_followups':
+        return tool_list_crm_followups(int(args.get('limit') or 8))
+    if name == 'add_customer_follow':
+        return tool_add_customer_follow(
+            customer=args.get('customer') or args.get('customer_id') or args.get('name'),
+            content=str(args.get('content') or ''),
+            method=str(args.get('method') or 'wechat'),
+            question=question,
+        )
+    if name == 'generate_script':
+        return tool_generate_script(
+            prompt=str(args.get('prompt') or args.get('topic') or ''),
+            content_type=str(args.get('content_type') or 'traffic'),
+            question=question,
+        )
+    biz = _tools_biz.run_named(name, args, question)
+    if biz is not None:
+        return biz
     return [], f'未知工具：{name}'
 
 
@@ -1115,14 +1484,25 @@ def plan_ops_with_llm(question: str, history: list[dict] | None = None) -> dict:
 
     plat_guess = _normalize_workbench_platform('', question or '')
     snap = _snapshot_workbench(plat_guess) if plat_guess else _snapshot_workbench('')
-    # 也带上三平台粗计数，方便像人一样提现状
     multi = []
     for key in ('douyin', 'xiaohongshu', 'shipinhao'):
         s = _snapshot_workbench(key)
         multi.append(f"{s['label']}{s['count']}条")
+    lead_snap = _snapshot_leads()
+    lead_names = '、'.join(
+        f"#{x['id']}{x.get('nickname') or ''}" for x in lead_snap['convertible'][:5]
+    ) or '无'
+    try:
+        _conn = get_db()
+        wl_n = int((_conn.execute('SELECT COUNT(*) AS c FROM stock_watchlist').fetchone() or {}).get('c') or 0)
+        _conn.close()
+    except Exception:
+        wl_n = 0
     inventory = (
         f'当前内容工作台概况：{" / ".join(multi)}。\n'
-        f'与用户话最相关平台快照：{_snapshot_blurb(snap)}'
+        f'与用户话最相关平台快照：{_snapshot_blurb(snap)}\n'
+        f'线索池：共{lead_snap["total"]}条，可转化{lead_snap["convertible_n"]}条'
+        f'（{lead_names}），已转化{lead_snap["converted_n"]}条；自选股 {wl_n} 只。'
     )
 
     system = (
@@ -1135,8 +1515,15 @@ def plan_ops_with_llm(question: str, history: list[dict] | None = None) -> dict:
         '"question":"结合库存说的一句人话确认",'
         '"choices":[{"label":"短按钮","message":"点选后发给你的完整句子"}],'
         '"tools":[],"reason":"..."}\n'
-        '澄清选项要随库存变化：有作品就突出「直接对比这N条」；没作品就引导同步/登录；'
-        '仅在可能被误解成热点时才提供热点选项。\n'
+        '常见做事映射：转客户→convert_leads；跟进/回访→add_customer_follow 或 list_crm_followups；'
+        '新建客户→create_customer；改意向/推进阶段→update_customer；建提醒→create_reminder；'
+        '登记线索→create_lead；写文案→generate_script；热点出文案→hotspot_to_script；'
+        '出片→produce_script；创建发布→create_publish_task；准备发视频→prepare_publish_task 或 prepare_publish；'
+        '确认已发→confirm_published；平台登录→workbench_login；日更→run_daily；同步作品→sync_workbench；'
+        '筛股票/技术面筛选→run_stock_screen；自选列表→watchlist_list；加自选→watchlist_add；'
+        '刷新自选现价→watchlist_refresh；股票复盘→stock_review；筛选历史→list_stock_screens。\n'
+        '澄清选项要随库存变化；线索转客户在可转化>0 时可直接执行；'
+        '跟进时若未指定客户，先澄清或 list_crm_followups。\n'
         '作品对比默认查内容工作台库；全网热点才用 refresh_hotspots。\n'
         '只输出 JSON。'
     )

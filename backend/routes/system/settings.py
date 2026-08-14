@@ -84,6 +84,14 @@ SETTINGS_MODULES = [
         'categories': ['wechat_oa'],
     },
     {
+        'key': 'web',
+        'path': 'web',
+        'label': '联网搜索',
+        'desc': '智仔联网读取使用的真实搜索引擎与 API Key；不配则降级为模型厂商原生联网',
+        'icon': 'global',
+        'categories': ['web'],
+    },
+    {
         'key': 'content',
         'path': 'content',
         'label': '内容运营',
@@ -98,10 +106,21 @@ SETTINGS_MODULES = [
         ],
     },
     {
+        'key': 'workbench',
+        'path': 'workbench',
+        'label': '内容工作台',
+        'desc': '官方关注回复勾选、作品低频同步（不代发私信）',
+        'icon': 'desktop',
+        'categories': ['workbench'],
+        'exclude_keys': [
+            'sync_auto_enabled', 'sync_run_hour', 'sync_last_run', 'sync_last_run_date',
+        ],
+    },
+    {
         'key': 'schedule',
         'path': 'schedule',
         'label': '定时任务',
-        'desc': '日更、财经新闻、全市场同步、自选股刷新等后台任务',
+        'desc': '日更、财经新闻、全市场同步、自选股刷新、工作台作品同步等后台任务',
         'icon': 'clock-circle',
         'type': 'scheduled_tasks',
         'categories': [],
@@ -618,6 +637,19 @@ _SCHEDULED_TASKS = [
         'last_cat': 'stock',
         'last_key': 'watchlist_last_refresh_date',
         'freq_tpl': '交易日 {hour}:00',
+    },
+    {
+        'id': 'workbench_sync',
+        'name': '内容工作台作品同步',
+        'desc': '从创作者后台同步自己的作品数据（播放/赞/评等），不发私信',
+        'enabled_cat': 'workbench',
+        'enabled_key': 'sync_auto_enabled',
+        'hour_cat': 'workbench',
+        'hour_key': 'sync_run_hour',
+        'hour_default': '3',
+        'last_cat': 'workbench',
+        'last_key': 'sync_last_run',
+        'freq_tpl': '每天 {hour}:00',
     },
 ]
 

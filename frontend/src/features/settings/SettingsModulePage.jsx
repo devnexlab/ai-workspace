@@ -28,6 +28,7 @@ const CATEGORY_TITLES = {
   system: '内容与采集策略',
   notify: '微信推送',
   wechat_oa: '微信服务号',
+  web: '联网搜索',
 }
 
 /**

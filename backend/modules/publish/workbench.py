@@ -214,13 +214,17 @@ def build_workbench(conn, *, platform='', q='', diag='all', range_days=0,
             plat_counts[k] = plat_counts.get(k, 0) + 1
 
     platforms_out = []
+    from config import get_setting
+    official_reply = str(
+        get_setting('workbench', 'official_auto_reply_shipinhao', 'false')
+    ).lower() == 'true'
     for p in list_platforms():
         if not p.get('enable_publish', True):
             continue
         key = p['key']
         st = get_publish_status(key)
         ready = bool(st.get('logged_in'))
-        platforms_out.append({
+        item = {
             'key': key,
             'label': p.get('label') or key,
             'count': plat_counts.get(key, 0),
@@ -231,7 +235,14 @@ def build_workbench(conn, *, platform='', q='', diag='all', range_days=0,
             'creator_url': st.get('creator_url') or p.get('creator_url') or '',
             'manage_url': st.get('manage_url') or '',
             'enabled': bool(st.get('enabled')),
-        })
+        }
+        if key == 'shipinhao':
+            item['official_auto_reply'] = official_reply
+            item['official_auto_reply_hint'] = (
+                '请在「视频号助手 → 私信管理」开启「关注后自动回复」；'
+                '本系统只记录是否已开启，不会代发私信。'
+            )
+        platforms_out.append(item)
 
     # 筛选
     rows = annotated
@@ -284,7 +295,54 @@ def build_workbench(conn, *, platform='', q='', diag='all', range_days=0,
         'total': total,
         'kpi': kpi,
         'platforms': platforms_out,
+        'prefs': get_workbench_prefs(),
     }
+
+
+def get_workbench_prefs() -> dict:
+    """工作台安全偏好：官方能力勾选 + 低频作品同步。"""
+    from config import get_setting
+
+    try:
+        hour = int(get_setting('workbench', 'sync_run_hour', '3') or 3)
+    except (TypeError, ValueError):
+        hour = 3
+    hour = max(0, min(23, hour))
+    return {
+        'official_auto_reply_shipinhao': str(
+            get_setting('workbench', 'official_auto_reply_shipinhao', 'false')
+        ).lower() == 'true',
+        'sync_auto_enabled': str(
+            get_setting('workbench', 'sync_auto_enabled', 'false')
+        ).lower() == 'true',
+        'sync_run_hour': hour,
+        'sync_last_run': get_setting('workbench', 'sync_last_run', '') or '',
+        'sync_last_run_date': get_setting('workbench', 'sync_last_run_date', '') or '',
+    }
+
+
+def update_workbench_prefs(data: dict) -> dict:
+    from config import update_setting
+
+    if 'official_auto_reply_shipinhao' in data:
+        update_setting(
+            'workbench',
+            'official_auto_reply_shipinhao',
+            'true' if data.get('official_auto_reply_shipinhao') else 'false',
+        )
+    if 'sync_auto_enabled' in data:
+        update_setting(
+            'workbench',
+            'sync_auto_enabled',
+            'true' if data.get('sync_auto_enabled') else 'false',
+        )
+    if 'sync_run_hour' in data:
+        try:
+            hour = max(0, min(23, int(data['sync_run_hour'])))
+        except (TypeError, ValueError) as e:
+            raise ValueError('sync_run_hour 须为 0-23') from e
+        update_setting('workbench', 'sync_run_hour', str(hour))
+    return get_workbench_prefs()
 
 
 def _normalize_published_at(val) -> str | None:

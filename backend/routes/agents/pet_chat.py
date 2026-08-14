@@ -84,6 +84,7 @@ def pet_chat():
     data = request.get_json(silent=True) or {}
     message = (data.get('message') or data.get('question') or '').strip()
     mode = (data.get('mode') or 'auto').strip().lower()
+    source = (data.get('source') or '').strip().lower()
     session_id = data.get('session_id')
 
     if not message:
@@ -111,7 +112,7 @@ def pet_chat():
     append_message(session_id, 'user', message)
 
     try:
-        result = run_pet_agent(message, mode=mode, history=history)
+        result = run_pet_agent(message, mode=mode, history=history, source=source)
     except Exception as e:
         append_message(session_id, 'assistant', f'出错了：{e}', {'error': True})
         return jsonify({

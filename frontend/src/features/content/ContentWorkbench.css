@@ -80,6 +80,39 @@
   padding: 0 2px;
 }
 
+.wb-safe-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  background: var(--color-bg-container, #fff);
+  border: 1px solid var(--border-color, #ededf0);
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.wb-safe-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-text, #1e1e2e);
+}
+
+.wb-safe-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--color-text-secondary, #6b6b80);
+}
+
+.wb-safe-help {
+  color: var(--color-text-tertiary, #9a9aad);
+  font-size: 12px;
+}
+
 .wb-login-chip button:disabled {
   opacity: 0.55;
   cursor: not-allowed;

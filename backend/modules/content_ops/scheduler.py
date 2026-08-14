@@ -5,6 +5,8 @@
   daily_auto_enabled / daily_run_hour / daily_last_run_date
   stock_briefing_auto / stock_briefing_hour / stock_briefing_last_date
   （早间把财经新闻推送到股票情报页，不做微信推送）
+
+另：内容工作台作品同步见 modules.publish.scheduler_sync（workbench.sync_*）
 """
 
 import threading
@@ -72,18 +74,23 @@ def _tick():
 
     if _should_run_stock_briefing():
         with _stock_lock:
-            if not _should_run_stock_briefing():
-                return
-            print(
-                f'[DailyScheduler] 早间推送财经新闻到股票情报页 '
-                f'{datetime.now().isoformat(timespec="seconds")}'
-            )
-            try:
-                from modules.stocks.news import run_stock_briefing_job
-                result = run_stock_briefing_job()
-                print(f'[DailyScheduler] 财经新闻已推送到页面: {result}')
-            except Exception as e:
-                print(f'[DailyScheduler] 财经新闻推送失败: {e}')
+            if _should_run_stock_briefing():
+                print(
+                    f'[DailyScheduler] 早间推送财经新闻到股票情报页 '
+                    f'{datetime.now().isoformat(timespec="seconds")}'
+                )
+                try:
+                    from modules.stocks.news import run_stock_briefing_job
+                    result = run_stock_briefing_job()
+                    print(f'[DailyScheduler] 财经新闻已推送到页面: {result}')
+                except Exception as e:
+                    print(f'[DailyScheduler] 财经新闻推送失败: {e}')
+
+    try:
+        from modules.publish.scheduler_sync import tick_workbench_sync
+        tick_workbench_sync()
+    except Exception as e:
+        print(f'[DailyScheduler] workbench sync tick error: {e}')
 
 
 def _loop():
@@ -107,4 +114,4 @@ def start_daily_scheduler():
     _scheduler_started = True
     t = threading.Thread(target=_loop, name='daily-scheduler', daemon=True)
     t.start()
-    print('[DailyScheduler] 已启动（每分钟检查；日更 / 早间财经新闻按设置整点执行）')
+    print('[DailyScheduler] 已启动（每分钟检查；日更 / 财经新闻 / 工作台作品同步按设置执行）')

@@ -576,6 +576,30 @@ DEFAULT_SETTINGS = [
     ('system', 'stock_briefing_last_run', '', '上次获取财经新闻时间', '系统自动写入，勿手改', 'text', None, 12),
     ('system', 'stock_briefing_last_date', '', '上次获取财经新闻日期', '系统自动写入，防同日重复', 'text', None, 13),
 
+    # ---- 内容工作台（合规：只读作品数据 + 官方能力勾选，不代发私信）----
+    ('workbench', 'official_auto_reply_shipinhao', 'false', '视频号官方关注后回复',
+     '在视频号助手开通后，在此勾选「已开启」；本系统不代发私信', 'select', '["true","false"]', 1),
+    ('workbench', 'sync_auto_enabled', 'false', '作品每日自动同步',
+     '开启后按整点从创作者后台同步自己的作品数据（播放/赞/评等），默认关闭', 'select', '["true","false"]', 2),
+    ('workbench', 'sync_run_hour', '3', '作品同步整点',
+     '0-23，建议 2–5；整点后约 50 分钟窗口执行，每天最多一次', 'text', None, 3),
+    ('workbench', 'sync_last_run', '', '上次作品同步时间', '系统自动写入，勿手改', 'text', None, 4),
+    ('workbench', 'sync_last_run_date', '', '上次作品同步日期', '系统自动写入，防同日重复', 'text', None, 5),
+
+    # ---- 智仔 · 联网读取 / 本地库查询 ----
+    ('web', 'enabled', 'true', '联网读取',
+     '智仔可否联网搜索/抓网页；联网时优先用下方真实搜索引擎 API', 'select', '["true","false"]', 1),
+    ('web', 'search_provider', 'tavily', '搜索引擎',
+     '联网时使用的真实搜索引擎：tavily=专为 AI 检索 / brave / serpapi；需填下方 API Key',
+     'select', '["tavily","brave","serpapi"]', 2),
+    ('web', 'search_api_key', '', '搜索 API Key',
+     'Tavily/Brave/SerpAPI 的 Key；不填则降级到模型厂商原生联网（仅智谱 GLM / 月之暗面原生支持）',
+     'password', None, 3),
+    ('data', 'query_enabled', 'true', '本地库查询',
+     '是否允许智仔按自然语言查本地数据库（只读 SELECT）', 'select', '["true","false"]', 1),
+    ('data', 'mask_sensitive', 'true', '敏感字段脱敏',
+     '查询 customer/lead 等表时，phone/wechat 等默认掩码，防对话中泄露隐私', 'select', '["true","false"]', 2),
+
     # ---- Stock screening ----
     ('stock', 'max_stocks', '300', '初筛扫描上限', '0=全市场(很慢)；建议先 200~500，缓存热了再加大', 'text', None, 1),
     ('stock', 'match_mode', 'and', '默认匹配模式', 'or=命中任一 / and=全部命中 / min=至少N条', 'select',
@@ -857,6 +881,12 @@ def init_db():
     _upsert_setting(cur, 'ai', 'default_audience',
                     '20-80岁泛流量用户，口播易懂，强共鸣强分享，适合视频号/抖音/小红书')
     _upsert_setting(cur, 'ai', 'default_tone', 'casual')
+
+    # 智仔联网搜索：清理旧 web.provider（model/api 语义），统一为 search_provider/search_api_key
+    cur.execute(
+        'DELETE FROM system_setting WHERE category=%s AND key=%s',
+        ('web', 'provider'),
+    )
 
     # AI 大模型：旧单表 → 分厂商卡片
     def _ai_get(cat, key):

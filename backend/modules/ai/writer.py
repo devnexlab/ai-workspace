@@ -76,12 +76,20 @@ CONTENT_TYPE_HINTS = {
 }
 
 
-def call_llm(prompt, system_prompt=None, temperature=None, max_tokens=None):
+def call_llm(prompt, system_prompt=None, temperature=None, max_tokens=None,
+            web_search=False, return_extra=False):
     """
     Call the configured LLM.
 
+    Args:
+        web_search: 复用模型原生联网能力（智谱 GLM / 月之暗面 Kimi 支持；其它厂商不支持时
+                    由调用方优雅降级）。
+        return_extra: True 时返回 4 元组 (content, tokens, model, extra)，
+                    extra 含 {'citations': [...], 'web_supported': bool}。
+                    默认 False，保持 (content, tokens, model) 三元组，兼容现有调用。
+
     Returns:
-        tuple: (content: str, tokens_used: int, model: str)
+        tuple: (content, tokens_used, model) 或 (content, tokens_used, model, extra)
     """
     config = get_ai_config()
     api_key = config.get('api_key', '').strip()
@@ -126,6 +134,19 @@ def call_llm(prompt, system_prompt=None, temperature=None, max_tokens=None):
         'max_tokens': max_tok,
     }
 
+    # 联网开关：仅对原生支持联网的厂商拼装请求，其余保持原样（由调用方降级提示）
+    web_supported = False
+    if web_search:
+        if provider == 'zhipu':
+            payload['tools'] = [{
+                'type': 'web_search',
+                'web_search': {'enable': True, 'search_result': True},
+            }]
+            web_supported = True
+        elif provider == 'moonshot':
+            payload['web_search'] = True
+            web_supported = True
+
     try:
         resp = requests.post(url, json=payload, headers=headers, timeout=60)
     except requests.exceptions.Timeout:
@@ -156,8 +177,33 @@ def call_llm(prompt, system_prompt=None, temperature=None, max_tokens=None):
         raise Exception(f'AI 服务返回错误 (HTTP {resp.status_code}): {err_msg}')
 
     data = resp.json()
-    content = data['choices'][0]['message']['content']
+    message = data['choices'][0].get('message', {})
+    content = message.get('content') or ''
     tokens_used = data.get('usage', {}).get('total_tokens', 0)
+
+    # 解析模型的联网检索引用（如智谱 GLM / Kimi 的 web_search tool_calls）
+    citations = []
+    for tc in (message.get('tool_calls') or []):
+        fn = tc.get('function') or {}
+        if fn.get('name') in ('web_search', 'web-search'):
+            try:
+                args = json.loads(fn.get('arguments') or '{}')
+            except Exception:
+                args = {}
+            for item in (args.get('search_result') or []):
+                if not isinstance(item, dict):
+                    continue
+                citations.append({
+                    'title': item.get('title') or item.get('name') or '',
+                    'url': item.get('url') or '',
+                    'snippet': (item.get('content') or item.get('summary') or '')[:300],
+                })
+
+    if return_extra:
+        return content, tokens_used, model, {
+            'citations': citations,
+            'web_supported': web_supported,
+        }
     return content, tokens_used, model
 
 

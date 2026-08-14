@@ -5,13 +5,11 @@ import { API_LONG_TIMEOUT } from '../../config'
 import './PetChat.css'
 import ZhiZaiAvatar from './ZhiZaiAvatar'
 
-const MODES = [
-  { key: 'auto', label: '智能 Agent' },
-  { key: 'ops', label: '偏运营' },
-  { key: 'knowledge', label: '偏知识库' },
-  { key: 'script', label: '偏文案' },
-  { key: 'stock', label: '偏股票' },
-]
+// 数据源开关提示：data=本地库，web=联网（两者都是取数后分析总结）
+const MODE_HINT = {
+  data: '本地库：理解问题→查对应业务表→分析总结',
+  web: '联网：检索/行情取数→分析总结后回答',
+}
 
 const SUGGESTS = [
   '帮我把热点和股票简报更新一下',
@@ -114,7 +112,7 @@ export default function PetChat() {
   const [skin, setSkin] = useState(loadSkin)
   const [pos, setPos] = useState(loadPos)
   const [dragging, setDragging] = useState(false)
-  const [mode, setMode] = useState('auto')
+  const [netOn, setNetOn] = useState(false) // false=本地库, true=联网；与角色模式相互独立
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [restoring, setRestoring] = useState(true)
@@ -307,7 +305,7 @@ export default function PetChat() {
     try {
       const res = await api.post(
         '/pet-chat',
-        { message: q, mode, session_id: sessionId },
+        { message: q, source: netOn ? 'web' : 'data', session_id: sessionId },
         { timeout: API_LONG_TIMEOUT },
       )
       if (res?.session_id) applySessionId(res.session_id)
@@ -352,7 +350,12 @@ export default function PetChat() {
   }
 
   const onCite = (cite) => {
-    if (cite?.path) navigate(cite.path)
+    const path = cite?.path || ''
+    if (/^https?:\/\//i.test(path)) {
+      window.open(path, '_blank', 'noopener,noreferrer')
+      return
+    }
+    if (path) navigate(path)
   }
 
   const mood = busy ? 'thinking' : express
@@ -482,19 +485,6 @@ export default function PetChat() {
           </div>
         )}
 
-        <div className="pet-chat-modes">
-          {MODES.map((m) => (
-            <button
-              key={m.key}
-              type="button"
-              className={`pet-mode${mode === m.key ? ' active' : ''}`}
-              onClick={() => setMode(m.key)}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-
         <div className="pet-chat-body" ref={bodyRef}>
           {restoring ? (
             <div className="pet-msg bot">
@@ -593,15 +583,38 @@ export default function PetChat() {
             ))}
           </div>
           <div className="pet-composer">
-            <textarea
-              ref={textareaRef}
-              rows={1}
-              placeholder="继续问，或点 ≡ 查看历史…"
-              value={input}
-              disabled={busy || restoring}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={onKeyDown}
-            />
+            <div className="pet-composer-input">
+              <textarea
+                ref={textareaRef}
+                rows={1}
+                placeholder="继续问，或点 ≡ 查看历史…"
+                value={input}
+                disabled={busy || restoring}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={onKeyDown}
+              />
+              <div className="pet-source">
+                <div
+                  className={`pet-source-switch${netOn ? ' on' : ''}`}
+                  role="switch"
+                  aria-checked={netOn}
+                  tabIndex={0}
+                  title={netOn ? MODE_HINT.web : MODE_HINT.data}
+                  onClick={() => setNetOn((v) => !v)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      setNetOn((v) => !v)
+                    }
+                  }}
+                >
+                <span className="pet-source-text">
+                  {netOn ? '联网' : '本地'}
+                </span>
+                  <span className="pet-source-thumb" />
+                </div>
+              </div>
+            </div>
             <button
               className="pet-send"
               type="button"
@@ -612,7 +625,7 @@ export default function PetChat() {
             </button>
           </div>
           <div className="pet-foot-note">
-            同会话自动带上下文；刷新页面会恢复上次对话。点 ≡ 可切换历史。
+            本地=查业务库后分析；联网=检索/行情取数后分析。同会话带上下文，点 ≡ 可切换历史。
           </div>
         </div>
       </div>
