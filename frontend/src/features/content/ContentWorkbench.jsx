@@ -305,7 +305,7 @@ export default function ContentWorkbench() {
         <div className="wb-safe-item">
           <span className="wb-safe-label">
             视频号官方关注后回复
-            <Tooltip title="请在「视频号助手 → 私信管理」开启官方能力后，在此勾选已开启。本系统不会代发私信。">
+            <Tooltip title="视频号官方「关注后自动回复」并非全量开放，个人号通常需绑定企业微信客服或获得灰度资格才可见入口；若已在官方开启，可在此勾选。本系统不会代发私信。">
               <QuestionCircleOutlined className="wb-safe-help" />
             </Tooltip>
           </span>
@@ -335,7 +335,7 @@ export default function ContentWorkbench() {
           />
           <Select
             size="small"
-            style={{ width: 88 }}
+            className="wb-safe-hour"
             value={Number(prefs.sync_run_hour ?? 3)}
             disabled={!prefs.sync_auto_enabled || prefsSaving}
             options={Array.from({ length: 24 }, (_, h) => ({

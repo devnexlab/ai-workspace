@@ -239,8 +239,8 @@ def build_workbench(conn, *, platform='', q='', diag='all', range_days=0,
         if key == 'shipinhao':
             item['official_auto_reply'] = official_reply
             item['official_auto_reply_hint'] = (
-                '请在「视频号助手 → 私信管理」开启「关注后自动回复」；'
-                '本系统只记录是否已开启，不会代发私信。'
+                '视频号官方「关注后自动回复」并非全量开放，个人号通常需绑定企业微信客服或获得灰度资格才可见入口；'
+                '本系统只记录是否已在官方开启，不会代发私信。'
             )
         platforms_out.append(item)
 

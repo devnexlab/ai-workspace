@@ -113,6 +113,23 @@
   font-size: 12px;
 }
 
+.wb-safe-hour.ant-select {
+  width: 88px;
+  height: 22px;
+  font-size: 12px;
+}
+
+.wb-safe-hour .ant-select-selector {
+  height: 22px !important;
+  min-height: 22px !important;
+  padding-block: 0 !important;
+  padding-inline: 8px 22px !important;
+}
+
+.wb-safe-hour .ant-select-selection-item {
+  line-height: 20px !important;
+}
+
 .wb-login-chip button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
